@@ -1,5 +1,5 @@
 //
-//  ClickyAnalytics.swift
+//  LumaAnalytics.swift
 //  leanring-buddy
 //
 //  Centralized PostHog analytics wrapper. All event names and properties
@@ -9,7 +9,7 @@
 import Foundation
 import PostHog
 
-enum ClickyAnalytics {
+enum LumaAnalytics {
 
     // MARK: - Setup
 

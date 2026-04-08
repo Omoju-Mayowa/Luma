@@ -206,7 +206,7 @@ final class CompanionManager: ObservableObject {
         // again on future launches — the cursor will auto-show instead
         hasCompletedOnboarding = true
 
-        ClickyAnalytics.trackOnboardingStarted()
+        LumaAnalytics.trackOnboardingStarted()
 
         // Play Besaid theme at 60% volume, fade out after 1m 30s
         startOnboardingMusic()
@@ -222,7 +222,7 @@ final class CompanionManager: ObservableObject {
     /// is already visible so we just restart the welcome animation and video.
     func replayOnboarding() {
         NotificationCenter.default.post(name: .lumaDismissPanel, object: nil)
-        ClickyAnalytics.trackOnboardingReplayed()
+        LumaAnalytics.trackOnboardingReplayed()
         startOnboardingMusic()
         // Tear down any existing overlays and recreate with isFirstAppearance = true
         overlayWindowManager.hasShownOverlayBefore = false
@@ -331,13 +331,13 @@ final class CompanionManager: ObservableObject {
 
         // Track individual permission grants as they happen
         if !previouslyHadAccessibility && hasAccessibilityPermission {
-            ClickyAnalytics.trackPermissionGranted(permission: "accessibility")
+            LumaAnalytics.trackPermissionGranted(permission: "accessibility")
         }
         if !previouslyHadScreenRecording && hasScreenRecordingPermission {
-            ClickyAnalytics.trackPermissionGranted(permission: "screen_recording")
+            LumaAnalytics.trackPermissionGranted(permission: "screen_recording")
         }
         if !previouslyHadMicrophone && hasMicrophonePermission {
-            ClickyAnalytics.trackPermissionGranted(permission: "microphone")
+            LumaAnalytics.trackPermissionGranted(permission: "microphone")
         }
         // Screen content permission is persisted — once the user has approved the
         // SCShareableContent picker, we don't need to re-check it.
@@ -346,7 +346,7 @@ final class CompanionManager: ObservableObject {
         }
 
         if !previouslyHadAll && allPermissionsGranted {
-            ClickyAnalytics.trackAllPermissionsGranted()
+            LumaAnalytics.trackAllPermissionsGranted()
         }
     }
 
@@ -379,7 +379,7 @@ final class CompanionManager: ObservableObject {
                     guard didCapture else { return }
                     hasScreenContentPermission = true
                     UserDefaults.standard.set(true, forKey: "hasScreenContentPermission")
-                    ClickyAnalytics.trackPermissionGranted(permission: "screen_content")
+                    LumaAnalytics.trackPermissionGranted(permission: "screen_content")
 
                     // If onboarding was already completed, show the cursor overlay now
                     if hasCompletedOnboarding && allPermissionsGranted && !isOverlayVisible && isLumaCursorEnabled {
@@ -508,7 +508,7 @@ final class CompanionManager: ObservableObject {
             }
     
 
-            ClickyAnalytics.trackPushToTalkStarted()
+            LumaAnalytics.trackPushToTalkStarted()
 
             pendingKeyboardShortcutStartTask?.cancel()
             pendingKeyboardShortcutStartTask = Task {
@@ -520,7 +520,7 @@ final class CompanionManager: ObservableObject {
                     submitDraftText: { [weak self] finalTranscript in
                         self?.lastTranscript = finalTranscript
                         print("🗣️ Companion received transcript: \(finalTranscript)")
-                        ClickyAnalytics.trackUserMessageSent(transcript: finalTranscript)
+                        LumaAnalytics.trackUserMessageSent(transcript: finalTranscript)
                         self?.sendTranscriptToClaudeWithScreenshot(transcript: finalTranscript)
                     }
                 )
@@ -530,7 +530,7 @@ final class CompanionManager: ObservableObject {
             // before the async startPushToTalk had a chance to begin recording.
             // Without this, a quick press-and-release drops the release event and
             // leaves the waveform overlay stuck on screen indefinitely.
-            ClickyAnalytics.trackPushToTalkReleased()
+            LumaAnalytics.trackPushToTalkReleased()
             pendingKeyboardShortcutStartTask?.cancel()
             pendingKeyboardShortcutStartTask = nil
             buddyDictationManager.stopPushToTalkFromKeyboardShortcut()
@@ -675,7 +675,7 @@ final class CompanionManager: ObservableObject {
 
                     detectedElementScreenLocation = globalLocation
                     detectedElementDisplayFrame = displayFrame
-                    ClickyAnalytics.trackElementPointed(elementLabel: parseResult.elementLabel)
+                    LumaAnalytics.trackElementPointed(elementLabel: parseResult.elementLabel)
                     print("🎯 Element pointing: (\(Int(pointCoordinate.x)), \(Int(pointCoordinate.y))) → \"\(parseResult.elementLabel ?? "element")\"")
                 } else {
                     print("🎯 Element pointing: \(parseResult.elementLabel ?? "no element")")
@@ -695,7 +695,7 @@ final class CompanionManager: ObservableObject {
 
                 print("🧠 Conversation history: \(conversationHistory.count) exchanges")
 
-                ClickyAnalytics.trackAIResponseReceived(response: spokenText)
+                LumaAnalytics.trackAIResponseReceived(response: spokenText)
 
                 // Play the response via TTS. Keep the spinner (processing state)
                 // until the audio actually starts playing, then switch to responding.
@@ -705,7 +705,7 @@ final class CompanionManager: ObservableObject {
                         // speakText returns after player.play() — audio is now playing
                         voiceState = .responding
                     } catch {
-                        ClickyAnalytics.trackTTSError(error: error.localizedDescription)
+                        LumaAnalytics.trackTTSError(error: error.localizedDescription)
                         print("⚠️ ElevenLabs TTS error: \(error)")
                         speakCreditsErrorFallback()
                     }
@@ -713,7 +713,7 @@ final class CompanionManager: ObservableObject {
             } catch is CancellationError {
                 // User spoke again — response was interrupted
             } catch {
-                ClickyAnalytics.trackResponseError(error: error.localizedDescription)
+                LumaAnalytics.trackResponseError(error: error.localizedDescription)
                 print("⚠️ Companion response error: \(error)")
                 speakCreditsErrorFallback()
             }
@@ -855,7 +855,7 @@ final class CompanionManager: ObservableObject {
             forTimes: [NSValue(time: demoTriggerTime)],
             queue: .main
         ) { [weak self] in
-            ClickyAnalytics.trackOnboardingDemoTriggered()
+            LumaAnalytics.trackOnboardingDemoTriggered()
             self?.performOnboardingDemoInteraction()
         }
 
@@ -866,7 +866,7 @@ final class CompanionManager: ObservableObject {
             queue: .main
         ) { [weak self] _ in
             guard let self else { return }
-            ClickyAnalytics.trackOnboardingVideoCompleted()
+            LumaAnalytics.trackOnboardingVideoCompleted()
             self.onboardingVideoOpacity = 0.0
             // Wait for the 2s fade-out animation to complete before tearing down
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {

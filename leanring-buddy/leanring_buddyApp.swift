@@ -39,8 +39,8 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
 
         UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 0])
 
-        ClickyAnalytics.configure()
-        ClickyAnalytics.trackAppOpened()
+        LumaAnalytics.configure()
+        LumaAnalytics.trackAppOpened()
 
         menuBarPanelManager = MenuBarPanelManager(companionManager: companionManager)
         companionManager.start()
