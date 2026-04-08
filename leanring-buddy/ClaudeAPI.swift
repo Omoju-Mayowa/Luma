@@ -1,11 +1,12 @@
 //
 //  ClaudeAPI.swift
-//  Claude API Implementation with streaming support
+//  Claude API Implementation with streaming support (via OpenRouter)
 //
 
 import Foundation
 
 /// Claude API helper with streaming for progressive text display.
+/// Routes through an OpenRouter-compatible proxy.
 class ClaudeAPI {
     private static let tlsWarmupLock = NSLock()
     private static var hasStartedTLSWarmup = false
@@ -14,7 +15,7 @@ class ClaudeAPI {
     var model: String
     private let session: URLSession
 
-    init(proxyURL: String, model: String = "claude-sonnet-4-6") {
+    init(proxyURL: String, model: String = "google/gemini-2.5-flash:free") {
         self.apiURL = URL(string: proxyURL)!
         self.model = model
 
@@ -78,7 +79,6 @@ class ClaudeAPI {
         }
 
         // The TLS session ticket is host-scoped, so warming the root host is enough.
-        // Hitting the host instead of `/v1/messages` avoids extra endpoint-specific noise.
         warmupURLComponents.path = "/"
         warmupURLComponents.query = nil
         warmupURLComponents.fragment = nil
@@ -95,7 +95,35 @@ class ClaudeAPI {
         }.resume()
     }
 
-    /// Send a vision request to Claude with streaming.
+    /// Converts labeled images and a user prompt into an OpenRouter-compatible
+    /// content array with image_url entries using base64 data URIs.
+    private func buildOpenRouterContentBlocks(
+        images: [(data: Data, label: String)],
+        userPrompt: String
+    ) -> [[String: Any]] {
+        var contentBlocks: [[String: Any]] = []
+        for image in images {
+            let mediaType = detectImageMediaType(for: image.data)
+            let base64String = image.data.base64EncodedString()
+            contentBlocks.append([
+                "type": "image_url",
+                "image_url": [
+                    "url": "data:\(mediaType);base64,\(base64String)"
+                ]
+            ])
+            contentBlocks.append([
+                "type": "text",
+                "text": image.label
+            ])
+        }
+        contentBlocks.append([
+            "type": "text",
+            "text": userPrompt
+        ])
+        return contentBlocks
+    }
+
+    /// Send a vision request to Claude (via OpenRouter) with streaming.
     /// Calls `onTextChunk` on the main actor each time new text arrives so the UI updates progressively.
     /// Returns the full accumulated text and total duration when the stream completes.
     func analyzeImageStreaming(
@@ -109,48 +137,32 @@ class ClaudeAPI {
 
         var request = makeAPIRequest()
 
-        // Build messages array
+        // Build messages array in OpenAI chat completions format
         var messages: [[String: Any]] = []
+
+        // System message
+        messages.append(["role": "system", "content": systemPrompt])
 
         for (userPlaceholder, assistantResponse) in conversationHistory {
             messages.append(["role": "user", "content": userPlaceholder])
             messages.append(["role": "assistant", "content": assistantResponse])
         }
 
-        // Build current message with all labeled images + prompt
-        var contentBlocks: [[String: Any]] = []
-        for image in images {
-            contentBlocks.append([
-                "type": "image",
-                "source": [
-                    "type": "base64",
-                    "media_type": detectImageMediaType(for: image.data),
-                    "data": image.data.base64EncodedString()
-                ]
-            ])
-            contentBlocks.append([
-                "type": "text",
-                "text": image.label
-            ])
-        }
-        contentBlocks.append([
-            "type": "text",
-            "text": userPrompt
-        ])
+        // Current message with images + prompt
+        let contentBlocks = buildOpenRouterContentBlocks(images: images, userPrompt: userPrompt)
         messages.append(["role": "user", "content": contentBlocks])
 
         let body: [String: Any] = [
             "model": model,
             "max_tokens": 1024,
             "stream": true,
-            "system": systemPrompt,
             "messages": messages
         ]
 
         let bodyData = try JSONSerialization.data(withJSONObject: body)
         request.httpBody = bodyData
         let payloadMB = Double(bodyData.count) / 1_048_576.0
-        print("🌐 Claude streaming request: \(String(format: "%.1f", payloadMB))MB, \(images.count) image(s)")
+        print("🌐 Claude streaming request (OpenRouter): \(String(format: "%.1f", payloadMB))MB, \(images.count) image(s)")
 
         // Use bytes streaming for SSE (Server-Sent Events)
         let (byteStream, response) = try await session.bytes(for: request)
@@ -177,34 +189,28 @@ class ClaudeAPI {
             )
         }
 
-        // Parse SSE stream — each event is "data: {json}\n\n"
+        // Parse SSE stream — OpenRouter uses OpenAI-compatible format:
+        // data: {"choices":[{"delta":{"content":"text"}}]}
         var accumulatedResponseText = ""
 
         for try await line in byteStream.lines {
-            // SSE lines look like: "data: {...}"
             guard line.hasPrefix("data: ") else { continue }
-            let jsonString = String(line.dropFirst(6)) // Drop "data: " prefix
+            let jsonString = String(line.dropFirst(6))
 
-            // End of stream marker
             guard jsonString != "[DONE]" else { break }
 
             guard let jsonData = jsonString.data(using: .utf8),
                   let eventPayload = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
-                  let eventType = eventPayload["type"] as? String else {
+                  let choices = eventPayload["choices"] as? [[String: Any]],
+                  let firstChoice = choices.first,
+                  let delta = firstChoice["delta"] as? [String: Any],
+                  let textChunk = delta["content"] as? String else {
                 continue
             }
 
-            // We care about content_block_delta events that contain text chunks
-            if eventType == "content_block_delta",
-               let delta = eventPayload["delta"] as? [String: Any],
-               let deltaType = delta["type"] as? String,
-               deltaType == "text_delta",
-               let textChunk = delta["text"] as? String {
-                accumulatedResponseText += textChunk
-                // Send the accumulated text so far to the UI for progressive rendering
-                let currentAccumulatedText = accumulatedResponseText
-                await onTextChunk(currentAccumulatedText)
-            }
+            accumulatedResponseText += textChunk
+            let currentAccumulatedText = accumulatedResponseText
+            await onTextChunk(currentAccumulatedText)
         }
 
         let duration = Date().timeIntervalSince(startTime)
@@ -222,45 +228,31 @@ class ClaudeAPI {
 
         var request = makeAPIRequest()
 
+        // Build messages array in OpenAI chat completions format
         var messages: [[String: Any]] = []
+
+        // System message
+        messages.append(["role": "system", "content": systemPrompt])
+
         for (userPlaceholder, assistantResponse) in conversationHistory {
             messages.append(["role": "user", "content": userPlaceholder])
             messages.append(["role": "assistant", "content": assistantResponse])
         }
 
-        // Build current message with all labeled images + prompt
-        var contentBlocks: [[String: Any]] = []
-        for image in images {
-            contentBlocks.append([
-                "type": "image",
-                "source": [
-                    "type": "base64",
-                    "media_type": detectImageMediaType(for: image.data),
-                    "data": image.data.base64EncodedString()
-                ]
-            ])
-            contentBlocks.append([
-                "type": "text",
-                "text": image.label
-            ])
-        }
-        contentBlocks.append([
-            "type": "text",
-            "text": userPrompt
-        ])
+        // Current message with images + prompt
+        let contentBlocks = buildOpenRouterContentBlocks(images: images, userPrompt: userPrompt)
         messages.append(["role": "user", "content": contentBlocks])
 
         let body: [String: Any] = [
             "model": model,
             "max_tokens": 256,
-            "system": systemPrompt,
             "messages": messages
         ]
 
         let bodyData = try JSONSerialization.data(withJSONObject: body)
         request.httpBody = bodyData
         let payloadMB = Double(bodyData.count) / 1_048_576.0
-        print("🌐 Claude request: \(String(format: "%.1f", payloadMB))MB, \(images.count) image(s)")
+        print("🌐 Claude request (OpenRouter): \(String(format: "%.1f", payloadMB))MB, \(images.count) image(s)")
 
         let (data, response) = try await session.data(for: request)
 
@@ -274,10 +266,13 @@ class ClaudeAPI {
             )
         }
 
+        // OpenRouter returns OpenAI-compatible response:
+        // {"choices":[{"message":{"content":"text"}}]}
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-        guard let content = json?["content"] as? [[String: Any]],
-              let textBlock = content.first(where: { ($0["type"] as? String) == "text" }),
-              let text = textBlock["text"] as? String else {
+        guard let choices = json?["choices"] as? [[String: Any]],
+              let firstChoice = choices.first,
+              let message = firstChoice["message"] as? [String: Any],
+              let text = message["content"] as? String else {
             throw NSError(
                 domain: "ClaudeAPI",
                 code: -1,

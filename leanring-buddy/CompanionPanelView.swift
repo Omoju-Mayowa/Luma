@@ -13,6 +13,8 @@ import SwiftUI
 struct CompanionPanelView: View {
     @ObservedObject var companionManager: CompanionManager
     @State private var emailInput: String = ""
+    @State private var isModelPickerExpanded: Bool = false
+    @State private var modelSearchQuery: String = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -599,43 +601,250 @@ struct CompanionPanelView: View {
     // MARK: - Model Picker
 
     private var modelPickerRow: some View {
-        HStack {
-            Text("Model")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(DS.Colors.textSecondary)
+        VStack(spacing: 0) {
+            // Collapsed row — shows current model name with a chevron to expand
+            Button(action: {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isModelPickerExpanded.toggle()
+                }
+                if isModelPickerExpanded {
+                    companionManager.openRouterModelFetcher.fetchModelsIfNeeded()
+                }
+            }) {
+                HStack {
+                    Text("Model")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(DS.Colors.textSecondary)
 
-            Spacer()
+                    Spacer()
 
-            HStack(spacing: 0) {
-                modelOptionButton(label: "Sonnet", modelID: "claude-sonnet-4-6")
-                modelOptionButton(label: "Opus", modelID: "claude-opus-4-6")
+                    Text(selectedModelDisplayName)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(DS.Colors.textTertiary)
+                        .lineLimit(1)
+
+                    Image(systemName: isModelPickerExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(DS.Colors.textTertiary)
+                }
+                .padding(.vertical, 4)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .pointerCursor()
+
+            if isModelPickerExpanded {
+                expandedModelPicker
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+    }
+
+    /// The display name for the currently selected model. Uses the fetched
+    /// model name if available, otherwise extracts a readable name from the
+    /// model ID (e.g. "google/gemini-2.5-flash:free" → "gemini-2.5-flash:free").
+    private var selectedModelDisplayName: String {
+        let selectedModelID = companionManager.selectedModel
+        if let matchingModel = companionManager.openRouterModelFetcher.allModels.first(where: { $0.id == selectedModelID }) {
+            return matchingModel.name
+        }
+        // Fallback: strip the provider prefix from the model ID
+        if let slashIndex = selectedModelID.firstIndex(of: "/") {
+            return String(selectedModelID[selectedModelID.index(after: slashIndex)...])
+        }
+        return selectedModelID
+    }
+
+    private var expandedModelPicker: some View {
+        VStack(spacing: 8) {
+            // Search bar
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(DS.Colors.textTertiary)
+
+                TextField("Search models...", text: $modelSearchQuery)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                    .foregroundColor(DS.Colors.textPrimary)
+
+                if !modelSearchQuery.isEmpty {
+                    Button(action: { modelSearchQuery = "" }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 10))
+                            .foregroundColor(DS.Colors.textTertiary)
+                    }
+                    .buttonStyle(.plain)
+                    .pointerCursor()
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
             .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
                     .fill(Color.white.opacity(0.06))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
                     .stroke(DS.Colors.borderSubtle, lineWidth: 0.5)
             )
+
+            // Model list
+            if companionManager.openRouterModelFetcher.isLoadingModels {
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .scaleEffect(0.6)
+                        .frame(width: 12, height: 12)
+                    Text("Loading models...")
+                        .font(.system(size: 11))
+                        .foregroundColor(DS.Colors.textTertiary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 8)
+            } else if let fetchError = companionManager.openRouterModelFetcher.modelFetchError {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Failed to load models")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(DS.Colors.warning)
+                    Text(fetchError)
+                        .font(.system(size: 10))
+                        .foregroundColor(DS.Colors.textTertiary)
+                        .lineLimit(2)
+                    Button(action: {
+                        companionManager.openRouterModelFetcher.refetchModels()
+                    }) {
+                        Text("Retry")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(DS.Colors.accentText)
+                    }
+                    .buttonStyle(.plain)
+                    .pointerCursor()
+                }
+                .padding(.vertical, 4)
+            } else {
+                modelListScrollView
+            }
         }
-        .padding(.vertical, 4)
+        .padding(.top, 8)
     }
 
-    private func modelOptionButton(label: String, modelID: String) -> some View {
-        let isSelected = companionManager.selectedModel == modelID
+    private var modelListScrollView: some View {
+        let filteredModels = filteredModelList
+        let freeModels = filteredModels.filter { $0.isFree }
+        let paidModels = filteredModels.filter { !$0.isFree }
+
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                if !freeModels.isEmpty {
+                    modelSectionHeader(title: "FREE")
+                    ForEach(freeModels) { model in
+                        modelRow(model: model)
+                    }
+                }
+
+                if !paidModels.isEmpty {
+                    if !freeModels.isEmpty {
+                        Spacer().frame(height: 8)
+                    }
+                    modelSectionHeader(title: "PAID")
+                    ForEach(paidModels) { model in
+                        modelRow(model: model)
+                    }
+                }
+
+                if filteredModels.isEmpty {
+                    Text("No models match your search.")
+                        .font(.system(size: 11))
+                        .foregroundColor(DS.Colors.textTertiary)
+                        .padding(.vertical, 8)
+                }
+            }
+        }
+        .frame(maxHeight: 200)
+    }
+
+    /// Filters the model list based on the current search query. Typing
+    /// "free" shows only free models; otherwise filters by model name or ID.
+    private var filteredModelList: [OpenRouterModel] {
+        let allModels = companionManager.openRouterModelFetcher.allModels
+        let trimmedQuery = modelSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+
+        guard !trimmedQuery.isEmpty else { return allModels }
+
+        // Typing "free" as the entire query filters to free-only models
+        if trimmedQuery == "free" {
+            return allModels.filter { $0.isFree }
+        }
+
+        return allModels.filter { model in
+            model.name.lowercased().contains(trimmedQuery) ||
+            model.id.lowercased().contains(trimmedQuery)
+        }
+    }
+
+    private func modelSectionHeader(title: String) -> some View {
+        Text(title)
+            .font(.system(size: 10, weight: .semibold, design: .rounded))
+            .foregroundColor(DS.Colors.textTertiary)
+            .padding(.bottom, 4)
+            .padding(.top, 2)
+    }
+
+    private func modelRow(model: OpenRouterModel) -> some View {
+        let isSelected = companionManager.selectedModel == model.id
+        let recommendedBadgeText = RecommendedModelBadges.badge(for: model.id)
+
         return Button(action: {
-            companionManager.setSelectedModel(modelID)
+            companionManager.setSelectedModel(model.id)
+            withAnimation(.easeInOut(duration: 0.2)) {
+                isModelPickerExpanded = false
+            }
+            modelSearchQuery = ""
         }) {
-            Text(label)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(isSelected ? DS.Colors.textPrimary : DS.Colors.textTertiary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .fill(isSelected ? Color.white.opacity(0.1) : Color.clear)
-                )
+            HStack(spacing: 6) {
+                // Selection indicator
+                Circle()
+                    .fill(isSelected ? DS.Colors.accent : Color.clear)
+                    .frame(width: 6, height: 6)
+                    .overlay(
+                        Circle()
+                            .stroke(isSelected ? Color.clear : DS.Colors.borderSubtle, lineWidth: 0.8)
+                    )
+
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: 4) {
+                        Text(model.name)
+                            .font(.system(size: 11, weight: isSelected ? .semibold : .medium))
+                            .foregroundColor(isSelected ? DS.Colors.textPrimary : DS.Colors.textSecondary)
+                            .lineLimit(1)
+
+                        if let badgeText = recommendedBadgeText {
+                            Text(badgeText)
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundColor(DS.Colors.textOnAccent)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1)
+                                .background(
+                                    Capsule()
+                                        .fill(DS.Colors.accent)
+                                )
+                        }
+                    }
+
+                    Text(model.formattedContextLength + " context")
+                        .font(.system(size: 10))
+                        .foregroundColor(DS.Colors.textTertiary)
+                }
+
+                Spacer()
+            }
+            .padding(.vertical, 5)
+            .padding(.horizontal, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(isSelected ? Color.white.opacity(0.06) : Color.clear)
+            )
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .pointerCursor()

@@ -1,81 +1,91 @@
 //
-//  ElevenLabsTTSClient.swift
+//  NativeTTSClient.swift
 //  leanring-buddy
 //
-//  Streams text-to-speech audio from ElevenLabs and plays it back
-//  through the system audio output. Uses the streaming endpoint so
-//  playback begins before the full audio has been generated.
+//  Speaks text using macOS native AVSpeechSynthesizer. Fully local —
+//  no external API calls. Replaces the previous ElevenLabs integration.
 //
 
 import AVFoundation
 import Foundation
 
 @MainActor
-final class ElevenLabsTTSClient {
-    private let proxyURL: URL
-    private let session: URLSession
+final class NativeTTSClient: NSObject, AVSpeechSynthesizerDelegate {
+    private let synthesizer = AVSpeechSynthesizer()
 
-    /// The audio player for the current TTS playback. Kept alive so the
-    /// audio finishes playing even if the caller doesn't hold a reference.
-    private var audioPlayer: AVAudioPlayer?
+    /// Continuation used to bridge the delegate callback into async/await.
+    /// Set when speech begins, resolved when it finishes or is cancelled.
+    private var speechFinishedContinuation: CheckedContinuation<Void, Never>?
 
-    init(proxyURL: String) {
-        self.proxyURL = URL(string: proxyURL)!
+    /// Tracks whether the synthesizer is actively speaking.
+    private(set) var isPlaying: Bool = false
 
-        let configuration = URLSessionConfiguration.default
-        configuration.timeoutIntervalForRequest = 30
-        configuration.timeoutIntervalForResource = 60
-        self.session = URLSession(configuration: configuration)
+    override init() {
+        super.init()
+        synthesizer.delegate = self
     }
 
-    /// Sends `text` to ElevenLabs TTS and plays the resulting audio.
-    /// Throws on network or decoding errors. Cancellation-safe.
+    /// Speaks `text` using a natural macOS voice. Returns once playback starts.
+    /// The caller can poll `isPlaying` to wait for completion.
     func speakText(_ text: String) async throws {
-        var request = URLRequest(url: proxyURL)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("audio/mpeg", forHTTPHeaderField: "Accept")
-
-        let body: [String: Any] = [
-            "text": text,
-            "model_id": "eleven_flash_v2_5",
-            "voice_settings": [
-                "stability": 0.5,
-                "similarity_boost": 0.75
-            ]
-        ]
-
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let (data, response) = try await session.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw NSError(domain: "ElevenLabsTTS", code: -1,
-                          userInfo: [NSLocalizedDescriptionKey: "Invalid response"])
-        }
-
-        guard (200...299).contains(httpResponse.statusCode) else {
-            let errorBody = String(data: data, encoding: .utf8) ?? "Unknown error"
-            throw NSError(domain: "ElevenLabsTTS", code: httpResponse.statusCode,
-                          userInfo: [NSLocalizedDescriptionKey: "TTS API error (\(httpResponse.statusCode)): \(errorBody)"])
-        }
-
         try Task.checkCancellation()
 
-        let player = try AVAudioPlayer(data: data)
-        self.audioPlayer = player
-        player.play()
-        print("🔊 ElevenLabs TTS: playing \(data.count / 1024)KB audio")
-    }
+        stopPlayback()
 
-    /// Whether TTS audio is currently playing back.
-    var isPlaying: Bool {
-        audioPlayer?.isPlaying ?? false
+        let utterance = AVSpeechUtterance(string: text)
+        utterance.rate = AVSpeechUtteranceDefaultSpeechRate
+        utterance.pitchMultiplier = 1.0
+        utterance.volume = 1.0
+
+        // Prefer a natural-sounding English voice. Try enhanced Zoe first,
+        // then Samantha compact, then fall back to the best available English voice.
+        if let zoeVoice = AVSpeechSynthesisVoice(identifier: "com.apple.voice.enhanced.en-US.Zoe") {
+            utterance.voice = zoeVoice
+        } else if let samanthaVoice = AVSpeechSynthesisVoice(identifier: "com.apple.ttsbundle.Samantha-compact") {
+            utterance.voice = samanthaVoice
+        } else {
+            utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
+        }
+
+        isPlaying = true
+        synthesizer.speak(utterance)
+        print("🔊 Native TTS: speaking \(text.count) characters")
     }
 
     /// Stops any in-progress playback immediately.
     func stopPlayback() {
-        audioPlayer?.stop()
-        audioPlayer = nil
+        if synthesizer.isSpeaking {
+            synthesizer.stopSpeaking(at: .immediate)
+        }
+        isPlaying = false
+        // Resolve any pending continuation so callers aren't left hanging
+        speechFinishedContinuation?.resume()
+        speechFinishedContinuation = nil
+    }
+
+    /// Waits until the current utterance finishes. Returns immediately if nothing is playing.
+    func waitUntilFinished() async {
+        guard isPlaying else { return }
+        await withCheckedContinuation { continuation in
+            self.speechFinishedContinuation = continuation
+        }
+    }
+
+    // MARK: - AVSpeechSynthesizerDelegate
+
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        Task { @MainActor in
+            self.isPlaying = false
+            self.speechFinishedContinuation?.resume()
+            self.speechFinishedContinuation = nil
+        }
+    }
+
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        Task { @MainActor in
+            self.isPlaying = false
+            self.speechFinishedContinuation?.resume()
+            self.speechFinishedContinuation = nil
+        }
     }
 }

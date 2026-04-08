@@ -70,14 +70,18 @@ final class CompanionManager: ObservableObject {
 
     /// Base URL for the Cloudflare Worker proxy. All API requests route
     /// through this so keys never ship in the app binary.
-    private static let workerBaseURL = "https://your-worker-name.your-subdomain.workers.dev"
+    private static let workerBaseURL = "https://clicky-proxy.nanakusa-nox.workers.dev"
 
     private lazy var claudeAPI: ClaudeAPI = {
         return ClaudeAPI(proxyURL: "\(Self.workerBaseURL)/chat", model: selectedModel)
     }()
 
-    private lazy var elevenLabsTTSClient: ElevenLabsTTSClient = {
-        return ElevenLabsTTSClient(proxyURL: "\(Self.workerBaseURL)/tts")
+    private let nativeTTSClient = NativeTTSClient()
+
+    /// Fetches and caches the list of available models from OpenRouter.
+    /// Shared with the panel view so the model picker can display them.
+    lazy var openRouterModelFetcher: OpenRouterModelFetcher = {
+        return OpenRouterModelFetcher(proxyBaseURL: Self.workerBaseURL)
     }()
 
     /// Conversation history so Claude remembers prior exchanges within a session.
@@ -108,7 +112,7 @@ final class CompanionManager: ObservableObject {
     @Published private(set) var isOverlayVisible: Bool = false
 
     /// The Claude model used for voice responses. Persisted to UserDefaults.
-    @Published var selectedModel: String = UserDefaults.standard.string(forKey: "selectedClaudeModel") ?? "claude-sonnet-4-6"
+    @Published var selectedModel: String = UserDefaults.standard.string(forKey: "selectedClaudeModel") ?? "google/gemini-2.5-flash:free"
 
     func setSelectedModel(_ model: String) {
         selectedModel = model
@@ -493,7 +497,7 @@ final class CompanionManager: ObservableObject {
 
             // Cancel any in-progress response and TTS from a previous utterance
             currentResponseTask?.cancel()
-            elevenLabsTTSClient.stopPlayback()
+            nativeTTSClient.stopPlayback()
             clearDetectedElementLocation()
 
             // Dismiss the onboarding prompt if it's showing
@@ -579,13 +583,13 @@ final class CompanionManager: ObservableObject {
     // MARK: - AI Response Pipeline
 
     /// Captures a screenshot, sends it along with the transcript to Claude,
-    /// and plays the response aloud via ElevenLabs TTS. The cursor stays in
+    /// and plays the response aloud via native TTS. The cursor stays in
     /// the spinner/processing state until TTS audio begins playing.
     /// Claude's response may include a [POINT:x,y:label] tag which triggers
     /// the buddy to fly to that element on screen.
     private func sendTranscriptToClaudeWithScreenshot(transcript: String) {
         currentResponseTask?.cancel()
-        elevenLabsTTSClient.stopPlayback()
+        nativeTTSClient.stopPlayback()
 
         currentResponseTask = Task {
             // Stay in processing (spinner) state — no streaming text displayed
@@ -701,12 +705,12 @@ final class CompanionManager: ObservableObject {
                 // until the audio actually starts playing, then switch to responding.
                 if !spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     do {
-                        try await elevenLabsTTSClient.speakText(spokenText)
+                        try await nativeTTSClient.speakText(spokenText)
                         // speakText returns after player.play() — audio is now playing
                         voiceState = .responding
                     } catch {
                         ClickyAnalytics.trackTTSError(error: error.localizedDescription)
-                        print("⚠️ ElevenLabs TTS error: \(error)")
+                        print("⚠️ native TTS error: \(error)")
                         speakCreditsErrorFallback()
                     }
                 }
@@ -735,7 +739,7 @@ final class CompanionManager: ObservableObject {
         transientHideTask?.cancel()
         transientHideTask = Task {
             // Wait for TTS audio to finish playing
-            while elevenLabsTTSClient.isPlaying {
+            while nativeTTSClient.isPlaying {
                 try? await Task.sleep(nanoseconds: 200_000_000)
                 guard !Task.isCancelled else { return }
             }
@@ -757,7 +761,7 @@ final class CompanionManager: ObservableObject {
 
     /// Speaks a hardcoded error message using macOS system TTS when API
     /// credits run out. Uses NSSpeechSynthesizer so it works even when
-    /// ElevenLabs is down.
+    /// the primary TTS fails.
     private func speakCreditsErrorFallback() {
         let utterance = "I'm all out of credits. Please DM Farza and tell him to bring me back to life."
         let synthesizer = NSSpeechSynthesizer()

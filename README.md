@@ -1,152 +1,153 @@
-# Hi, this is Clicky.
-It's an AI teacher that lives as a buddy next to your cursor. It can see your screen, talk to you, and even point at stuff. Kinda like having a real teacher next to you.
+<div align="center">
 
-Download it [here](https://www.clicky.so/) for free.
+<img src="assets/luma-icon.png" alt="Luma" width="96" />
 
-Here's the [original tweet](https://x.com/FarzaTV/status/2041314633978659092) that kinda blew up for a demo for more context.
+# Luma
 
-![Clicky — an ai buddy that lives on your mac](clicky-demo.gif)
+**Light by Darkness**
 
-This is the open-source version of Clicky for those that want to hack on it, build their own features, or just see how it works under the hood.
+A native macOS AI teaching assistant that lives beside your cursor. Watches your screen, guides you step by step, and teaches you anything — right where you work.
 
-## Get started with Claude Code
+![macOS](https://img.shields.io/badge/macOS-14.0%2B-black?style=flat-square)
+![Swift](https://img.shields.io/badge/Swift-5.9-black?style=flat-square)
+![License](https://img.shields.io/badge/License-Proprietary-black?style=flat-square)
+![Status](https://img.shields.io/badge/Status-In%20Development-orange?style=flat-square)
 
-The fastest way to get this running is with [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
+<img src="assets/luma-demo.png" alt="Luma Demo" width="720" />
 
-Once you get Claude running, paste this:
+</div>
 
-```
-Hi Claude.
+---
 
-Clone https://github.com/farzaa/clicky.git into my current directory.
+## What is Luma?
 
-Then read the CLAUDE.md. I want to get Clicky running locally on my Mac.
+Luma is a native macOS AI companion built for learners and developers. It sits in your menu bar, follows your cursor with a floating companion bubble, and uses the macOS Accessibility API to watch what's happening on your screen in real time.
 
-Help me set up everything — the Cloudflare Worker with my own API keys, the proxy URLs, and getting it building in Xcode. Walk me through it.
-```
+Tell Luma what you want to learn. It breaks the task into steps, points at exactly what to click, watches for your actions, validates each one, and corrects you if you go off track — until the task is complete. Like having a senior developer or designer sitting right next to you, except it's always there, it never judges you, and it works with your own API keys so your data stays yours.
 
-That's it. It'll clone the repo, read the docs, and walk you through the whole setup. Once you're running you can just keep talking to it — build features, fix bugs, whatever. Go crazy.
+---
 
-## Manual setup
+## Features
 
-If you want to do it yourself, here's the deal.
+- **Interactive Walkthroughs** — Press `Ctrl + Option`, state your goal, and Luma generates a step-by-step guided walkthrough using AI. It watches your screen via the Accessibility API, validates each action, corrects wrong moves, and nudges you if you go idle.
+- **Custom Cursor** — A minimal black teardrop cursor replaces your system cursor while Luma is active — a subtle signal that your AI teacher is watching and ready.
+- **Companion Bubble** — A floating translucent black bubble follows your cursor across the entire screen, showing Luma's responses and instructions right where you're working.
+- **Bring Your Own Keys** — Connect directly to OpenRouter, Anthropic, Google AI, or any custom OpenAI-compatible endpoint. No Luma servers involved in your conversations.
+- **Multi-Profile System** — Create multiple API profiles for different providers or use cases. Set a default, switch instantly, manage everything from settings.
+- **Smart Model Switcher** — Browse all OpenRouter models divided into Free and Paid, searchable, with recommended badges for the best picks. Persists per profile.
+- **PIN Security** — Protect your settings with a 6-digit PIN stored in macOS Keychain. Never interrupts your workflow.
+- **Voice Input** — Speak to Luma via AssemblyAI transcription. Add your key once and dictate hands-free.
+- **Native TTS** — Luma speaks back using macOS AVSpeechSynthesizer. No ElevenLabs, no credits, no limits.
+- **Privacy First** — All keys in Keychain, zero analytics, zero telemetry. Your conversations never touch Luma's infrastructure.
 
-### Prerequisites
+---
 
-- macOS 14.2+ (for ScreenCaptureKit)
-- Xcode 15+
-- Node.js 18+ (for the Cloudflare Worker)
-- A [Cloudflare](https://cloudflare.com) account (free tier works)
-- API keys for: [Anthropic](https://console.anthropic.com), [AssemblyAI](https://www.assemblyai.com), [ElevenLabs](https://elevenlabs.io)
+## Getting Started
 
-### 1. Set up the Cloudflare Worker
-
-The Worker is a tiny proxy that holds your API keys. The app talks to the Worker, the Worker talks to the APIs. This way your keys never ship in the app binary.
-
-```bash
-cd worker
-npm install
-```
-
-Now add your secrets. Wrangler will prompt you to paste each one:
+**Requirements:** macOS 14.0+, Apple Silicon or Intel, Xcode 15+ (if building from source), an API key from any supported provider.
 
 ```bash
-npx wrangler secret put ANTHROPIC_API_KEY
-npx wrangler secret put ASSEMBLYAI_API_KEY
-npx wrangler secret put ELEVENLABS_API_KEY
+git clone https://github.com/Omoju-Mayowa/luma.git
+cd luma
+open Luma.xcodeproj
 ```
 
-For the ElevenLabs voice ID, open `wrangler.toml` and set it there (it's not sensitive):
+Hit `⌘R` to build and run. Complete the onboarding wizard — enter your username, set an optional PIN, add your API key — and you're ready. No Cloudflare worker, no deployment, no terminal commands.
 
-```toml
-[vars]
-ELEVENLABS_VOICE_ID = "your-voice-id-here"
-```
+---
 
-Deploy it:
-
-```bash
-npx wrangler deploy
-```
-
-It'll give you a URL like `https://your-worker-name.your-subdomain.workers.dev`. Copy that.
-
-### 2. Run the Worker locally (for development)
-
-If you want to test changes to the Worker without deploying:
-
-```bash
-cd worker
-npx wrangler dev
-```
-
-This starts a local server (usually `http://localhost:8787`) that behaves exactly like the deployed Worker. You'll need to create a `.dev.vars` file in the `worker/` directory with your keys:
+## Walkthrough Engine
 
 ```
-ANTHROPIC_API_KEY=sk-ant-...
-ASSEMBLYAI_API_KEY=...
-ELEVENLABS_API_KEY=...
-ELEVENLABS_VOICE_ID=...
+Ctrl + Option → "How do I color grade in DaVinci Resolve?"
+
+Luma plans steps → shows plan → you confirm → walkthrough begins
+
+Each step:
+  CursorGuide points at target element
+  AccessibilityWatcher monitors UI state
+
+  ✓ Correct action → confirm + advance
+  ✗ Wrong action   → explain + re-point + repeat
+  ⏱ No action 30s  → gentle nudge (×3 then "take your time")
+
+All steps done → "You did it! 🎉" → idle
 ```
 
-Then update the proxy URLs in the Swift code to point to `http://localhost:8787` instead of the deployed Worker URL while developing. Grep for `clicky-proxy` to find them all.
+---
 
-### 3. Update the proxy URLs in the app
+## Supported Providers
 
-The app has the Worker URL hardcoded in a few places. Search for `your-worker-name.your-subdomain.workers.dev` and replace it with your Worker URL:
+| Provider | Free Tier | Recommended Model |
+|---|---|---|
+| OpenRouter | ✅ Yes | `google/gemini-2.5-flash:free` |
+| Anthropic | ❌ No | `claude-sonnet-4-5` |
+| Google AI | ✅ Yes | `gemini-2.5-flash` |
+| Custom | Depends | Any OpenAI-compatible endpoint |
 
-```bash
-grep -r "clicky-proxy" leanring-buddy/
-```
-
-You'll find it in:
-- `CompanionManager.swift` — Claude chat + ElevenLabs TTS
-- `AssemblyAIStreamingTranscriptionProvider.swift` — AssemblyAI token endpoint
-
-### 4. Open in Xcode and run
-
-```bash
-open leanring-buddy.xcodeproj
-```
-
-In Xcode:
-1. Select the `leanring-buddy` scheme (yes, the typo is intentional, long story)
-2. Set your signing team under Signing & Capabilities
-3. Hit **Cmd + R** to build and run
-
-The app will appear in your menu bar (not the dock). Click the icon to open the panel, grant the permissions it asks for, and you're good.
-
-### Permissions the app needs
-
-- **Microphone** — for push-to-talk voice capture
-- **Accessibility** — for the global keyboard shortcut (Control + Option)
-- **Screen Recording** — for taking screenshots when you use the hotkey
-- **Screen Content** — for ScreenCaptureKit access
+---
 
 ## Architecture
 
-If you want the full technical breakdown, read `CLAUDE.md`. But here's the short version:
-
-**Menu bar app** (no dock icon) with two `NSPanel` windows — one for the control panel dropdown, one for the full-screen transparent cursor overlay. Push-to-talk streams audio over a websocket to AssemblyAI, sends the transcript + screenshot to Claude via streaming SSE, and plays the response through ElevenLabs TTS. Claude can embed `[POINT:x,y:label:screenN]` tags in its responses to make the cursor fly to specific UI elements across multiple monitors. All three APIs are proxied through a Cloudflare Worker.
-
-## Project structure
-
 ```
-leanring-buddy/          # Swift source (yes, the typo stays)
-  CompanionManager.swift    # Central state machine
-  CompanionPanelView.swift  # Menu bar panel UI
-  ClaudeAPI.swift           # Claude streaming client
-  ElevenLabsTTSClient.swift # Text-to-speech playback
-  OverlayWindow.swift       # Blue cursor overlay
-  AssemblyAI*.swift         # Real-time transcription
-  BuddyDictation*.swift     # Push-to-talk pipeline
-worker/                  # Cloudflare Worker proxy
-  src/index.ts              # Three routes: /chat, /tts, /transcribe-token
-CLAUDE.md                # Full architecture doc (agents read this)
+Luma/
+├── Core/           APIClient, ProfileManager, AccountManager,
+│                   KeychainManager, PINManager
+├── Walkthrough/    WalkthroughEngine, TaskPlanner,
+│                   AccessibilityWatcher, ScreenWatcher,
+│                   StepValidator, CursorGuide, FeedbackEngine
+├── UI/             CompanionPanelView, CompanionBubbleWindow,
+│                   OnboardingWizardView, SettingsPanelView,
+│                   PINEntryView
+├── Overlay/        OverlayWindow, CustomCursorManager
+├── TTS/            NativeTTSClient (AVSpeechSynthesizer)
+└── Theme/          LumaTheme, LumaStrings
 ```
 
-## Contributing
+---
 
-PRs welcome. If you're using Claude Code, it already knows the codebase — just tell it what you want to build and point it at `CLAUDE.md`.
+## Roadmap
 
-Got feedback? DM me on X [@farzatv](https://x.com/farzatv).
+**v1.0 — Local**
+- [x] Custom cursor + companion bubble
+- [x] Multi-profile API config
+- [x] Model switcher
+- [x] PIN-secured settings
+- [x] Onboarding wizard
+- [x] Native TTS
+- [ ] Walkthrough engine
+- [ ] Accessibility API integration
+
+**v2.0 — Accounts**
+- [ ] Go backend (JWT auth, argon2id)
+- [ ] Cross-device profile sync
+- [ ] Plan-based profile limits
+
+**v3.0 — SaaS**
+- [ ] Stripe billing
+- [ ] Free + Pro tiers
+- [ ] Public release
+
+---
+
+## Privacy
+
+API keys live exclusively in macOS Keychain. Conversations go directly from your Mac to your chosen provider — Luma has no servers that touch your messages. Screen access via Accessibility API is only requested when you start a walkthrough. No analytics. No telemetry. No exceptions.
+
+---
+
+## Developer
+
+**Omoju Oluwamayowa** (Nox) — Full-stack developer & UI/UX designer, Lagos, Nigeria.
+
+---
+
+## License
+
+Copyright © 2026 Omoju Oluwamayowa (Nox). All rights reserved. This software is proprietary. You may not distribute, sublicense, or use it commercially without explicit written permission from the author.
+
+---
+
+<div align="center">
+  <sub>Built by Nox · Lagos, Nigeria · 2026</sub>
+</div>
