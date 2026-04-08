@@ -76,9 +76,10 @@ final class AccessibilityWatcher: ObservableObject {
     func checkAndRequestPermission() {
         // AXIsProcessTrustedWithOptions with kAXTrustedCheckOptionPrompt: true will
         // cause macOS to show the standard "Enable access for assistive devices" dialog.
-        // kAXTrustedCheckOptionPrompt must be cast to NSString before building the
-        // CFDictionary — passing the raw CFString directly causes a type mismatch in Swift.
-        let optionsDictionary = [kAXTrustedCheckOptionPrompt as NSString: kCFBooleanTrue!] as CFDictionary
+        // Bridge kAXTrustedCheckOptionPrompt (CFString) to a String key first.
+        // Passing the CFString directly as a dictionary key causes a type error in Swift.
+        let axPromptOptionKey = kAXTrustedCheckOptionPrompt as String
+        let optionsDictionary = [axPromptOptionKey: true] as CFDictionary
         let isNowTrusted = AXIsProcessTrustedWithOptions(optionsDictionary)
         isAccessibilityPermissionGranted = isNowTrusted
 
