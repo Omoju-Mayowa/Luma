@@ -12,9 +12,11 @@ import SwiftUI
 
 struct CompanionPanelView: View {
     @ObservedObject var companionManager: CompanionManager
+    @ObservedObject private var accountManager = AccountManager.shared
     @State private var emailInput: String = ""
-    @State private var isModelPickerExpanded: Bool = false
-    @State private var modelSearchQuery: String = ""
+    @State private var showSettings = false
+    @State private var showPINEntryForSettings = false
+    @State private var showQuitConfirmation = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -51,22 +53,14 @@ struct CompanionPanelView: View {
                     .padding(.horizontal, 16)
             }
 
-            // Show Clicky toggle — hidden for now
+            // Show Luma toggle — hidden for now
             // if companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
             //     Spacer()
             //         .frame(height: 16)
             //
-            //     showClickyCursorToggleRow
+            //     showLumaCursorToggleRow
             //         .padding(.horizontal, 16)
             // }
-
-            if companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
-                Spacer()
-                    .frame(height: 16)
-
-                dmFarzaButton
-                    .padding(.horizontal, 16)
-            }
 
             Spacer()
                 .frame(height: 12)
@@ -75,12 +69,36 @@ struct CompanionPanelView: View {
                 .background(DS.Colors.borderSubtle)
                 .padding(.horizontal, 16)
 
-            footerSection
+            bottomBar
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
         }
         .frame(width: 320)
         .background(panelBackground)
+        .sheet(isPresented: $showPINEntryForSettings) {
+            PINEntryView(mode: .verify, title: "Enter PIN to open Settings") {
+                showPINEntryForSettings = false
+                showSettings = true
+            } onCancel: {
+                showPINEntryForSettings = false
+            }
+        }
+        .sheet(isPresented: $showSettings) {
+            SettingsPanelView()
+        }
+        .alert("Quit Luma?", isPresented: $showQuitConfirmation) {
+            Button("Quit", role: .destructive) { NSApp.terminate(nil) }
+            Button("Cancel", role: .cancel) {}
+        }
+        .fullScreenCover(isPresented: Binding(
+            get: { !companionManager.hasCompletedOnboarding },
+            set: { if !$0 { companionManager.hasCompletedOnboarding = true } }
+        )) {
+            OnboardingWizardView(hasCompletedOnboarding: Binding(
+                get: { companionManager.hasCompletedOnboarding },
+                set: { companionManager.hasCompletedOnboarding = $0 }
+            ))
+        }
     }
 
     // MARK: - Header
@@ -94,7 +112,7 @@ struct CompanionPanelView: View {
                     .frame(width: 8, height: 8)
                     .shadow(color: statusDotColor.opacity(0.6), radius: 4)
 
-                Text("Clicky")
+                Text("Luma")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(DS.Colors.textPrimary)
             }
@@ -106,7 +124,7 @@ struct CompanionPanelView: View {
                 .foregroundColor(DS.Colors.textTertiary)
 
             Button(action: {
-                NotificationCenter.default.post(name: .clickyDismissPanel, object: nil)
+                NotificationCenter.default.post(name: .lumaDismissPanel, object: nil)
             }) {
                 Image(systemName: "xmark")
                     .font(.system(size: 10, weight: .semibold))
@@ -144,7 +162,7 @@ struct CompanionPanelView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         } else if companionManager.allPermissionsGranted {
-            Text("You're all set. Hit Start to meet Clicky.")
+            Text("You're all set. Hit Start to meet Luma.")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(DS.Colors.textSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -155,7 +173,7 @@ struct CompanionPanelView: View {
                     .font(.system(size: 12, weight: .bold))
                     .foregroundColor(DS.Colors.textSecondary)
 
-                Text("Some permissions were revoked. Grant all four below to keep using Clicky.")
+                Text("Some permissions were revoked. Grant all four below to keep using Luma.")
                     .font(.system(size: 11))
                     .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -163,7 +181,7 @@ struct CompanionPanelView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         } else {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Hi, I'm Farza. This is Clicky.")
+                Text("Hi, I'm Omoju Oluwamayowa. This is Luma.")
                     .font(.system(size: 12, weight: .bold))
                     .foregroundColor(DS.Colors.textSecondary)
 
@@ -172,7 +190,7 @@ struct CompanionPanelView: View {
                     .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Text("Nothing runs in the background. Clicky will only take a screenshot when you press the hot key. So, you can give that permission in peace. If you are still sus, eh, I can't do much there champ.")
+                Text("Nothing runs in the background. Luma will only take a screenshot when you press the hot key. So, you can give that permission in peace. If you are still sus, eh, I can't do much there champ.")
                     .font(.system(size: 11))
                     .foregroundColor(Color(red: 0.9, green: 0.4, blue: 0.4))
                     .fixedSize(horizontal: false, vertical: true)
@@ -547,9 +565,9 @@ struct CompanionPanelView: View {
 
 
 
-    // MARK: - Show Clicky Cursor Toggle
+    // MARK: - Show Luma Cursor Toggle
 
-    private var showClickyCursorToggleRow: some View {
+    private var showLumaCursorToggleRow: some View {
         HStack {
             HStack(spacing: 8) {
                 Image(systemName: "cursorarrow")
@@ -557,7 +575,7 @@ struct CompanionPanelView: View {
                     .foregroundColor(DS.Colors.textTertiary)
                     .frame(width: 16)
 
-                Text("Show Clicky")
+                Text("Show Luma")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(DS.Colors.textSecondary)
             }
@@ -565,8 +583,8 @@ struct CompanionPanelView: View {
             Spacer()
 
             Toggle("", isOn: Binding(
-                get: { companionManager.isClickyCursorEnabled },
-                set: { companionManager.setClickyCursorEnabled($0) }
+                get: { companionManager.isLumaCursorEnabled },
+                set: { companionManager.setLumaCursorEnabled($0) }
             ))
             .toggleStyle(.switch)
             .labelsHidden()
@@ -601,327 +619,94 @@ struct CompanionPanelView: View {
     // MARK: - Model Picker
 
     private var modelPickerRow: some View {
-        VStack(spacing: 0) {
-            // Collapsed row — shows current model name with a chevron to expand
-            Button(action: {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    isModelPickerExpanded.toggle()
-                }
-                if isModelPickerExpanded {
-                    companionManager.openRouterModelFetcher.fetchModelsIfNeeded()
-                }
-            }) {
-                HStack {
-                    Text("Model")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(DS.Colors.textSecondary)
-
-                    Spacer()
-
-                    Text(selectedModelDisplayName)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(DS.Colors.textTertiary)
-                        .lineLimit(1)
-
-                    Image(systemName: isModelPickerExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundColor(DS.Colors.textTertiary)
-                }
-                .padding(.vertical, 4)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .pointerCursor()
-
-            if isModelPickerExpanded {
-                expandedModelPicker
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-            }
-        }
-    }
-
-    /// The display name for the currently selected model. Uses the fetched
-    /// model name if available, otherwise extracts a readable name from the
-    /// model ID (e.g. "google/gemini-2.5-flash:free" → "gemini-2.5-flash:free").
-    private var selectedModelDisplayName: String {
-        let selectedModelID = companionManager.selectedModel
-        if let matchingModel = companionManager.openRouterModelFetcher.allModels.first(where: { $0.id == selectedModelID }) {
-            return matchingModel.name
-        }
-        // Fallback: strip the provider prefix from the model ID
-        if let slashIndex = selectedModelID.firstIndex(of: "/") {
-            return String(selectedModelID[selectedModelID.index(after: slashIndex)...])
-        }
-        return selectedModelID
-    }
-
-    private var expandedModelPicker: some View {
-        VStack(spacing: 8) {
-            // Search bar
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(DS.Colors.textTertiary)
-
-                TextField("Search models...", text: $modelSearchQuery)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 12))
-                    .foregroundColor(DS.Colors.textPrimary)
-
-                if !modelSearchQuery.isEmpty {
-                    Button(action: { modelSearchQuery = "" }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 10))
-                            .foregroundColor(DS.Colors.textTertiary)
-                    }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
-                }
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .background(
-                RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
-                    .fill(Color.white.opacity(0.06))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
-                    .stroke(DS.Colors.borderSubtle, lineWidth: 0.5)
-            )
-
-            // Model list
-            if companionManager.openRouterModelFetcher.isLoadingModels {
-                HStack(spacing: 6) {
-                    ProgressView()
-                        .scaleEffect(0.6)
-                        .frame(width: 12, height: 12)
-                    Text("Loading models...")
-                        .font(.system(size: 11))
-                        .foregroundColor(DS.Colors.textTertiary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 8)
-            } else if let fetchError = companionManager.openRouterModelFetcher.modelFetchError {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Failed to load models")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(DS.Colors.warning)
-                    Text(fetchError)
-                        .font(.system(size: 10))
-                        .foregroundColor(DS.Colors.textTertiary)
-                        .lineLimit(2)
-                    Button(action: {
-                        companionManager.openRouterModelFetcher.refetchModels()
-                    }) {
-                        Text("Retry")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(DS.Colors.accentText)
-                    }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
-                }
-                .padding(.vertical, 4)
-            } else {
-                modelListScrollView
-            }
-        }
-        .padding(.top, 8)
-    }
-
-    private var modelListScrollView: some View {
-        let filteredModels = filteredModelList
-        let freeModels = filteredModels.filter { $0.isFree }
-        let paidModels = filteredModels.filter { !$0.isFree }
-
-        return ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                if !freeModels.isEmpty {
-                    modelSectionHeader(title: "FREE")
-                    ForEach(freeModels) { model in
-                        modelRow(model: model)
-                    }
-                }
-
-                if !paidModels.isEmpty {
-                    if !freeModels.isEmpty {
-                        Spacer().frame(height: 8)
-                    }
-                    modelSectionHeader(title: "PAID")
-                    ForEach(paidModels) { model in
-                        modelRow(model: model)
-                    }
-                }
-
-                if filteredModels.isEmpty {
-                    Text("No models match your search.")
-                        .font(.system(size: 11))
-                        .foregroundColor(DS.Colors.textTertiary)
-                        .padding(.vertical, 8)
-                }
-            }
-        }
-        .frame(maxHeight: 200)
-    }
-
-    /// Filters the model list based on the current search query. Typing
-    /// "free" shows only free models; otherwise filters by model name or ID.
-    private var filteredModelList: [OpenRouterModel] {
-        let allModels = companionManager.openRouterModelFetcher.allModels
-        let trimmedQuery = modelSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-
-        guard !trimmedQuery.isEmpty else { return allModels }
-
-        // Typing "free" as the entire query filters to free-only models
-        if trimmedQuery == "free" {
-            return allModels.filter { $0.isFree }
-        }
-
-        return allModels.filter { model in
-            model.name.lowercased().contains(trimmedQuery) ||
-            model.id.lowercased().contains(trimmedQuery)
-        }
-    }
-
-    private func modelSectionHeader(title: String) -> some View {
-        Text(title)
-            .font(.system(size: 10, weight: .semibold, design: .rounded))
-            .foregroundColor(DS.Colors.textTertiary)
-            .padding(.bottom, 4)
-            .padding(.top, 2)
-    }
-
-    private func modelRow(model: OpenRouterModel) -> some View {
-        let isSelected = companionManager.selectedModel == model.id
-        let recommendedBadgeText = RecommendedModelBadges.badge(for: model.id)
-
-        return Button(action: {
-            companionManager.setSelectedModel(model.id)
-            withAnimation(.easeInOut(duration: 0.2)) {
-                isModelPickerExpanded = false
-            }
-            modelSearchQuery = ""
-        }) {
-            HStack(spacing: 6) {
-                // Selection indicator
-                Circle()
-                    .fill(isSelected ? DS.Colors.accent : Color.clear)
-                    .frame(width: 6, height: 6)
-                    .overlay(
-                        Circle()
-                            .stroke(isSelected ? Color.clear : DS.Colors.borderSubtle, lineWidth: 0.8)
-                    )
-
-                VStack(alignment: .leading, spacing: 1) {
-                    HStack(spacing: 4) {
-                        Text(model.name)
-                            .font(.system(size: 11, weight: isSelected ? .semibold : .medium))
-                            .foregroundColor(isSelected ? DS.Colors.textPrimary : DS.Colors.textSecondary)
-                            .lineLimit(1)
-
-                        if let badgeText = recommendedBadgeText {
-                            Text(badgeText)
-                                .font(.system(size: 9, weight: .bold))
-                                .foregroundColor(DS.Colors.textOnAccent)
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 1)
-                                .background(
-                                    Capsule()
-                                        .fill(DS.Colors.accent)
-                                )
-                        }
-                    }
-
-                    Text(model.formattedContextLength + " context")
-                        .font(.system(size: 10))
-                        .foregroundColor(DS.Colors.textTertiary)
-                }
-
-                Spacer()
-            }
-            .padding(.vertical, 5)
-            .padding(.horizontal, 4)
-            .background(
-                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .fill(isSelected ? Color.white.opacity(0.06) : Color.clear)
-            )
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .pointerCursor()
-    }
-
-    // MARK: - DM Farza Button
-
-    private var dmFarzaButton: some View {
-        Button(action: {
-            if let url = URL(string: "https://x.com/farzatv") {
-                NSWorkspace.shared.open(url)
-            }
-        }) {
-            HStack(spacing: 8) {
-                Image(systemName: "bubble.left.fill")
-                    .font(.system(size: 12, weight: .medium))
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Got feedback? DM me")
-                        .font(.system(size: 12, weight: .semibold))
-                    Text("Bugs, ideas, anything — I read every message.")
-                        .font(.system(size: 10))
-                        .foregroundColor(DS.Colors.textTertiary)
-                }
-            }
-            .foregroundColor(DS.Colors.textSecondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
-                    .fill(Color.white.opacity(0.06))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
-                    .stroke(DS.Colors.borderSubtle, lineWidth: 0.5)
-            )
-        }
-        .buttonStyle(.plain)
-        .pointerCursor()
-    }
-
-    // MARK: - Footer
-
-    private var footerSection: some View {
         HStack {
-            Button(action: {
-                NSApp.terminate(nil)
-            }) {
-                HStack(spacing: 6) {
-                    Image(systemName: "power")
-                        .font(.system(size: 11, weight: .medium))
-                    Text("Quit Clicky")
-                        .font(.system(size: 12, weight: .medium))
-                }
-                .foregroundColor(DS.Colors.textTertiary)
+            Text("Model")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(DS.Colors.textSecondary)
+
+            Spacer()
+
+            HStack(spacing: 0) {
+                modelOptionButton(label: "Sonnet", modelID: "claude-sonnet-4-6")
+                modelOptionButton(label: "Opus", modelID: "claude-opus-4-6")
             }
-            .buttonStyle(.plain)
-            .pointerCursor()
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.white.opacity(0.06))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(DS.Colors.borderSubtle, lineWidth: 0.5)
+            )
+        }
+        .padding(.vertical, 4)
+    }
 
-            if companionManager.hasCompletedOnboarding {
-                Spacer()
+    private func modelOptionButton(label: String, modelID: String) -> some View {
+        let isSelected = companionManager.selectedModel == modelID
+        return Button(action: {
+            companionManager.setSelectedModel(modelID)
+        }) {
+            Text(label)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(isSelected ? DS.Colors.textPrimary : DS.Colors.textTertiary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(isSelected ? Color.white.opacity(0.1) : Color.clear)
+                )
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+    }
 
-                Button(action: {
-                    companionManager.replayOnboarding()
-                }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "play.circle")
-                            .font(.system(size: 11, weight: .medium))
-                        Text("Watch Onboarding Again")
-                            .font(.system(size: 12, weight: .medium))
-                    }
-                    .foregroundColor(DS.Colors.textTertiary)
+    // MARK: - Bottom Bar
+
+    /// Bottom bar with user avatar on the left and action icons on the right.
+    private var bottomBar: some View {
+        HStack(spacing: 0) {
+            // Left: avatar circle showing user's initials from AccountManager
+            if let account = accountManager.account {
+                LumaAvatarView(initials: account.avatarInitials, size: 28)
+            } else {
+                // Placeholder avatar when no account exists yet (pre-onboarding)
+                Circle()
+                    .fill(Color.white.opacity(0.15))
+                    .frame(width: 28, height: 28)
+            }
+
+            Spacer()
+
+            // Right: gear icon (Settings, PIN-guarded) + power icon (Quit, with confirmation)
+            HStack(spacing: 14) {
+                Button(action: openSettingsWithPINCheck) {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(DS.Colors.textTertiary)
                 }
                 .buttonStyle(.plain)
                 .pointerCursor()
+                .help("Settings")
+
+                Button(action: { showQuitConfirmation = true }) {
+                    Image(systemName: "power")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(DS.Colors.textTertiary)
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+                .help("Quit Luma")
             }
+        }
+    }
+
+    /// Opens Settings. If a PIN is set, requires the user to verify it first.
+    private func openSettingsWithPINCheck() {
+        if PINManager.shared.hasPIN {
+            showPINEntryForSettings = true
+        } else {
+            showSettings = true
         }
     }
 
