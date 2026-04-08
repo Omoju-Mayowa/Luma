@@ -1,4 +1,5 @@
 import Foundation
+@preconcurrency import Combine
 
 /// Manages the optional 6-digit PIN that protects access to Luma settings.
 /// The PIN is stored in the Keychain under the "com.nox.luma.pin" key.

@@ -10,6 +10,7 @@
 import AVFoundation
 import SwiftUI
 
+
 struct CompanionPanelView: View {
     @ObservedObject var companionManager: CompanionManager
     @ObservedObject private var accountManager = AccountManager.shared
@@ -90,7 +91,7 @@ struct CompanionPanelView: View {
             Button("Quit", role: .destructive) { NSApp.terminate(nil) }
             Button("Cancel", role: .cancel) {}
         }
-        .fullScreenCover(isPresented: Binding(
+        .sheet(isPresented: Binding(
             get: { !companionManager.hasCompletedOnboarding },
             set: { if !$0 { companionManager.hasCompletedOnboarding = true } }
         )) {
@@ -667,7 +668,7 @@ struct CompanionPanelView: View {
     private var bottomBar: some View {
         HStack(spacing: 0) {
             // Left: avatar circle showing user's initials from AccountManager
-            if let account = accountManager.account {
+            if let account = accountManager.currentAccount {
                 LumaAvatarView(initials: account.avatarInitials, size: 28)
             } else {
                 // Placeholder avatar when no account exists yet (pre-onboarding)

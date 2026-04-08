@@ -413,7 +413,7 @@ private struct OnboardingAPIProfileStep: View {
     @State private var enteredAssemblyAIKey: String = ""
 
     /// Tracks the result of the test connection attempt
-    enum ConnectionTestStatus {
+    enum ConnectionTestStatus: Equatable {
         case untested
         case testing
         case success

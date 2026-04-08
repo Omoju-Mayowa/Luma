@@ -11,6 +11,7 @@
 import ApplicationServices
 import AppKit
 import Foundation
+import Combine
 
 // MARK: - AccessibilityEvent
 
@@ -78,7 +79,7 @@ final class AccessibilityWatcher: ObservableObject {
         // cause macOS to show the standard "Enable access for assistive devices" dialog.
         // Bridge kAXTrustedCheckOptionPrompt (CFString) to a String key first.
         // Passing the CFString directly as a dictionary key causes a type error in Swift.
-        let axPromptOptionKey = kAXTrustedCheckOptionPrompt as String
+        let axPromptOptionKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
         let optionsDictionary = [axPromptOptionKey: true] as CFDictionary
         let isNowTrusted = AXIsProcessTrustedWithOptions(optionsDictionary)
         isAccessibilityPermissionGranted = isNowTrusted
@@ -168,26 +169,35 @@ final class AccessibilityWatcher: ObservableObject {
         removeCurrentAXObserver()
 
         let pid = app.processIdentifier
-        currentlyObservedPID = pid
 
         // AXObserverCreate takes a C callback — we pass `self` as the refcon so
         // the callback can call back into the AccessibilityWatcher instance.
-        // The callback must be a plain C function; we use a global closure workaround.
         var newObserver: AXObserver?
         let selfPointer = Unmanaged.passUnretained(self).toOpaque()
 
-        let createResult = AXObserverCreate(pid, axEventCallback, &newObserver)
+        // AXObserverCreate requires a C function pointer — use a non-capturing literal
+        // closure instead of a named function reference to satisfy the Swift compiler.
+        let createResult = AXObserverCreate(pid, { _, element, notification, userData in
+            guard let userData = userData else { return }
+            let watcher = Unmanaged<AccessibilityWatcher>.fromOpaque(userData).takeUnretainedValue()
+            var elementOwnerPID: pid_t = 0
+            AXUIElementGetPid(element, &elementOwnerPID)
+            let bundleID = NSRunningApplication(processIdentifier: elementOwnerPID)?.bundleIdentifier ?? "unknown"
+            let notificationString = notification as String
+            Task { @MainActor in
+                watcher.handleAXNotification(notification: notificationString, element: element, appBundleID: bundleID)
+            }
+        }, &newObserver)
         guard createResult == .success, let createdObserver = newObserver else {
             print("AccessibilityWatcher: AXObserverCreate failed for PID \(pid) — \(createResult.rawValue)")
             return
         }
 
+        // REQUIRED: set only after success
+        currentlyObservedPID = pid
+
         let appElement = AXUIElementCreateApplication(pid)
 
-        // The notifications we care about for walkthrough step detection:
-        // focusChanged = user clicked into a different element
-        // valueChanged = user typed/changed a field's content
-        // windowCreated = a new dialog or window appeared
         let notificationsToObserve: [(String, AccessibilityEvent.EventType)] = [
             (kAXFocusedUIElementChangedNotification, .focusChanged),
             (kAXValueChangedNotification, .valueChanged),
@@ -196,10 +206,14 @@ final class AccessibilityWatcher: ObservableObject {
         ]
 
         for (notificationName, _) in notificationsToObserve {
-            AXObserverAddNotification(createdObserver, appElement, notificationName as CFString, selfPointer)
+            AXObserverAddNotification(
+                createdObserver,
+                appElement,
+                notificationName as CFString,
+                selfPointer
+            )
         }
 
-        // Add the observer to the main run loop so callbacks fire on the main thread
         CFRunLoopAddSource(
             CFRunLoopGetMain(),
             AXObserverGetRunLoopSource(createdObserver),
@@ -208,7 +222,7 @@ final class AccessibilityWatcher: ObservableObject {
 
         axObserver = createdObserver
     }
-
+    
     /// Removes the current AXObserver from the run loop and releases it.
     private func removeCurrentAXObserver() {
         guard let existingObserver = axObserver else { return }

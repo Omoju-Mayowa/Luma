@@ -96,7 +96,7 @@ final class CursorGuide {
         var frameValue: CFTypeRef?
         let frameResult = AXUIElementCopyAttributeValue(
             foundElement,
-            kAXFrameAttribute as CFString,
+            "AXFrame" as CFString,
             &frameValue
         )
 

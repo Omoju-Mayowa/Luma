@@ -321,11 +321,17 @@ final class CompanionBubbleWindow {
             bubblePanel.animator().alphaValue = 0.0
         } completionHandler: { [weak self] in
             guard let self = self else { return }
-            // Remove from screen after the fade finishes. This also resets alpha for
-            // the next show() call — orderOut doesn't reset alphaValue automatically.
-            self.bubblePanel.orderOut(nil)
-            self.bubblePanel.alphaValue = 1.0
-            self.isVisible = false
+            // Capture self as a let constant so it can be passed into the @Sendable Task closure.
+            // NSAnimationContext completion handlers are Sendable, so @MainActor isolation
+            // must be re-established explicitly.
+            let capturedSelf = self
+            Task { @MainActor in
+                // Remove from screen after the fade finishes. This also resets alpha for
+                // the next show() call — orderOut doesn't reset alphaValue automatically.
+                capturedSelf.bubblePanel.orderOut(nil)
+                capturedSelf.bubblePanel.alphaValue = 1.0
+                capturedSelf.isVisible = false
+            }
         }
     }
 

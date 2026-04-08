@@ -149,3 +149,19 @@ enum LumaTheme {
 // DS.CornerRadius.* etc. continue to compile while they are gradually
 // migrated to use LumaTheme directly. Remove once migration is complete.
 typealias DS = LumaTheme
+
+// MARK: - View Cursor Extension
+
+extension View {
+    /// Sets the cursor to a pointing hand when the user hovers over this view.
+    /// All interactive elements (buttons, links) should call this to communicate clickability.
+    func pointerCursor() -> some View {
+        self.onHover { hovering in
+            if hovering {
+                NSCursor.pointingHand.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
+    }
+}

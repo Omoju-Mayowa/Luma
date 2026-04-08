@@ -45,7 +45,11 @@ final class MenuBarPanelManager: NSObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.hidePanel()
+            // hidePanel() is @MainActor-isolated; re-establish actor context explicitly
+            // since NotificationCenter observer closures are nonisolated @Sendable.
+            Task { @MainActor [weak self] in
+                self?.hidePanel()
+            }
         }
     }
 

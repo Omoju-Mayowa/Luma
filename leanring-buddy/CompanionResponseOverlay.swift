@@ -177,8 +177,10 @@ final class CompanionResponseOverlayManager {
             context.duration = 0.4
             overlayPanel.animator().alphaValue = 0
         }, completionHandler: { [weak self] in
-            Task { @MainActor in
-                self?.hideOverlay()
+            // Guard self as a let so it can be safely captured in the @Sendable Task closure.
+            guard let self else { return }
+            Task { @MainActor [self] in
+                self.hideOverlay()
             }
         })
     }
@@ -205,7 +207,7 @@ private struct CompanionResponseOverlayView: View {
                 .padding(.vertical, 10)
                 .background(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(DS.Colors.surface1.opacity(0.95))
+                        .fill(DS.Colors.panelBackground.opacity(0.95))
                         .overlay(
                             RoundedRectangle(cornerRadius: 10, style: .continuous)
                                 .stroke(DS.Colors.borderSubtle.opacity(0.5), lineWidth: 0.8)

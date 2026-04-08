@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+@preconcurrency import Combine
 
 // MARK: - LumaAccount Model
 
