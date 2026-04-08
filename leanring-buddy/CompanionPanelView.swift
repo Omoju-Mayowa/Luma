@@ -12,7 +12,11 @@ import SwiftUI
 
 struct CompanionPanelView: View {
     @ObservedObject var companionManager: CompanionManager
+    @ObservedObject private var accountManager = AccountManager.shared
     @State private var emailInput: String = ""
+    @State private var showSettings = false
+    @State private var showPINEntryForSettings = false
+    @State private var showQuitConfirmation = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -58,14 +62,6 @@ struct CompanionPanelView: View {
             //         .padding(.horizontal, 16)
             // }
 
-            if companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
-                Spacer()
-                    .frame(height: 16)
-
-                dmNoxButton
-                    .padding(.horizontal, 16)
-            }
-
             Spacer()
                 .frame(height: 12)
 
@@ -73,12 +69,29 @@ struct CompanionPanelView: View {
                 .background(DS.Colors.borderSubtle)
                 .padding(.horizontal, 16)
 
-            footerSection
+            bottomBar
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
         }
         .frame(width: 320)
         .background(panelBackground)
+        .sheet(isPresented: $showPINEntryForSettings) {
+            PINEntryView(mode: .verify, title: "Enter PIN to open Settings") {
+                showPINEntryForSettings = false
+                showSettings = true
+            } onCancel: {
+                showPINEntryForSettings = false
+            }
+        }
+        .sheet(isPresented: $showSettings) {
+            // SettingsPanelView will be wired here in Section 8
+            Text("Settings")
+                .frame(width: 480, height: 520)
+        }
+        .alert("Quit Luma?", isPresented: $showQuitConfirmation) {
+            Button("Quit", role: .destructive) { NSApp.terminate(nil) }
+            Button("Cancel", role: .cancel) {}
+        }
     }
 
     // MARK: - Header
@@ -641,78 +654,52 @@ struct CompanionPanelView: View {
         .pointerCursor()
     }
 
-    // MARK: - DM Nox Button
+    // MARK: - Bottom Bar
 
-    private var dmNoxButton: some View {
-        Button(action: {
-            if let url = URL(string: "https://x.com/Nox") {
-                NSWorkspace.shared.open(url)
+    /// Bottom bar with user avatar on the left and action icons on the right.
+    private var bottomBar: some View {
+        HStack(spacing: 0) {
+            // Left: avatar circle showing user's initials from AccountManager
+            if let account = accountManager.account {
+                LumaAvatarView(initials: account.avatarInitials, size: 28)
+            } else {
+                // Placeholder avatar when no account exists yet (pre-onboarding)
+                Circle()
+                    .fill(Color.white.opacity(0.15))
+                    .frame(width: 28, height: 28)
             }
-        }) {
-            HStack(spacing: 8) {
-                Image(systemName: "bubble.left.fill")
-                    .font(.system(size: 12, weight: .medium))
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Got feedback? DM me")
-                        .font(.system(size: 12, weight: .semibold))
-                    Text("Bugs, ideas, anything — I read every message.")
-                        .font(.system(size: 10))
+            Spacer()
+
+            // Right: gear icon (Settings, PIN-guarded) + power icon (Quit, with confirmation)
+            HStack(spacing: 14) {
+                Button(action: openSettingsWithPINCheck) {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 14, weight: .medium))
                         .foregroundColor(DS.Colors.textTertiary)
-                }
-            }
-            .foregroundColor(DS.Colors.textSecondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
-                    .fill(Color.white.opacity(0.06))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
-                    .stroke(DS.Colors.borderSubtle, lineWidth: 0.5)
-            )
-        }
-        .buttonStyle(.plain)
-        .pointerCursor()
-    }
-
-    // MARK: - Footer
-
-    private var footerSection: some View {
-        HStack {
-            Button(action: {
-                NSApp.terminate(nil)
-            }) {
-                HStack(spacing: 6) {
-                    Image(systemName: "power")
-                        .font(.system(size: 11, weight: .medium))
-                    Text("Quit Luma")
-                        .font(.system(size: 12, weight: .medium))
-                }
-                .foregroundColor(DS.Colors.textTertiary)
-            }
-            .buttonStyle(.plain)
-            .pointerCursor()
-
-            if companionManager.hasCompletedOnboarding {
-                Spacer()
-
-                Button(action: {
-                    companionManager.replayOnboarding()
-                }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "play.circle")
-                            .font(.system(size: 11, weight: .medium))
-                        Text("Watch Onboarding Again")
-                            .font(.system(size: 12, weight: .medium))
-                    }
-                    .foregroundColor(DS.Colors.textTertiary)
                 }
                 .buttonStyle(.plain)
                 .pointerCursor()
+                .help("Settings")
+
+                Button(action: { showQuitConfirmation = true }) {
+                    Image(systemName: "power")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(DS.Colors.textTertiary)
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+                .help("Quit Luma")
             }
+        }
+    }
+
+    /// Opens Settings. If a PIN is set, requires the user to verify it first.
+    private func openSettingsWithPINCheck() {
+        if PINManager.shared.isPINSet {
+            showPINEntryForSettings = true
+        } else {
+            showSettings = true
         }
     }
 
