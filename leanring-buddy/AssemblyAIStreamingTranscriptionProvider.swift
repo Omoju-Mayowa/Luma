@@ -17,9 +17,12 @@ struct AssemblyAIStreamingTranscriptionProviderError: LocalizedError {
 }
 
 final class AssemblyAIStreamingTranscriptionProvider: BuddyTranscriptionProvider {
-    /// URL for the Cloudflare Worker endpoint that returns a short-lived
-    /// AssemblyAI streaming token. The real API key never leaves the server.
-    private static let tokenProxyURL = "https://your-worker-name.your-subdomain.workers.dev/transcribe-token"
+    /// AssemblyAI v3 token endpoint. We call this directly with the API key
+    /// from the Keychain to get a short-lived websocket token.
+    private static let assemblyAITokenEndpointURL = "https://streaming.assemblyai.com/v3/token"
+
+    /// Keychain key where the AssemblyAI API key is stored.
+    private static let assemblyAIKeychainKey = "com.nox.luma.assemblyai"
 
     let displayName = "AssemblyAI"
     let requiresSpeechRecognitionPermission = false
@@ -39,8 +42,8 @@ final class AssemblyAIStreamingTranscriptionProvider: BuddyTranscriptionProvider
         onFinalTranscriptReady: @escaping (String) -> Void,
         onError: @escaping (Error) -> Void
     ) async throws -> any BuddyStreamingTranscriptionSession {
-        // Fetch a fresh temporary token from the proxy before each session
-        let temporaryToken = try await fetchTemporaryToken()
+        // Fetch a fresh temporary token directly from AssemblyAI before each session
+        let temporaryToken = try await fetchTemporaryTokenFromAssemblyAI()
         print("🎙️ AssemblyAI: fetched temporary token (\(temporaryToken.prefix(20))...)")
 
         let session = AssemblyAIStreamingTranscriptionSession(
@@ -57,10 +60,24 @@ final class AssemblyAIStreamingTranscriptionProvider: BuddyTranscriptionProvider
         return session
     }
 
-    /// Calls the Cloudflare Worker to get a short-lived AssemblyAI token.
-    private func fetchTemporaryToken() async throws -> String {
-        var request = URLRequest(url: URL(string: Self.tokenProxyURL)!)
+    /// Calls AssemblyAI directly to get a short-lived websocket token.
+    /// The API key is loaded from the Keychain rather than a proxy server.
+    private func fetchTemporaryTokenFromAssemblyAI() async throws -> String {
+        // Load the AssemblyAI API key stored during onboarding.
+        // AssemblyAI uses a plain API key in the Authorization header (no "Bearer" prefix).
+        guard let assemblyAIAPIKey = try? KeychainManager.loadString(key: Self.assemblyAIKeychainKey),
+              !assemblyAIAPIKey.isEmpty else {
+            throw AssemblyAIStreamingTranscriptionProviderError(
+                message: "AssemblyAI API key not configured. Please add it in Settings → General."
+            )
+        }
+
+        var request = URLRequest(url: URL(string: Self.assemblyAITokenEndpointURL)!)
         request.httpMethod = "POST"
+        request.setValue(assemblyAIAPIKey, forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // Request a token valid for 480 seconds — enough for a typical recording session
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["expires_in": 480])
 
         let (data, response) = try await URLSession.shared.data(for: request)
 
@@ -76,7 +93,7 @@ final class AssemblyAIStreamingTranscriptionProvider: BuddyTranscriptionProvider
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let token = json["token"] as? String else {
             throw AssemblyAIStreamingTranscriptionProviderError(
-                message: "Invalid token response from proxy."
+                message: "Invalid token response from AssemblyAI."
             )
         }
 
