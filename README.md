@@ -21,7 +21,7 @@ A native macOS AI teaching assistant that lives beside your cursor. Watches your
 
 ## What is Luma?
 
-Luma is a native macOS AI companion built for learners and developers. It sits in your menu bar, follows your cursor with a floating companion bubble, and uses the macOS Accessibility API to watch what's happening on your screen in real time.
+Luma is a native macOS AI companion built for learners and developers, creatives and everyone. It sits in your menu bar, follows your cursor with a floating companion bubble, and uses the macOS Accessibility API to watch what's happening on your screen in real time.
 
 Tell Luma what you want to learn. It breaks the task into steps, points at exactly what to click, watches for your actions, validates each one, and corrects you if you go off track — until the task is complete. Like having a senior developer or designer sitting right next to you, except it's always there, it never judges you, and it works with your own API keys so your data stays yours.
 
