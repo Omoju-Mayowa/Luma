@@ -38,39 +38,39 @@ section before moving to the next. If session ends, resume from the
 next uncompleted section.
 
 **TIER 1 — Pure string/config changes (fastest, no logic)**
-- [ ] Section 1 — Rebrand (string replacements, Info.plist, CLAUDE.md)
-- [ ] Section 2a — Delete worker/ directory
-- [ ] Delete DesignSystem.swift, rename ClickyAnalytics → LumaAnalytics
+- [x] Section 1 — Rebrand (string replacements, Info.plist, CLAUDE.md)
+- [x] Section 2a — Delete worker/ directory
+- [x] Delete DesignSystem.swift, rename ClickyAnalytics → LumaAnalytics
 
 **TIER 2 — New isolated files (no dependencies on other new files)**
-- [ ] Section 3 — LumaTheme.swift + LumaStrings.swift
-- [ ] Section 4 — KeychainManager.swift
-- [ ] Section 6 — AccountManager.swift
+- [x] Section 3 — LumaTheme.swift + LumaStrings.swift
+- [x] Section 4 — KeychainManager.swift
+- [x] Section 6 — AccountManager.swift
 
 **TIER 3 — Files that depend on Tier 2**
-- [ ] Section 5 — PINManager.swift + PINEntryView.swift
+- [x] Section 5 — PINManager.swift + PINEntryView.swift
   (depends on KeychainManager)
-- [ ] Section 10a — ProfileManager.swift
+- [x] Section 10a — ProfileManager.swift
   (depends on KeychainManager)
-- [ ] Section 10b — APIClient.swift
+- [x] Section 10b — APIClient.swift
   (depends on ProfileManager + KeychainManager)
 
 **TIER 4 — Worker removal + direct API wiring**
-- [ ] Section 2b — Remove workerBaseURL from CompanionManager,
+- [x] Section 2b — Remove workerBaseURL from CompanionManager,
   wire APIClient.sendMessage() everywhere
-- [ ] Section 11 — AssemblyAI Keychain migration + direct token fetch
-- [ ] Section 2c — OpenRouterModelFetcher: call OpenRouter directly
-  with key from Keychain
+- [x] Section 11 — AssemblyAI Keychain migration + direct token fetch
+- [x] Section 2c — OpenRouterModelFetcher: N/A (already removed, model
+  picker replaced by SettingsPanelView Model tab)
 
 **TIER 5 — UI rebuilds (most complex)**
-- [ ] Section 9 — Companion Panel bottom bar rebuild
-- [ ] Section 8 — SettingsPanelView.swift (tabbed settings)
-- [ ] Section 7 — OnboardingWizardView.swift (5-step wizard)
+- [x] Section 9 — Companion Panel bottom bar rebuild
+- [x] Section 8 — SettingsPanelView.swift (tabbed settings)
+- [x] Section 7 — OnboardingWizardView.swift (5-step wizard)
 
 **TIER 6 — Overlay + cursor (most complex Swift, last)**
-- [ ] Section 12 — macOS TTS (verify no changes needed)
-- [ ] Section 13 — CustomCursorManager + CompanionBubbleWindow
-- [ ] Section 14 — WalkthroughEngine (NEW — see below)
+- [x] Section 12 — macOS TTS (NativeTTSClient restored with AVSpeechSynthesizer)
+- [x] Section 13 — CustomCursorManager + CompanionBubbleWindow
+- [x] Section 14 — WalkthroughEngine (NEW — complete)
 
 ---
 
