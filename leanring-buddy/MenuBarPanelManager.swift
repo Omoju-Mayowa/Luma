@@ -15,7 +15,7 @@ import AppKit
 import SwiftUI
 
 extension Notification.Name {
-    static let clickyDismissPanel = Notification.Name("clickyDismissPanel")
+    static let lumaDismissPanel = Notification.Name("lumaDismissPanel")
 }
 
 /// Custom NSPanel subclass that can become the key window even with
@@ -41,7 +41,7 @@ final class MenuBarPanelManager: NSObject {
         createStatusItem()
 
         dismissPanelObserver = NotificationCenter.default.addObserver(
-            forName: .clickyDismissPanel,
+            forName: .lumaDismissPanel,
             object: nil,
             queue: .main
         ) { [weak self] _ in
@@ -65,15 +65,16 @@ final class MenuBarPanelManager: NSObject {
 
         guard let button = statusItem?.button else { return }
 
-        button.image = makeClickyMenuBarIcon()
+        button.image = makeLumaMenuBarIcon()
         button.image?.isTemplate = true
+        button.toolTip = "Luma"
         button.action = #selector(statusItemClicked)
         button.target = self
     }
 
-    /// Draws the clicky triangle as a menu bar icon. Uses the same shape
+    /// Draws the luma triangle as a menu bar icon. Uses the same shape
     /// and rotation as the in-app cursor so the menu bar icon matches.
-    private func makeClickyMenuBarIcon() -> NSImage {
+    private func makeLumaMenuBarIcon() -> NSImage {
         let iconSize: CGFloat = 18
         let image = NSImage(size: NSSize(width: iconSize, height: iconSize))
         image.lockFocus()
