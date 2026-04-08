@@ -84,13 +84,20 @@ struct CompanionPanelView: View {
             }
         }
         .sheet(isPresented: $showSettings) {
-            // SettingsPanelView will be wired here in Section 8
-            Text("Settings")
-                .frame(width: 480, height: 520)
+            SettingsPanelView()
         }
         .alert("Quit Luma?", isPresented: $showQuitConfirmation) {
             Button("Quit", role: .destructive) { NSApp.terminate(nil) }
             Button("Cancel", role: .cancel) {}
+        }
+        .fullScreenCover(isPresented: Binding(
+            get: { !companionManager.hasCompletedOnboarding },
+            set: { if !$0 { companionManager.hasCompletedOnboarding = true } }
+        )) {
+            OnboardingWizardView(hasCompletedOnboarding: Binding(
+                get: { companionManager.hasCompletedOnboarding },
+                set: { companionManager.hasCompletedOnboarding = $0 }
+            ))
         }
     }
 
