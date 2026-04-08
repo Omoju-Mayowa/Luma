@@ -703,7 +703,7 @@ struct CompanionPanelView: View {
 
     /// Opens Settings. If a PIN is set, requires the user to verify it first.
     private func openSettingsWithPINCheck() {
-        if PINManager.shared.isPINSet {
+        if PINManager.shared.hasPIN {
             showPINEntryForSettings = true
         } else {
             showSettings = true
