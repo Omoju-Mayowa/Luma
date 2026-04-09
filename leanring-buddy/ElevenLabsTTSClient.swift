@@ -11,6 +11,11 @@ import Foundation
 
 @MainActor
 final class NativeTTSClient: NSObject, AVSpeechSynthesizerDelegate {
+
+    /// Shared singleton used by WalkthroughEngine and other callers that need
+    /// fire-and-forget speech without owning their own synthesizer instance.
+    static let shared = NativeTTSClient()
+
     private let synthesizer = AVSpeechSynthesizer()
 
     /// Continuation used to bridge the delegate callback into async/await.
@@ -23,6 +28,13 @@ final class NativeTTSClient: NSObject, AVSpeechSynthesizerDelegate {
     override init() {
         super.init()
         synthesizer.delegate = self
+    }
+
+    /// Fire-and-forget speech. Wraps the async `speakText` in a Task so callers
+    /// that don't need to await completion can use this without async/await boilerplate.
+    /// Used by WalkthroughEngine for step instructions and nudge messages.
+    func speak(_ text: String) {
+        Task { try? await self.speakText(text) }
     }
 
     /// Speaks `text` using a natural macOS voice. Returns once playback starts.

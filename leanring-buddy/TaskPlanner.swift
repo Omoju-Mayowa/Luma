@@ -3,8 +3,8 @@
 //  leanring-buddy
 //
 //  Uses the AI (via APIClient) to break a user's learning goal into an ordered
-//  list of WalkthroughSteps. Sends a structured JSON prompt and parses the
-//  response. Retries once if the first parse attempt fails due to malformed JSON.
+//  list of WalkthroughSteps. Sends a structured JSON prompt and parses the response
+//  into a WalkthroughPlan. Retries once if the first parse attempt fails.
 //
 
 import Foundation
@@ -14,22 +14,21 @@ import Foundation
 @MainActor
 final class TaskPlanner {
 
-    // Named constant for the retry limit — we only retry once because a second
-    // failure usually means the model genuinely can't handle the goal, and
-    // retrying indefinitely would frustrate the user with a long wait.
+    // We only retry once — a second failure usually means the model genuinely can't
+    // produce valid JSON for this goal, and retrying indefinitely would frustrate the user.
     private let maximumRetryAttempts: Int = 1
 
     // MARK: - Public API
 
-    /// Takes a user goal description and the name of the currently active app,
-    /// asks the AI to break the goal into ordered steps, and returns the parsed steps.
+    /// Takes a user goal and the name of the frontmost app, asks the AI to break
+    /// the goal into ordered steps, and returns the parsed WalkthroughPlan.
     /// Throws if the AI returns invalid JSON after the retry.
-    func planSteps(goal: String, frontmostAppName: String) async throws -> [WalkthroughStep] {
+    func planSteps(goal: String, frontmostAppName: String) async throws -> WalkthroughPlan {
         var lastParseError: Error?
 
         for attemptNumber in 0...maximumRetryAttempts {
             if attemptNumber > 0 {
-                print("TaskPlanner: retrying step generation (attempt \(attemptNumber + 1)) after parse failure")
+                print("[Luma] TaskPlanner: retrying step generation (attempt \(attemptNumber + 1))")
             }
 
             do {
@@ -37,49 +36,62 @@ final class TaskPlanner {
                     goal: goal,
                     frontmostAppName: frontmostAppName
                 )
-                let parsedSteps = try parseStepsFromJSON(rawAIResponseText)
-                return parsedSteps
+                let parsedPlan = try parsePlanFromJSON(rawAIResponseText)
+                return parsedPlan
             } catch {
                 lastParseError = error
-                print("TaskPlanner: step parse failed on attempt \(attemptNumber + 1): \(error.localizedDescription)")
+                print("[Luma] TaskPlanner: parse failed on attempt \(attemptNumber + 1): \(error.localizedDescription)")
             }
         }
 
-        // All attempts exhausted — surface the last error
         throw lastParseError ?? NSError(
             domain: "TaskPlanner",
             code: -1,
-            userInfo: [NSLocalizedDescriptionKey: "Failed to generate walkthrough steps after \(maximumRetryAttempts + 1) attempts."]
+            userInfo: [NSLocalizedDescriptionKey: "Failed to generate walkthrough plan after \(maximumRetryAttempts + 1) attempts."]
         )
     }
 
     // MARK: - AI Request
 
     /// Sends the goal and current app name to the AI with a structured prompt
-    /// that requests a JSON array of steps. Returns the raw response string.
+    /// that requests a JSON WalkthroughPlan. Returns the raw response string.
     private func requestStepsFromAI(goal: String, frontmostAppName: String) async throws -> String {
-        // The system prompt is carefully worded to get the AI to output ONLY valid JSON
-        // with no markdown fences, no explanation — just the raw array. This is important
-        // because parseStepsFromJSON uses substring extraction which breaks if there's extra text.
+        // The system prompt is carefully worded to get strict JSON output only.
+        // elementName must be the EXACT text visible on screen so the AX search
+        // can match it via substring comparison.
         let stepGenerationSystemPrompt = """
-        You are a step-by-step computer task planner. The user wants to learn how to do something on their Mac. Break their goal into clear, ordered steps.
+        You are a macOS task planner. Break the user's goal into clear, ordered steps.
 
-        Return ONLY a valid JSON array. No markdown, no explanation, just the JSON array. Each step:
+        Return ONLY valid JSON in this exact format — no markdown, no explanation:
         {
-          "stepIndex": <number starting at 0>,
-          "instruction": "<clear instruction for what the user should do>",
-          "expectedElement": "<accessibility element title or role, optional — omit if not applicable>",
-          "expectedAction": "<click|focus|valueChange|open, optional — omit if not applicable>",
-          "appBundleID": "<bundle ID if step happens in specific app, optional — omit if not applicable>",
-          "timeoutSeconds": <number, default 30>
+          "totalSteps": <number>,
+          "steps": [
+            {
+              "index": <0-based number>,
+              "instruction": "<exact words to say to the user>",
+              "elementName": "<exact text visible on screen for the UI element to click>",
+              "elementRole": "<AXButton | AXMenuItem | AXMenuBarItem | AXTextField | null>",
+              "appBundleID": "<com.apple.finder etc., or null if not app-specific>",
+              "isMenuBar": <true if the element is in the macOS menu bar, otherwise false>,
+              "timeoutSeconds": 30
+            }
+          ]
         }
+
+        Rules:
+        - elementName must be the EXACT text visible on screen (e.g. "Compress \\"Downloads\\"" not just "Compress")
+        - For Finder: use appBundleID "com.apple.finder"
+        - For menu bar system items (battery, wifi, clock, Control Center): set isMenuBar to true and appBundleID to "com.apple.controlcenter"
+        - For app menu items (File, Edit, View menus): set isMenuBar to true, appBundleID to that app's bundle ID
+        - For Control Center: appBundleID "com.apple.controlcenter"
+        - Be specific — prefer the full visible label over a partial one
+        - If a step has no specific element (e.g. "press a key"), use elementName ""
         """
 
-        let userMessage = "Goal: \(goal)\nCurrent app: \(frontmostAppName)\n\nReturn the JSON array of steps."
+        let userMessage = "Goal: \(goal)\nCurrent frontmost app: \(frontmostAppName)\n\nReturn the JSON plan."
 
-        // We use the non-streaming analyzeImage method here because we need the full
-        // response before we can parse the JSON — partial JSON is not parseable.
-        // images array is empty because step planning is text-only (no screenshot needed).
+        // Use non-streaming analyzeImage with an empty images array — step planning is text-only.
+        // We need the full response before we can parse the JSON.
         let (responseText, _) = try await APIClient.shared.analyzeImage(
             images: [],
             systemPrompt: stepGenerationSystemPrompt,
@@ -92,47 +104,41 @@ final class TaskPlanner {
 
     // MARK: - JSON Parsing
 
-    /// Extracts and decodes the JSON array of steps from the AI's response string.
-    /// Finds the first `[` and last `]` to handle cases where the AI includes
-    /// minor surrounding text despite the prompt instructions.
-    private func parseStepsFromJSON(_ rawJSONString: String) throws -> [WalkthroughStep] {
-        // Find the bounds of the JSON array in the response.
-        // The AI occasionally wraps the JSON in a sentence like "Here are your steps: [...]"
-        // even when instructed not to, so we extract just the array portion.
-        guard let arrayStartIndex = rawJSONString.firstIndex(of: "["),
-              let arrayEndIndex = rawJSONString.lastIndex(of: "]")
+    /// Extracts and decodes the WalkthroughPlan from the AI's response.
+    /// Locates the outermost { } object to handle any surrounding prose the AI might add.
+    private func parsePlanFromJSON(_ rawJSONString: String) throws -> WalkthroughPlan {
+        // Find the bounds of the JSON object. The AI occasionally adds surrounding
+        // sentences despite the prompt, so we extract just the object portion.
+        guard let objectStartIndex = rawJSONString.firstIndex(of: "{"),
+              let objectEndIndex = rawJSONString.lastIndex(of: "}")
         else {
             throw NSError(
                 domain: "TaskPlanner",
                 code: -2,
-                userInfo: [
-                    NSLocalizedDescriptionKey: "AI response did not contain a JSON array. Raw response: \(rawJSONString)"
-                ]
+                userInfo: [NSLocalizedDescriptionKey: "AI response did not contain a JSON object. Raw: \(rawJSONString)"]
             )
         }
 
-        // Extract the JSON substring from the first "[" to the last "]" (inclusive)
-        let jsonSubstring = String(rawJSONString[arrayStartIndex...arrayEndIndex])
+        let jsonSubstring = String(rawJSONString[objectStartIndex...objectEndIndex])
 
         guard let jsonData = jsonSubstring.data(using: .utf8) else {
             throw NSError(
                 domain: "TaskPlanner",
                 code: -3,
-                userInfo: [NSLocalizedDescriptionKey: "Could not encode extracted JSON substring as UTF-8 data."]
+                userInfo: [NSLocalizedDescriptionKey: "Could not encode extracted JSON as UTF-8 data."]
             )
         }
 
         do {
             let decoder = JSONDecoder()
-            let decodedSteps = try decoder.decode([WalkthroughStep].self, from: jsonData)
-            return decodedSteps
+            let decodedPlan = try decoder.decode(WalkthroughPlan.self, from: jsonData)
+            print("[Luma] TaskPlanner: parsed \(decodedPlan.steps.count) step(s) from AI response")
+            return decodedPlan
         } catch {
             throw NSError(
                 domain: "TaskPlanner",
                 code: -4,
-                userInfo: [
-                    NSLocalizedDescriptionKey: "JSON decode failed: \(error.localizedDescription). Raw JSON: \(jsonSubstring)"
-                ]
+                userInfo: [NSLocalizedDescriptionKey: "JSON decode failed: \(error.localizedDescription). Raw JSON: \(jsonSubstring)"]
             )
         }
     }

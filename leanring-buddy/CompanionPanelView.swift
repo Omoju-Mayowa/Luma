@@ -16,6 +16,8 @@ struct CompanionPanelView: View {
     @ObservedObject private var accountManager = AccountManager.shared
     /// Observed directly so the view re-renders when tutorial step/active state changes.
     @ObservedObject private var tutorialManager: PostOnboardingTutorialManager
+    /// Observed so the panel re-renders on every walkthrough state transition.
+    @ObservedObject private var walkthroughEngine = WalkthroughEngine.shared
 
     init(companionManager: CompanionManager) {
         self.companionManager = companionManager
@@ -48,7 +50,16 @@ struct CompanionPanelView: View {
                     .padding(.horizontal, LumaTheme.paddingLG)
             }
 
-            if companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
+            // When a walkthrough is active, replace the normal content area with the
+            // step progress card so it's the user's primary focus.
+            if walkthroughEngine.isRunning {
+                Spacer()
+                    .frame(height: 12)
+
+                walkthroughProgressCard
+                    .padding(.horizontal, LumaTheme.paddingLG)
+
+            } else if companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
                 Spacer()
                     .frame(height: 12)
 
@@ -402,6 +413,183 @@ struct CompanionPanelView: View {
         .id(tutorial.currentStepIndex)
         .transition(.opacity)
         .animation(.easeInOut(duration: 0.25), value: tutorial.isActive)
+    }
+
+    // MARK: - Walkthrough Progress Card
+
+    /// Shown in the panel body whenever a walkthrough is active (planning, confirming, or executing).
+    /// Replaces the normal model picker / shortcut hint row so the walkthrough is the user's focus.
+    @ViewBuilder
+    private var walkthroughProgressCard: some View {
+        switch walkthroughEngine.state {
+
+        case .planning:
+            HStack(spacing: 10) {
+                ProgressView()
+                    .scaleEffect(0.7)
+                Text("Planning steps…")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(LumaTheme.Colors.textSecondary)
+                Spacer()
+            }
+            .padding(.vertical, 8)
+
+        case .confirming(let steps):
+            walkthroughConfirmationCard(steps: steps)
+
+        case .executing(let steps, let currentIndex):
+            walkthroughExecutingCard(steps: steps, currentIndex: currentIndex)
+
+        case .complete:
+            HStack(spacing: 8) {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(LumaTheme.Colors.success)
+                Text("Task complete!")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(LumaTheme.Colors.textPrimary)
+                Spacer()
+            }
+            .padding(.vertical, 8)
+
+        default:
+            EmptyView()
+        }
+    }
+
+    /// Shows the AI-generated step list and a Begin button so the user can review before starting.
+    private func walkthroughConfirmationCard(steps: [WalkthroughStep]) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Ready to begin?")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(LumaTheme.Colors.textPrimary)
+
+            // Step list preview
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(steps) { step in
+                    HStack(alignment: .top, spacing: 6) {
+                        Text("\(step.index + 1).")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(LumaTheme.Colors.textTertiary)
+                            .frame(width: 16, alignment: .trailing)
+                        Text(step.instruction)
+                            .font(.system(size: 11))
+                            .foregroundColor(LumaTheme.Colors.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+
+            HStack {
+                Button("Cancel") {
+                    walkthroughEngine.cancelWalkthrough()
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 12))
+                .foregroundColor(LumaTheme.Colors.textTertiary)
+                .onHover { isHovering in
+                    if isHovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                }
+
+                Spacer()
+
+                Button("Begin →") {
+                    walkthroughEngine.confirmAndBeginWalkthrough()
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(LumaTheme.Colors.accent)
+                .onHover { isHovering in
+                    if isHovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    /// Shows step progress, current instruction, element name, step list, and action buttons.
+    private func walkthroughExecutingCard(steps: [WalkthroughStep], currentIndex: Int) -> some View {
+        let currentStep = steps[currentIndex]
+
+        return VStack(alignment: .leading, spacing: 10) {
+
+            // Progress header row: "Step 2 of 5"  [Cancel]
+            HStack {
+                Text("Step \(currentIndex + 1) of \(steps.count)")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(LumaTheme.Colors.accent)
+
+                Spacer()
+
+                Button("Cancel") {
+                    walkthroughEngine.cancelWalkthrough()
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 11))
+                .foregroundColor(LumaTheme.Colors.textTertiary)
+                .onHover { isHovering in
+                    if isHovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                }
+            }
+
+            // Current instruction — large and prominent
+            Text(currentStep.instruction)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(LumaTheme.Colors.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            // What element to look for
+            if !currentStep.elementName.isEmpty {
+                HStack(spacing: 5) {
+                    Image(systemName: "cursorarrow")
+                        .font(.system(size: 10))
+                        .foregroundColor(LumaTheme.Colors.textTertiary)
+                    Text("Looking for: \(currentStep.elementName)")
+                        .font(.system(size: 11))
+                        .foregroundColor(LumaTheme.Colors.textSecondary)
+                }
+            }
+
+            // Step list — shows ✓ done, → current, ○ upcoming
+            VStack(alignment: .leading, spacing: 3) {
+                ForEach(steps) { step in
+                    let isCompleted = step.index < currentIndex
+                    let isCurrent   = step.index == currentIndex
+
+                    HStack(spacing: 6) {
+                        Group {
+                            if isCompleted {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(LumaTheme.Colors.success)
+                            } else if isCurrent {
+                                Image(systemName: "arrow.right.circle.fill")
+                                    .foregroundColor(LumaTheme.Colors.accent)
+                            } else {
+                                Image(systemName: "circle")
+                                    .foregroundColor(LumaTheme.Colors.textTertiary)
+                            }
+                        }
+                        .font(.system(size: 10))
+
+                        Text(step.instruction)
+                            .font(.system(size: 11))
+                            .foregroundColor(isCurrent ? LumaTheme.Colors.textPrimary : LumaTheme.Colors.textTertiary)
+                            .lineLimit(1)
+                    }
+                }
+            }
+
+            // Skip button — lets the user jump past a step they've already done or don't need
+            Button("Skip this step →") {
+                walkthroughEngine.skipCurrentStep()
+            }
+            .buttonStyle(.plain)
+            .font(.system(size: 11))
+            .foregroundColor(LumaTheme.Colors.textTertiary)
+            .onHover { isHovering in
+                if isHovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+            }
+        }
+        .padding(.vertical, 4)
     }
 
     /// A subtle pulsing outline that draws attention to the Ctrl+Option shortcut

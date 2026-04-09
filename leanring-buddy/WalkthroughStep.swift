@@ -3,85 +3,103 @@
 //  leanring-buddy
 //
 //  Data models for the WalkthroughEngine system. Defines a single step in
-//  a guided walkthrough and the state machine that drives the overall flow.
+//  a guided walkthrough, the JSON wrapper the AI returns, and the state machine
+//  that drives the overall flow.
 //
 
 import Foundation
 
+// MARK: - WalkthroughStep
+
 /// A single step in a guided walkthrough.
-/// Each step tells the user what to do (instruction), optionally specifies
-/// what accessibility element to watch for, what action to expect, and
-/// which app the action should happen in.
+/// Each step tells the user exactly what to do (instruction), names the precise
+/// UI element to find (elementName), and carries optional hints for where to look.
 struct WalkthroughStep: Codable, Identifiable {
     let id: UUID
-    let stepIndex: Int
-    let instruction: String          // What to tell the user (spoken + displayed)
-    let expectedElement: String?     // Accessibility element title/role to watch (optional)
-    let expectedAction: String?      // "click" | "focus" | "valueChange" | "open"
-    let appBundleID: String?         // Which app this step happens in (optional)
-    let timeoutSeconds: Int          // How long before a nudge fires (default 30)
+    let index: Int              // 0-based step number
+    let instruction: String     // What to say to the user (spoken aloud + shown in UI)
+    let elementName: String     // Exact AX element title to find, point at, and watch for
+    let elementRole: String?    // AXButton, AXMenuItem, etc. — optional scoring hint
+    let appBundleID: String?    // Which app this step happens in (nil = frontmost app)
+    let isMenuBar: Bool         // true when the element lives in the macOS menu bar hierarchy
+    let timeoutSeconds: Int     // Seconds before the first nudge fires (default 30)
 
     init(
-        stepIndex: Int,
+        index: Int,
         instruction: String,
-        expectedElement: String? = nil,
-        expectedAction: String? = nil,
+        elementName: String,
+        elementRole: String? = nil,
         appBundleID: String? = nil,
+        isMenuBar: Bool = false,
         timeoutSeconds: Int = 30
     ) {
         self.id = UUID()
-        self.stepIndex = stepIndex
+        self.index = index
         self.instruction = instruction
-        self.expectedElement = expectedElement
-        self.expectedAction = expectedAction
+        self.elementName = elementName
+        self.elementRole = elementRole
         self.appBundleID = appBundleID
+        self.isMenuBar = isMenuBar
         self.timeoutSeconds = timeoutSeconds
     }
 
-    // MARK: - Codable Support
+    // MARK: - Codable
 
-    // Custom coding keys map the JSON field names from the AI response to Swift property names.
-    // The AI returns camelCase keys that match directly, but we need to handle the UUID
-    // specially since the AI doesn't generate UUIDs — we assign them during init.
     enum CodingKeys: String, CodingKey {
         case id
-        case stepIndex
+        case index
         case instruction
-        case expectedElement
-        case expectedAction
+        case elementName
+        case elementRole
         case appBundleID
+        case isMenuBar
         case timeoutSeconds
     }
 
-    // Custom decoder that generates a new UUID when decoding from AI JSON,
-    // since the AI response won't include a UUID field.
+    /// Custom decoder so the AI-generated JSON (which has no UUID) still decodes correctly.
+    /// UUID is always generated fresh — it is never included in the AI response.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.id = (try? container.decode(UUID.self, forKey: .id)) ?? UUID()
-        self.stepIndex = try container.decode(Int.self, forKey: .stepIndex)
-        self.instruction = try container.decode(String.self, forKey: .instruction)
-        self.expectedElement = try container.decodeIfPresent(String.self, forKey: .expectedElement)
-        self.expectedAction = try container.decodeIfPresent(String.self, forKey: .expectedAction)
-        self.appBundleID = try container.decodeIfPresent(String.self, forKey: .appBundleID)
+        self.id             = (try? container.decode(UUID.self, forKey: .id)) ?? UUID()
+        self.index          = try container.decode(Int.self, forKey: .index)
+        self.instruction    = try container.decode(String.self, forKey: .instruction)
+        self.elementName    = try container.decode(String.self, forKey: .elementName)
+        self.elementRole    = try? container.decode(String.self, forKey: .elementRole)
+        self.appBundleID    = try? container.decode(String.self, forKey: .appBundleID)
+        self.isMenuBar      = (try? container.decode(Bool.self, forKey: .isMenuBar)) ?? false
         self.timeoutSeconds = (try? container.decode(Int.self, forKey: .timeoutSeconds)) ?? 30
     }
 }
 
+// MARK: - WalkthroughPlan
+
+/// The full JSON object the AI returns from TaskPlanner.
+/// Wraps the step array with a total count so we can validate the parse.
+struct WalkthroughPlan: Codable {
+    let totalSteps: Int
+    let steps: [WalkthroughStep]
+}
+
+// MARK: - WalkthroughState
+
 /// The state machine that drives the WalkthroughEngine.
 /// Each case represents a distinct phase of the walkthrough lifecycle.
 enum WalkthroughState {
-    /// Not in walkthrough mode — the engine is waiting for activation.
+    /// Not in walkthrough mode — engine is idle.
     case idle
 
-    /// The AI is generating steps for the user's goal.
-    case planning(goal: String)
+    /// AI is generating the step plan.
+    case planning
 
-    /// The AI has returned steps; waiting for the user to confirm before starting.
-    case confirming(goal: String, steps: [WalkthroughStep])
+    /// AI returned steps; showing them to the user to confirm before starting.
+    case confirming([WalkthroughStep])
 
-    /// The walkthrough is in progress. currentIndex is the zero-based step currently active.
-    case active(goal: String, steps: [WalkthroughStep], currentIndex: Int)
+    /// Walkthrough is in progress. currentIndex is the zero-based active step.
+    case executing(steps: [WalkthroughStep], currentIndex: Int)
 
-    /// All steps have been completed successfully.
-    case complete(goal: String)
+    /// All steps completed successfully.
+    case complete
+
+    /// Walkthrough paused (reserved for future use).
+    case paused
 }
