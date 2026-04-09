@@ -165,14 +165,13 @@ final class WalkthroughEngine: ObservableObject {
 
         switch validationResult {
         case .correct:
-            // The user completed this step — advance to the next
+            // The user completed this step — announce success and advance.
+            // "Good." is spoken here; the next step's instruction is spoken by
+            // announceStepStarted inside advanceToStep so there's no gap between them.
             let nextStepIndex = currentIndex + 1
-            let nextStepInstruction: String? = nextStepIndex < steps.count
-                ? steps[nextStepIndex].instruction
-                : nil
 
             Task {
-                await feedbackEngine.announceStepCorrect(nextInstruction: nextStepInstruction)
+                await feedbackEngine.announceStepCorrect()
             }
 
             if nextStepIndex < steps.count {
@@ -221,6 +220,17 @@ final class WalkthroughEngine: ObservableObject {
         feedbackEngine.resetNudgeCount()
 
         let stepToActivate = steps[stepIndex]
+
+        // Speak the step instruction immediately so the user knows what to do
+        // without waiting for the 30-second timeout nudge to fire. The step number
+        // is 1-based in the announcement so it matches how humans count steps.
+        let humanReadableStepNumber = stepToActivate.stepIndex + 1
+        Task {
+            await feedbackEngine.announceStepStarted(
+                instruction: stepToActivate.instruction,
+                humanReadableStepNumber: humanReadableStepNumber
+            )
+        }
 
         // Point the cursor at the expected element if the step specifies one.
         // We fire this as a background task so it doesn't block the state transition.

@@ -2,10 +2,20 @@
 //  CursorGuide.swift
 //  leanring-buddy
 //
-//  Visual guidance system that points the Luma cursor at a specific UI element
-//  during a walkthrough step. Uses the macOS Accessibility API to find the
-//  element's on-screen position, then posts a NotificationCenter notification
-//  so OverlayWindowManager can animate the cursor to that point.
+//  Points the OS cursor and the Luma overlay cursor at a named UI element.
+//
+//  Coordinate system notes (the source of the original bug):
+//  ─────────────────────────────────────────────────────────
+//  The macOS Accessibility API returns AXFrame values in AppKit/Cocoa
+//  screen coordinates: origin at the BOTTOM-LEFT of the primary display,
+//  Y increases upward.
+//
+//  CGDisplayMoveCursorToPoint and CGEvent use Quartz/CoreGraphics coordinates:
+//  origin at the TOP-LEFT of the primary display, Y increases downward.
+//
+//  These must be explicitly converted before moving the cursor. Passing an
+//  AX frame center directly to CGDisplayMoveCursorToPoint will place the
+//  cursor at the vertically-mirrored wrong position — which was the original bug.
 //
 
 import AppKit
@@ -18,195 +28,169 @@ import Foundation
 final class CursorGuide {
     static let shared = CursorGuide()
 
-    // Notification name used to instruct the overlay to animate the cursor to a point.
-    // OverlayWindowManager observes this notification and triggers the bezier arc animation.
+    // Notification posted so OverlayWindowManager animates the Luma cursor to the target.
     static let pointAtNotificationName = NSNotification.Name("lumaWalkthroughPointAt")
 
-    // Notification name to clear any active pointer guidance from the overlay.
+    // Notification to clear any active pointer guidance from the overlay.
     static let clearPointerNotificationName = NSNotification.Name("lumaWalkthroughClearPointer")
 
-    // The userInfo key for the target CGPoint wrapped in NSValue.
+    // userInfo key for the target CGPoint (wrapped in NSValue, in AppKit coordinates).
     static let targetPointUserInfoKey = "targetPoint"
 
     private init() {}
 
     // MARK: - Public API
 
-    /// Searches for a UI element with the given title and points the cursor at it.
-    /// If `bundleID` is provided, searches only in that app; otherwise uses the frontmost app.
-    /// Does nothing (logs a warning) if the element cannot be found.
+    /// Searches the accessibility tree for a UI element whose title, description,
+    /// or value contains `elementTitle` and moves the cursor to its center.
+    ///
+    /// Search strategy:
+    /// 1. If `bundleID` is given, search that app's tree first.
+    /// 2. Always also search the system-wide AX tree so elements in
+    ///    non-app contexts (menu bar, system UI) are reachable.
+    /// 3. All candidates are collected and logged; the best match is chosen.
     func pointAtElement(withTitle elementTitle: String, inApp bundleID: String?) async {
-        print("CursorGuide: pointAtElement called — title='\(elementTitle)' bundleID='\(bundleID ?? "frontmost")'")
+        print("[Luma] CursorGuide.pointAt() called — target='\(elementTitle)' bundleID='\(bundleID ?? "any")'")
 
-        // 1. Accessibility permission is required to read AXFrame values.
-        //    Without it every AXUIElementCopyAttributeValue call returns .apiDisabled.
-        let isAccessibilityTrusted = AXIsProcessTrusted()
-        print("CursorGuide: AXIsProcessTrusted() = \(isAccessibilityTrusted)")
-        guard isAccessibilityTrusted else {
-            print("CursorGuide: aborting — Accessibility permission not granted")
+        guard AXIsProcessTrusted() else {
+            print("[Luma] CursorGuide: aborting — Accessibility permission not granted. Enable in System Settings → Privacy → Accessibility.")
             return
         }
 
-        // 2. CGDisplayMoveCursorToPoint requires the app to have been granted
-        //    Post-Event access. CGRequestPostEventAccess() prompts the user once
-        //    if needed; after that it's a no-op. This must be called before the
-        //    first cursor move attempt or the call will silently fail.
+        // CGDisplayMoveCursorToPoint requires Post-Event access. Call once before
+        // the first move attempt; subsequent calls are no-ops.
         let postEventAccessGranted = CGRequestPostEventAccess()
-        print("CursorGuide: CGRequestPostEventAccess() = \(postEventAccessGranted)")
+        print("[Luma] CursorGuide: CGRequestPostEventAccess = \(postEventAccessGranted)")
 
-        // Resolve which running application to search in
-        let targetRunningApp: NSRunningApplication?
+        // --- Element search ---
 
-        if let bundleID = bundleID {
-            // The step specifies a particular app — use the first running instance of it
-            targetRunningApp = NSRunningApplication
-                .runningApplications(withBundleIdentifier: bundleID)
-                .first
-        } else {
-            // No app specified — search in whatever app is currently frontmost
-            targetRunningApp = NSWorkspace.shared.frontmostApplication
+        var allCandidates: [AXCandidateElement] = []
+
+        // 1. Search the target app's tree if a bundleID was provided
+        if let bundleID = bundleID,
+           let runningApp = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first {
+            print("[Luma] CursorGuide: searching app '\(runningApp.localizedName ?? bundleID)' (PID \(runningApp.processIdentifier))")
+            let appRoot = AXUIElementCreateApplication(runningApp.processIdentifier)
+            let appCandidates = collectAllMatchingElements(
+                searchTitle: elementTitle,
+                startingAt: appRoot,
+                depthLimit: 10
+            )
+            allCandidates.append(contentsOf: appCandidates)
         }
 
-        guard let runningApp = targetRunningApp else {
-            print("CursorGuide: target app not found for bundle ID '\(bundleID ?? "frontmost")'")
+        // 2. Always also search system-wide (catches menu bar items, system panels, etc.)
+        let systemRoot = AXUIElementCreateSystemWide()
+        let systemCandidates = collectAllMatchingElements(
+            searchTitle: elementTitle,
+            startingAt: systemRoot,
+            depthLimit: 8  // Shallower limit for system-wide to avoid hanging
+        )
+        allCandidates.append(contentsOf: systemCandidates)
+
+        // 3. If no bundleID given, also search the frontmost app explicitly
+        if bundleID == nil, let frontApp = NSWorkspace.shared.frontmostApplication {
+            let frontRoot = AXUIElementCreateApplication(frontApp.processIdentifier)
+            let frontCandidates = collectAllMatchingElements(
+                searchTitle: elementTitle,
+                startingAt: frontRoot,
+                depthLimit: 10
+            )
+            // Deduplicate — frontmost app elements may already appear in system-wide results
+            for candidate in frontCandidates {
+                let isDuplicate = allCandidates.contains { existing in
+                    existing.axFrame == candidate.axFrame && existing.title == candidate.title
+                }
+                if !isDuplicate {
+                    allCandidates.append(candidate)
+                }
+            }
+        }
+
+        // Log every candidate so we can see exactly what was found in the console
+        print("[Luma] CursorGuide: found \(allCandidates.count) candidate(s) for '\(elementTitle)'")
+        for (index, candidate) in allCandidates.enumerated() {
+            print("[Luma] Found element[\(index)]: title='\(candidate.title)' role='\(candidate.role)' frame(AX)=\(candidate.axFrame)")
+        }
+
+        guard !allCandidates.isEmpty else {
+            print("[Luma] CursorGuide: no element matching '\(elementTitle)' found anywhere")
             return
         }
 
-        print("CursorGuide: searching in app '\(runningApp.localizedName ?? "unknown")' (PID \(runningApp.processIdentifier))")
-        let appPID = runningApp.processIdentifier
+        // Pick the best match: exact title match preferred, otherwise highest score, then largest area
+        let bestCandidate = chooseBestCandidate(from: allCandidates, searchTitle: elementTitle)
+        print("[Luma] CursorGuide: selected element '\(bestCandidate.title)' role='\(bestCandidate.role)'")
 
-        // Create the root AXUIElement for the target app.
-        // AXUIElementCreateApplication gives us the top-level accessibility object
-        // for an app, from which we can walk down to any child element.
-        let appAXElement = AXUIElementCreateApplication(appPID)
+        // --- Coordinate conversion ---
+        //
+        // AX API frames are in AppKit screen coordinates (Y=0 at bottom-left of primary screen,
+        // Y increases upward). CGDisplayMoveCursorToPoint needs Quartz/CG coordinates
+        // (Y=0 at top-left, Y increases downward). We must flip Y using the containing screen's height.
 
-        // Get the app's focused window — we search within the focused window rather
-        // than the entire app tree because it's much faster and users typically
-        // want guidance for elements visible in their current context.
-        var focusedWindowValue: CFTypeRef?
-        let windowResult = AXUIElementCopyAttributeValue(
-            appAXElement,
-            kAXFocusedWindowAttribute as CFString,
-            &focusedWindowValue
+        let axFrame = bestCandidate.axFrame
+
+        // Find which NSScreen contains this element (AppKit frame, bottom-left origin)
+        let containingScreen = NSScreen.screens.first { screen in
+            screen.frame.contains(CGPoint(x: axFrame.midX, y: axFrame.midY))
+        } ?? NSScreen.main
+
+        let screenHeightForConversion = containingScreen?.frame.height ?? NSScreen.main?.frame.height ?? 0
+
+        // Convert AppKit frame → Quartz/CG frame (flip Y axis)
+        let screenFrameInCGCoordinates = CGRect(
+            x: axFrame.origin.x,
+            y: screenHeightForConversion - axFrame.origin.y - axFrame.height,
+            width: axFrame.width,
+            height: axFrame.height
         )
 
-        let searchRootElement: AXUIElement
-        if windowResult == .success, let focusedWindowCF = focusedWindowValue {
-            // We have a focused window — search within it
-            searchRootElement = focusedWindowCF as! AXUIElement
-            print("CursorGuide: searching within focused window")
-        } else {
-            // No focused window found — fall back to the app root element.
-            // This handles apps like Finder that sometimes don't report a focused window.
-            searchRootElement = appAXElement
-            print("CursorGuide: no focused window (result=\(windowResult.rawValue)) — falling back to app root")
-        }
-
-        // Recursively search the element tree for the target element
-        guard let foundElement = findAXElement(
-            withTitleContaining: elementTitle,
-            startingAt: searchRootElement,
-            depthLimit: 8  // Limit recursion depth to avoid hanging on deeply nested UIs
-        ) else {
-            print("CursorGuide: element with title '\(elementTitle)' not found in \(runningApp.localizedName ?? "app")")
-            return
-        }
-
-        print("CursorGuide: found element matching '\(elementTitle)'")
-
-        // Get the element's on-screen frame from the Accessibility API.
-        // AXFrame returns a CGRect in screen coordinates with top-left origin (Quartz/CG convention).
-        var frameValue: CFTypeRef?
-        let frameResult = AXUIElementCopyAttributeValue(
-            foundElement,
-            "AXFrame" as CFString,
-            &frameValue
+        // The point we'll move the cursor to (Quartz/CG coordinates)
+        let cursorTargetInCGCoordinates = CGPoint(
+            x: screenFrameInCGCoordinates.midX,
+            y: screenFrameInCGCoordinates.midY
         )
 
-        guard frameResult == .success, let frameCF = frameValue else {
-            print("CursorGuide: could not read AXFrame for element '\(elementTitle)' — AX result=\(frameResult.rawValue)")
-            return
-        }
+        // Verification logs — these let us confirm the math is correct in the console
+        print("[Luma] Element frame (AX/AppKit): \(axFrame)")
+        print("[Luma] Element frame (CG/Quartz): \(screenFrameInCGCoordinates)")
+        print("[Luma] Moving cursor to: \(cursorTargetInCGCoordinates)")
 
-        // Extract the CGRect from the CFTypeRef.
-        // AXFrame is returned as an AXValueRef wrapping a CGRect — we must use
-        // AXValueGetValue rather than a simple cast.
-        var elementFrameInCGCoordinates = CGRect.zero
-        let axFrameValue = frameCF as! AXValue
-        AXValueGetValue(axFrameValue, .cgRect, &elementFrameInCGCoordinates)
+        // --- Cursor movement ---
 
-        // 4. Log the raw frame so we can confirm it isn't zero/garbage.
-        print("CursorGuide: AXFrame = \(elementFrameInCGCoordinates)")
+        // Primary: CGDisplayMoveCursorToPoint — direct and reliable on most macOS versions
+        let displayID = findCGDisplayContainingPoint(cursorTargetInCGCoordinates)
+        let moveResult = CGDisplayMoveCursorToPoint(displayID, cursorTargetInCGCoordinates)
+        print("[Luma] CursorGuide: CGDisplayMoveCursorToPoint → \(moveResult == .success ? "success" : "error(\(moveResult.rawValue))")")
 
-        guard !elementFrameInCGCoordinates.isNull && elementFrameInCGCoordinates != .zero else {
-            print("CursorGuide: AXFrame is zero/null — cannot point cursor at '\(elementTitle)'")
-            return
-        }
-
-        // The center of the element in CG coordinates (top-left origin, Quartz convention).
-        // This is what CGDisplayMoveCursorToPoint expects.
-        let elementCenterInCGCoordinates = CGPoint(
-            x: elementFrameInCGCoordinates.midX,
-            y: elementFrameInCGCoordinates.midY
-        )
-
-        // 5. Move the real OS cursor to the element center.
-        //    Try CGDisplayMoveCursorToPoint first — it's the direct approach.
-        //    On macOS 14+ it can fail silently when Post-Event access is denied,
-        //    so we always follow up with a CGEvent post as a secondary mechanism.
-        //    The CGEvent approach moves the cursor at the HID level and works as long
-        //    as Accessibility permission is granted (already confirmed above).
-        let targetDisplayID = findDisplayContainingPoint(elementCenterInCGCoordinates)
-        let cursorMoveResult = CGDisplayMoveCursorToPoint(targetDisplayID, elementCenterInCGCoordinates)
-        print("CursorGuide: CGDisplayMoveCursorToPoint → \(cursorMoveResult == .success ? "success" : "error(\(cursorMoveResult.rawValue))")")
-
-        // CGEvent fallback — posts a mouseMoved event at the target point which
-        // causes the OS to warp the cursor even when CGDisplayMoveCursorToPoint
-        // is blocked by entitlement restrictions on macOS 14+.
-        let mouseMoveEvent = CGEvent(
+        // Fallback: CGEvent mouseMoved — works via the HID layer even when
+        // CGDisplayMoveCursorToPoint is blocked on macOS 14+ due to entitlements
+        if let mouseMoveEvent = CGEvent(
             mouseEventSource: nil,
             mouseType: .mouseMoved,
-            mouseCursorPosition: elementCenterInCGCoordinates,
+            mouseCursorPosition: cursorTargetInCGCoordinates,
             mouseButton: .left
-        )
-        if let mouseMoveEvent = mouseMoveEvent {
+        ) {
             mouseMoveEvent.post(tap: .cghidEventTap)
-            print("CursorGuide: CGEvent mouseMoved posted at \(elementCenterInCGCoordinates)")
+            print("[Luma] CursorGuide: CGEvent mouseMoved posted at \(cursorTargetInCGCoordinates)")
         } else {
-            print("CursorGuide: CGEvent creation failed — cursor may not have moved")
+            print("[Luma] CursorGuide: CGEvent creation failed")
         }
 
-        // CG/Quartz screen coordinates have their origin at the top-left of the main screen.
-        // AppKit/NSWindow coordinates have their origin at the bottom-left.
-        // We need to convert so the overlay (which uses AppKit coordinates) positions correctly.
-        let targetPointInAppKitCoordinates = convertCGPointToAppKitCoordinates(
-            cgPoint: elementCenterInCGCoordinates
-        )
+        // --- Notify the overlay ---
+        //
+        // The overlay uses AppKit coordinates (bottom-left origin). The AX frame is already
+        // in AppKit coordinates, so we use the center directly without re-converting.
+        let overlayTargetInAppKitCoordinates = CGPoint(x: axFrame.midX, y: axFrame.midY)
 
-        // Post the notification so OverlayWindowManager can animate the Luma cursor overlay
-        // to the same target point.
         NotificationCenter.default.post(
             name: CursorGuide.pointAtNotificationName,
             object: nil,
             userInfo: [
-                CursorGuide.targetPointUserInfoKey: NSValue(point: targetPointInAppKitCoordinates)
+                CursorGuide.targetPointUserInfoKey: NSValue(point: overlayTargetInAppKitCoordinates)
             ]
         )
-        print("CursorGuide: posted pointAt notification at AppKit point \(targetPointInAppKitCoordinates)")
-    }
-
-    /// Returns the CGDirectDisplayID of the display that contains the given CG-coordinate point.
-    /// Falls back to the main display if the point is not on any known display.
-    private func findDisplayContainingPoint(_ cgPoint: CGPoint) -> CGDirectDisplayID {
-        var displayCount: UInt32 = 0
-        CGGetDisplaysWithPoint(cgPoint, 0, nil, &displayCount)
-
-        guard displayCount > 0 else { return CGMainDisplayID() }
-
-        var displayIDs = [CGDirectDisplayID](repeating: 0, count: Int(displayCount))
-        CGGetDisplaysWithPoint(cgPoint, displayCount, &displayIDs, nil)
-
-        return displayIDs.first ?? CGMainDisplayID()
+        print("[Luma] CursorGuide: overlay notified at AppKit point \(overlayTargetInAppKitCoordinates)")
     }
 
     /// Posts the clear-pointer notification so the overlay removes any active cursor guidance.
@@ -217,103 +201,144 @@ final class CursorGuide {
         )
     }
 
-    // MARK: - AX Element Search
+    // MARK: - Element Search
 
-    /// Recursively searches an AX element tree for an element whose AXTitle or
-    /// AXDescription contains the target string (case-insensitive substring match).
-    /// Returns the first match found, or nil if no match exists within the depth limit.
-    ///
-    /// We use a depth limit rather than searching the entire tree because accessibility
-    /// trees for complex apps (e.g. Xcode, browsers) can have hundreds of elements,
-    /// and a deep search without a limit would be too slow to feel responsive.
-    private func findAXElement(
-        withTitleContaining targetTitle: String,
+    /// A candidate element found during AX tree search.
+    private struct AXCandidateElement {
+        let element: AXUIElement
+        let title: String       // The matched attribute value (title, description, or value)
+        let role: String        // AXRole for logging
+        let axFrame: CGRect     // Frame in AppKit/AX coordinates (bottom-left origin)
+        let matchScore: Int     // Higher = better match (exact > prefix > substring)
+    }
+
+    /// Recursively walks an AX element tree and collects all elements whose
+    /// AXTitle, AXDescription, or AXValue contains `searchTitle` (case-insensitive).
+    /// Returns all matches found within `depthLimit` levels.
+    private func collectAllMatchingElements(
+        searchTitle: String,
         startingAt rootElement: AXUIElement,
         depthLimit: Int
-    ) -> AXUIElement? {
-        guard depthLimit > 0 else { return nil }
-
-        // Check the current element's AXTitle and AXDescription attributes
-        let currentElementTitle = extractAttributeString(
-            from: rootElement,
-            attribute: kAXTitleAttribute
+    ) -> [AXCandidateElement] {
+        var foundCandidates: [AXCandidateElement] = []
+        collectMatchingElementsRecursive(
+            searchTitle: searchTitle,
+            element: rootElement,
+            depthRemaining: depthLimit,
+            results: &foundCandidates
         )
-        let currentElementDescription = extractAttributeString(
-            from: rootElement,
-            attribute: kAXDescriptionAttribute
-        )
+        return foundCandidates
+    }
 
-        let titleMatches = currentElementTitle?.localizedCaseInsensitiveContains(targetTitle) ?? false
-        let descriptionMatches = currentElementDescription?.localizedCaseInsensitiveContains(targetTitle) ?? false
+    private func collectMatchingElementsRecursive(
+        searchTitle: String,
+        element: AXUIElement,
+        depthRemaining: Int,
+        results: inout [AXCandidateElement]
+    ) {
+        guard depthRemaining > 0 else { return }
 
-        if titleMatches || descriptionMatches {
-            return rootElement
-        }
+        // Check AXTitle, AXDescription, and AXValue — any of them may contain the target string
+        let titleValue       = extractAttributeString(from: element, attribute: kAXTitleAttribute)
+        let descriptionValue = extractAttributeString(from: element, attribute: kAXDescriptionAttribute)
+        let valueString      = extractAttributeString(from: element, attribute: kAXValueAttribute)
+        let roleValue        = extractAttributeString(from: element, attribute: kAXRoleAttribute) ?? "unknown"
 
-        // This element doesn't match — recurse into its children
-        var childrenValue: CFTypeRef?
-        let childrenResult = AXUIElementCopyAttributeValue(
-            rootElement,
-            kAXChildrenAttribute as CFString,
-            &childrenValue
-        )
+        // The best matching string among the three attributes
+        let matchedString = [titleValue, descriptionValue, valueString]
+            .compactMap { $0 }
+            .first { $0.localizedCaseInsensitiveContains(searchTitle) }
 
-        guard childrenResult == .success,
-              let childrenCF = childrenValue,
-              CFGetTypeID(childrenCF) == CFArrayGetTypeID()
-        else {
-            return nil
-        }
+        if let matchedText = matchedString {
+            // Read the element's AX frame (in AppKit/bottom-left-origin coordinates)
+            var axFrameRect = CGRect.zero
+            var frameValueRef: CFTypeRef?
+            if AXUIElementCopyAttributeValue(element, "AXFrame" as CFString, &frameValueRef) == .success,
+               let frameRef = frameValueRef {
+                AXValueGetValue(frameRef as! AXValue, .cgRect, &axFrameRect)
+            }
 
-        let childrenArray = childrenCF as! [AXUIElement]
-
-        for childElement in childrenArray {
-            if let foundInChild = findAXElement(
-                withTitleContaining: targetTitle,
-                startingAt: childElement,
-                depthLimit: depthLimit - 1
-            ) {
-                return foundInChild
+            // Only include elements with a valid, non-zero frame (invisible/zero-size elements can't be pointed at)
+            if axFrameRect != .zero && !axFrameRect.isNull && axFrameRect.width > 0 && axFrameRect.height > 0 {
+                let score = matchScore(matchedText: matchedText, searchTitle: searchTitle)
+                let candidate = AXCandidateElement(
+                    element: element,
+                    title: matchedText,
+                    role: roleValue,
+                    axFrame: axFrameRect,
+                    matchScore: score
+                )
+                results.append(candidate)
             }
         }
 
-        return nil
+        // Recurse into children
+        var childrenRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenRef) == .success,
+              let childrenCF = childrenRef,
+              CFGetTypeID(childrenCF) == CFArrayGetTypeID()
+        else { return }
+
+        let childrenArray = childrenCF as! [AXUIElement]
+        for child in childrenArray {
+            collectMatchingElementsRecursive(
+                searchTitle: searchTitle,
+                element: child,
+                depthRemaining: depthRemaining - 1,
+                results: &results
+            )
+        }
     }
 
-    // MARK: - Coordinate Conversion
+    /// Scores how well `matchedText` matches `searchTitle`.
+    /// Exact match scores highest, then starts-with, then contains.
+    private func matchScore(matchedText: String, searchTitle: String) -> Int {
+        let lowerMatched = matchedText.lowercased()
+        let lowerSearch  = searchTitle.lowercased()
+        if lowerMatched == lowerSearch            { return 3 }  // Exact
+        if lowerMatched.hasPrefix(lowerSearch)   { return 2 }  // Starts with
+        return 1                                                // Substring
+    }
 
-    /// Converts a CGPoint in Quartz screen coordinates (top-left origin on main screen)
-    /// to an NSPoint in AppKit screen coordinates (bottom-left origin on main screen).
-    ///
-    /// This conversion is necessary because the overlay windows use AppKit coordinate space
-    /// but the Accessibility API returns coordinates in Quartz (CG) space.
-    private func convertCGPointToAppKitCoordinates(cgPoint: CGPoint) -> NSPoint {
-        guard let mainScreenFrame = NSScreen.main?.frame else {
-            // If we can't get the main screen frame, return the point unchanged
-            // rather than crashing — the cursor may be misplaced but won't error.
-            return cgPoint
-        }
+    /// Picks the best candidate from a list: highest match score wins,
+    /// ties broken by largest frame area (most prominent visible element).
+    private func chooseBestCandidate(
+        from candidates: [AXCandidateElement],
+        searchTitle: String
+    ) -> AXCandidateElement {
+        return candidates.max { leftCandidate, rightCandidate in
+            if leftCandidate.matchScore != rightCandidate.matchScore {
+                return leftCandidate.matchScore < rightCandidate.matchScore
+            }
+            // Same score — prefer the larger (more prominent) element
+            let leftArea  = leftCandidate.axFrame.width  * leftCandidate.axFrame.height
+            let rightArea = rightCandidate.axFrame.width * rightCandidate.axFrame.height
+            return leftArea < rightArea
+        }!
+    }
 
-        // Quartz origin: top-left corner of the main screen
-        // AppKit origin: bottom-left corner of the main screen
-        // Conversion: flip the Y axis using the main screen height
-        let appKitY = mainScreenFrame.maxY - cgPoint.y
+    // MARK: - Display Helpers
 
-        return NSPoint(x: cgPoint.x, y: appKitY)
+    /// Returns the CGDirectDisplayID of the display that contains `cgPoint`
+    /// (in Quartz/CG coordinates). Falls back to the main display.
+    private func findCGDisplayContainingPoint(_ cgPoint: CGPoint) -> CGDirectDisplayID {
+        var displayCount: UInt32 = 0
+        CGGetDisplaysWithPoint(cgPoint, 0, nil, &displayCount)
+        guard displayCount > 0 else { return CGMainDisplayID() }
+
+        var displayIDs = [CGDirectDisplayID](repeating: 0, count: Int(displayCount))
+        CGGetDisplaysWithPoint(cgPoint, displayCount, &displayIDs, nil)
+        return displayIDs.first ?? CGMainDisplayID()
     }
 
     // MARK: - AX Attribute Helpers
 
-    /// Reads a string attribute from an AXUIElement.
-    /// Returns nil if the attribute doesn't exist or is not a string type.
+    /// Reads a string attribute from an AXUIElement. Returns nil if absent or not a string.
     private func extractAttributeString(from element: AXUIElement, attribute: String) -> String? {
         var rawValue: CFTypeRef?
         let result = AXUIElementCopyAttributeValue(element, attribute as CFString, &rawValue)
         guard result == .success, let value = rawValue else { return nil }
-
-        if CFGetTypeID(value) == CFStringGetTypeID() {
-            return (value as! CFString) as String
-        }
-        return nil
+        guard CFGetTypeID(value) == CFStringGetTypeID() else { return nil }
+        return (value as! CFString) as String
     }
 }

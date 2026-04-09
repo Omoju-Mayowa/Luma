@@ -31,22 +31,23 @@ final class FeedbackEngine {
 
     // MARK: - Step Events
 
+    /// Called when a step first becomes active — speaks the instruction so the
+    /// user knows what to do without waiting for a timeout nudge.
+    /// Prefixes with the step number so the user can track their progress.
+    func announceStepStarted(instruction: String, humanReadableStepNumber: Int) async {
+        let stepAnnouncementText = "Step \(humanReadableStepNumber). \(instruction)"
+        try? await ttsClient.speakText(stepAnnouncementText)
+    }
+
     /// Called when the user completes the current step correctly.
-    /// Speaks a short positive confirmation, then speaks the next instruction (if any).
-    func announceStepCorrect(nextInstruction: String?) async {
-        // "Good." is deliberately brief — we don't want to be patronising
-        // or slow down the pace of the walkthrough with long praise.
+    /// Speaks a short positive confirmation. The next step's instruction is
+    /// announced separately by `announceStepStarted` when `advanceToStep` fires.
+    func announceStepCorrect() async {
+        // "Good." is deliberately brief — patronising praise slows the walkthrough
+        // and "Nice job!" gets old fast. The next instruction arrives right after
+        // via `announceStepStarted`, which gives the user momentum to keep going.
         try? await ttsClient.speakText("Good.")
-
-        // Wait for "Good." to finish before speaking the next instruction
-        // so the two utterances don't overlap.
         await ttsClient.waitUntilFinished()
-
-        if let nextInstruction = nextInstruction {
-            // Small breathing room between the confirmation and the next instruction
-            try? await Task.sleep(nanoseconds: 300_000_000) // 0.3 seconds
-            try? await ttsClient.speakText(nextInstruction)
-        }
     }
 
     /// Called when the user performed an action that doesn't match the current step.

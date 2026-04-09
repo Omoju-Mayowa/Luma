@@ -232,7 +232,7 @@ final class APIClient {
 
         let requestBody: [String: Any] = [
             "model": modelID,
-            "max_tokens": 150,
+            "max_tokens": 400,
             "stream": shouldStream,
             "system": systemPrompt,
             "messages": messages
@@ -290,7 +290,7 @@ final class APIClient {
 
         let requestBody: [String: Any] = [
             "model": modelID,
-            "max_tokens": 150,
+            "max_tokens": 400,
             "stream": shouldStream,
             "messages": messages
         ]

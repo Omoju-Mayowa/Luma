@@ -48,6 +48,7 @@ struct SettingsPanelView: View {
                 .tag(3)
         }
         .tabViewStyle(.automatic)
+        .padding(.top, LumaTheme.paddingXL)
         .frame(width: 480, height: 540)
         .background(LumaTheme.Colors.background)
         .toolbar {
