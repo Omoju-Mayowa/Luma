@@ -27,7 +27,13 @@ final class AssemblyAIStreamingTranscriptionProvider: BuddyTranscriptionProvider
     let displayName = "AssemblyAI"
     let requiresSpeechRecognitionPermission = false
 
-    var isConfigured: Bool { true }
+    /// Returns true only when an AssemblyAI API key is actually present in the
+    /// Keychain. Hardcoding `true` here was causing the factory to always select
+    /// AssemblyAI even without a key, resulting in a silent token-fetch failure.
+    var isConfigured: Bool {
+        (try? KeychainManager.load(key: Self.assemblyAIKeychainKey)) != nil
+    }
+
     var unavailableExplanation: String? { nil }
 
     /// Single long-lived URLSession shared across all streaming sessions.

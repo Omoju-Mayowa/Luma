@@ -36,6 +36,24 @@ final class CursorGuide {
     /// If `bundleID` is provided, searches only in that app; otherwise uses the frontmost app.
     /// Does nothing (logs a warning) if the element cannot be found.
     func pointAtElement(withTitle elementTitle: String, inApp bundleID: String?) async {
+        print("CursorGuide: pointAtElement called — title='\(elementTitle)' bundleID='\(bundleID ?? "frontmost")'")
+
+        // 1. Accessibility permission is required to read AXFrame values.
+        //    Without it every AXUIElementCopyAttributeValue call returns .apiDisabled.
+        let isAccessibilityTrusted = AXIsProcessTrusted()
+        print("CursorGuide: AXIsProcessTrusted() = \(isAccessibilityTrusted)")
+        guard isAccessibilityTrusted else {
+            print("CursorGuide: aborting — Accessibility permission not granted")
+            return
+        }
+
+        // 2. CGDisplayMoveCursorToPoint requires the app to have been granted
+        //    Post-Event access. CGRequestPostEventAccess() prompts the user once
+        //    if needed; after that it's a no-op. This must be called before the
+        //    first cursor move attempt or the call will silently fail.
+        let postEventAccessGranted = CGRequestPostEventAccess()
+        print("CursorGuide: CGRequestPostEventAccess() = \(postEventAccessGranted)")
+
         // Resolve which running application to search in
         let targetRunningApp: NSRunningApplication?
 
@@ -54,6 +72,7 @@ final class CursorGuide {
             return
         }
 
+        print("CursorGuide: searching in app '\(runningApp.localizedName ?? "unknown")' (PID \(runningApp.processIdentifier))")
         let appPID = runningApp.processIdentifier
 
         // Create the root AXUIElement for the target app.
@@ -75,10 +94,12 @@ final class CursorGuide {
         if windowResult == .success, let focusedWindowCF = focusedWindowValue {
             // We have a focused window — search within it
             searchRootElement = focusedWindowCF as! AXUIElement
+            print("CursorGuide: searching within focused window")
         } else {
             // No focused window found — fall back to the app root element.
             // This handles apps like Finder that sometimes don't report a focused window.
             searchRootElement = appAXElement
+            print("CursorGuide: no focused window (result=\(windowResult.rawValue)) — falling back to app root")
         }
 
         // Recursively search the element tree for the target element
@@ -91,6 +112,8 @@ final class CursorGuide {
             return
         }
 
+        print("CursorGuide: found element matching '\(elementTitle)'")
+
         // Get the element's on-screen frame from the Accessibility API.
         // AXFrame returns a CGRect in screen coordinates with top-left origin (Quartz/CG convention).
         var frameValue: CFTypeRef?
@@ -101,7 +124,7 @@ final class CursorGuide {
         )
 
         guard frameResult == .success, let frameCF = frameValue else {
-            print("CursorGuide: could not read AXFrame for element '\(elementTitle)'")
+            print("CursorGuide: could not read AXFrame for element '\(elementTitle)' — AX result=\(frameResult.rawValue)")
             return
         }
 
@@ -112,19 +135,56 @@ final class CursorGuide {
         let axFrameValue = frameCF as! AXValue
         AXValueGetValue(axFrameValue, .cgRect, &elementFrameInCGCoordinates)
 
+        // 4. Log the raw frame so we can confirm it isn't zero/garbage.
+        print("CursorGuide: AXFrame = \(elementFrameInCGCoordinates)")
+
+        guard !elementFrameInCGCoordinates.isNull && elementFrameInCGCoordinates != .zero else {
+            print("CursorGuide: AXFrame is zero/null — cannot point cursor at '\(elementTitle)'")
+            return
+        }
+
+        // The center of the element in CG coordinates (top-left origin, Quartz convention).
+        // This is what CGDisplayMoveCursorToPoint expects.
+        let elementCenterInCGCoordinates = CGPoint(
+            x: elementFrameInCGCoordinates.midX,
+            y: elementFrameInCGCoordinates.midY
+        )
+
+        // 5. Move the real OS cursor to the element center.
+        //    Try CGDisplayMoveCursorToPoint first — it's the direct approach.
+        //    On macOS 14+ it can fail silently when Post-Event access is denied,
+        //    so we always follow up with a CGEvent post as a secondary mechanism.
+        //    The CGEvent approach moves the cursor at the HID level and works as long
+        //    as Accessibility permission is granted (already confirmed above).
+        let targetDisplayID = findDisplayContainingPoint(elementCenterInCGCoordinates)
+        let cursorMoveResult = CGDisplayMoveCursorToPoint(targetDisplayID, elementCenterInCGCoordinates)
+        print("CursorGuide: CGDisplayMoveCursorToPoint → \(cursorMoveResult == .success ? "success" : "error(\(cursorMoveResult.rawValue))")")
+
+        // CGEvent fallback — posts a mouseMoved event at the target point which
+        // causes the OS to warp the cursor even when CGDisplayMoveCursorToPoint
+        // is blocked by entitlement restrictions on macOS 14+.
+        let mouseMoveEvent = CGEvent(
+            mouseEventSource: nil,
+            mouseType: .mouseMoved,
+            mouseCursorPosition: elementCenterInCGCoordinates,
+            mouseButton: .left
+        )
+        if let mouseMoveEvent = mouseMoveEvent {
+            mouseMoveEvent.post(tap: .cghidEventTap)
+            print("CursorGuide: CGEvent mouseMoved posted at \(elementCenterInCGCoordinates)")
+        } else {
+            print("CursorGuide: CGEvent creation failed — cursor may not have moved")
+        }
+
         // CG/Quartz screen coordinates have their origin at the top-left of the main screen.
         // AppKit/NSWindow coordinates have their origin at the bottom-left.
         // We need to convert so the overlay (which uses AppKit coordinates) positions correctly.
         let targetPointInAppKitCoordinates = convertCGPointToAppKitCoordinates(
-            cgPoint: CGPoint(
-                x: elementFrameInCGCoordinates.midX,
-                y: elementFrameInCGCoordinates.midY
-            )
+            cgPoint: elementCenterInCGCoordinates
         )
 
-        // Post the notification so OverlayWindowManager can animate the cursor to the target.
-        // We use NotificationCenter rather than a direct method call to keep CursorGuide
-        // decoupled from OverlayWindowManager — the overlay subscribes independently.
+        // Post the notification so OverlayWindowManager can animate the Luma cursor overlay
+        // to the same target point.
         NotificationCenter.default.post(
             name: CursorGuide.pointAtNotificationName,
             object: nil,
@@ -132,6 +192,21 @@ final class CursorGuide {
                 CursorGuide.targetPointUserInfoKey: NSValue(point: targetPointInAppKitCoordinates)
             ]
         )
+        print("CursorGuide: posted pointAt notification at AppKit point \(targetPointInAppKitCoordinates)")
+    }
+
+    /// Returns the CGDirectDisplayID of the display that contains the given CG-coordinate point.
+    /// Falls back to the main display if the point is not on any known display.
+    private func findDisplayContainingPoint(_ cgPoint: CGPoint) -> CGDirectDisplayID {
+        var displayCount: UInt32 = 0
+        CGGetDisplaysWithPoint(cgPoint, 0, nil, &displayCount)
+
+        guard displayCount > 0 else { return CGMainDisplayID() }
+
+        var displayIDs = [CGDirectDisplayID](repeating: 0, count: Int(displayCount))
+        CGGetDisplaysWithPoint(cgPoint, displayCount, &displayIDs, nil)
+
+        return displayIDs.first ?? CGMainDisplayID()
     }
 
     /// Posts the clear-pointer notification so the overlay removes any active cursor guidance.

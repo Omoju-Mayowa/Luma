@@ -38,7 +38,8 @@ enum BuddyTranscriptionProviderFactory {
 
     static func makeDefaultProvider() -> any BuddyTranscriptionProvider {
         let provider = resolveProvider()
-        print("🎙️ Transcription: using \(provider.displayName)")
+        print("🎙️ Transcription: selected provider → \(provider.displayName)")
+        print("🎙️ Transcription: AssemblyAI configured = \(AssemblyAIStreamingTranscriptionProvider().isConfigured)")
         return provider
     }
 

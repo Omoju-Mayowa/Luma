@@ -613,8 +613,7 @@ private struct ProfileFormView: View {
         onSave(profileToSave, apiKeyInput.trimmingCharacters(in: .whitespaces))
     }
 
-    /// Makes a lightweight POST request to verify the API key works.
-    /// Uses the same endpoint structure as the onboarding validation flow.
+    /// GETs the provider's models list endpoint to verify the API key is valid.
     private func runConnectionTest() async {
         connectionTestStatus = .testing
 
@@ -624,47 +623,47 @@ private struct ProfileFormView: View {
             return
         }
 
-        // Determine the correct chat completions endpoint for the selected provider
-        let resolvedBaseURL: String
-        if selectedProvider == .custom {
-            resolvedBaseURL = customBaseURL.trimmingCharacters(in: .whitespaces)
-        } else {
-            resolvedBaseURL = selectedProvider.defaultBaseURL
+        // Each provider exposes a GET /models endpoint for lightweight key validation
+        let modelsEndpointURLString: String
+        switch selectedProvider {
+        case .openRouter:
+            modelsEndpointURLString = "https://openrouter.ai/api/v1/models"
+        case .anthropic:
+            modelsEndpointURLString = "https://api.anthropic.com/v1/models"
+        case .google:
+            modelsEndpointURLString = "https://generativelanguage.googleapis.com/v1beta/models"
+        case .custom:
+            let trimmedBaseURL = customBaseURL.trimmingCharacters(in: .whitespaces)
+            modelsEndpointURLString = trimmedBaseURL + "/models"
         }
 
-        // Anthropic uses /messages; all others use /chat/completions
-        let chatPath = selectedProvider == .anthropic ? "/messages" : "/chat/completions"
-        let fullEndpointURL = resolvedBaseURL + chatPath
-
-        guard let requestURL = URL(string: fullEndpointURL) else {
+        guard let requestURL = URL(string: modelsEndpointURLString) else {
             connectionTestStatus = .failure(reason: "Invalid URL")
             return
         }
 
-        // A minimal test payload — just 1 token to avoid burning quota
-        let testPayload: [String: Any] = [
-            "model":      "google/gemini-2.5-flash:free",
-            "max_tokens": 1,
-            "messages": [["role": "user", "content": "hi"]]
-        ]
-
-        guard let payloadData = try? JSONSerialization.data(withJSONObject: testPayload) else {
-            connectionTestStatus = .failure(reason: "Payload error")
-            return
-        }
-
         var request = URLRequest(url: requestURL)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody   = payloadData
+        request.httpMethod = "GET"
+        request.timeoutInterval = 15
 
-        // Set the correct auth header for this provider
-        let authValue = selectedProvider.requiresBearerPrefix ? "Bearer \(trimmedAPIKey)" : trimmedAPIKey
-        request.setValue(authValue, forHTTPHeaderField: selectedProvider.authHeaderName)
+        // Each provider uses a different auth scheme for the models endpoint.
+        // - Anthropic: x-api-key header (no Bearer prefix)
+        // - Google AI: x-goog-api-key header (the /v1beta/models endpoint doesn't
+        //   accept Authorization: Bearer — it needs the native Google key header)
+        // - OpenRouter / Custom: Authorization: Bearer
+        switch selectedProvider {
+        case .anthropic:
+            request.setValue(trimmedAPIKey, forHTTPHeaderField: "x-api-key")
+            request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        case .google:
+            request.setValue(trimmedAPIKey, forHTTPHeaderField: "x-goog-api-key")
+        default:
+            request.setValue("Bearer \(trimmedAPIKey)", forHTTPHeaderField: "Authorization")
+        }
 
         do {
             let (_, response) = try await URLSession.shared.data(for: request)
-            if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode >= 200 && httpResponse.statusCode < 300 {
+            if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 {
                 connectionTestStatus = .success
             } else {
                 let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0

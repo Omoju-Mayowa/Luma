@@ -285,6 +285,7 @@ final class BuddyDictationManager: NSObject, ObservableObject {
         self.transcriptionProvider = transcriptionProvider
         self.transcriptionProviderDisplayName = transcriptionProvider.displayName
         super.init()
+        print("🎙️ BuddyDictation: initialised with provider '\(transcriptionProvider.displayName)'")
     }
 
     func updateContextualKeyterms(_ contextualKeyterms: [String]) {
@@ -517,33 +518,61 @@ final class BuddyDictationManager: NSObject, ObservableObject {
 
         print("🎙️ BuddyDictationManager: opening transcription provider \(transcriptionProvider.displayName)")
 
-        let activeTranscriptionSession = try await transcriptionProvider.startStreamingSession(
-            keyterms: buildTranscriptionKeyterms(),
-            onTranscriptUpdate: { [weak self] transcriptText in
-                Task { @MainActor in
-                    self?.latestRecognizedText = transcriptText
-                }
-            },
-            onFinalTranscriptReady: { [weak self] transcriptText in
-                Task { @MainActor in
-                    guard let self else { return }
-                    self.latestRecognizedText = transcriptText
-
-                    if self.isFinalizingTranscript {
-                        self.finishCurrentDictationSessionIfNeeded(
-                            shouldSubmitFinalDraft: self.shouldAutomaticallySubmitFinalDraft
-                        )
-                    }
-                }
-            },
-            onError: { [weak self] error in
-                Task { @MainActor in
-                    self?.handleRecognitionError(error)
+        let onTranscriptUpdate: (String) -> Void = { [weak self] transcriptText in
+            Task { @MainActor in
+                self?.latestRecognizedText = transcriptText
+            }
+        }
+        let onFinalTranscriptReady: (String) -> Void = { [weak self] transcriptText in
+            Task { @MainActor in
+                guard let self else { return }
+                self.latestRecognizedText = transcriptText
+                if self.isFinalizingTranscript {
+                    self.finishCurrentDictationSessionIfNeeded(
+                        shouldSubmitFinalDraft: self.shouldAutomaticallySubmitFinalDraft
+                    )
                 }
             }
-        )
+        }
+        let onError: (Error) -> Void = { [weak self] error in
+            Task { @MainActor in
+                self?.handleRecognitionError(error)
+            }
+        }
 
-        self.activeTranscriptionSession = activeTranscriptionSession
+        // Try the configured provider first. If it fails (e.g. AssemblyAI token
+        // fetch error or network unavailable), fall back to Apple Speech so the
+        // user can always speak — they just get lower-quality transcription.
+        let resolvedSession: any BuddyStreamingTranscriptionSession
+        do {
+            resolvedSession = try await transcriptionProvider.startStreamingSession(
+                keyterms: buildTranscriptionKeyterms(),
+                onTranscriptUpdate: onTranscriptUpdate,
+                onFinalTranscriptReady: onFinalTranscriptReady,
+                onError: onError
+            )
+        } catch {
+            let isAlreadyAppleSpeech = transcriptionProvider is AppleSpeechTranscriptionProvider
+            guard !isAlreadyAppleSpeech else {
+                // Apple Speech itself failed — nothing left to try
+                throw error
+            }
+            print("⚠️ BuddyDictationManager: \(transcriptionProvider.displayName) failed, falling back to Apple Speech: \(error)")
+            // Apple Speech requires speech recognition permission — request it now
+            // since the original provider (e.g. AssemblyAI) didn't need it.
+            let hasSpeechPermission = await requestSpeechRecognitionPermissionIfNeeded()
+            guard hasSpeechPermission else {
+                throw error // Speech recognition denied — surface the original error
+            }
+            resolvedSession = try await AppleSpeechTranscriptionProvider().startStreamingSession(
+                keyterms: buildTranscriptionKeyterms(),
+                onTranscriptUpdate: onTranscriptUpdate,
+                onFinalTranscriptReady: onFinalTranscriptReady,
+                onError: onError
+            )
+        }
+
+        self.activeTranscriptionSession = resolvedSession
         print("🎙️ BuddyDictationManager: provider ready, starting audio engine")
 
         let inputNode = audioEngine.inputNode

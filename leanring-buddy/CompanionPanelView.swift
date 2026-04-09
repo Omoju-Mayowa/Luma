@@ -14,28 +14,54 @@ import SwiftUI
 struct CompanionPanelView: View {
     @ObservedObject var companionManager: CompanionManager
     @ObservedObject private var accountManager = AccountManager.shared
+    /// Observed directly so the view re-renders when tutorial step/active state changes.
+    @ObservedObject private var tutorialManager: PostOnboardingTutorialManager
+
+    init(companionManager: CompanionManager) {
+        self.companionManager = companionManager
+        self._tutorialManager = ObservedObject(wrappedValue: companionManager.tutorialManager)
+    }
     @State private var emailInput: String = ""
+    @State private var textInputFallbackDraft: String = ""
     @State private var showSettings = false
     @State private var showPINEntryForSettings = false
     @State private var showQuitConfirmation = false
+    @State private var tutorialPulseScale: CGFloat = 1.0
+    @State private var tutorialPulseOpacity: Double = 0.6
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             panelHeader
             Divider()
-                .background(DS.Colors.borderSubtle)
-                .padding(.horizontal, 16)
+                .background(LumaTheme.Colors.borderSubtle)
+                .padding(.horizontal, LumaTheme.paddingLG)
 
             permissionsCopySection
-                .padding(.top, 16)
-                .padding(.horizontal, 16)
+                .padding(.top, LumaTheme.paddingLG)
+                .padding(.horizontal, LumaTheme.paddingLG)
+
+            if let apiError = companionManager.lastAPIErrorMessage {
+                Spacer()
+                    .frame(height: 10)
+
+                apiErrorBanner(message: apiError)
+                    .padding(.horizontal, LumaTheme.paddingLG)
+            }
 
             if companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
                 Spacer()
                     .frame(height: 12)
 
                 modelPickerRow
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, LumaTheme.paddingLG)
+
+                if companionManager.showTextInputFallback {
+                    Spacer()
+                        .frame(height: 12)
+
+                    textInputFallbackRow
+                        .padding(.horizontal, LumaTheme.paddingLG)
+                }
             }
 
             if !companionManager.allPermissionsGranted {
@@ -43,7 +69,7 @@ struct CompanionPanelView: View {
                     .frame(height: 16)
 
                 settingsSection
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, LumaTheme.paddingLG)
             }
 
             if !companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
@@ -51,7 +77,7 @@ struct CompanionPanelView: View {
                     .frame(height: 16)
 
                 startButton
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, LumaTheme.paddingLG)
             }
 
             // Show Luma toggle — hidden for now
@@ -67,15 +93,27 @@ struct CompanionPanelView: View {
                 .frame(height: 12)
 
             Divider()
-                .background(DS.Colors.borderSubtle)
-                .padding(.horizontal, 16)
+                .background(LumaTheme.Colors.borderSubtle)
+                .padding(.horizontal, LumaTheme.paddingLG)
 
             bottomBar
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
+                .padding(.horizontal, LumaTheme.paddingLG)
+                .padding(.vertical, LumaTheme.paddingMD)
         }
         .frame(width: 320)
         .background(panelBackground)
+        .overlay(alignment: .top) {
+            if tutorialManager.isActive {
+                tutorialOverlayCard
+            }
+        }
+        .onAppear {
+            // Start the post-onboarding tutorial the first time the panel opens
+            // after onboarding completes. startIfNeeded() is a no-op if already done.
+            if companionManager.hasCompletedOnboarding {
+                tutorialManager.startIfNeeded()
+            }
+        }
         .sheet(isPresented: $showPINEntryForSettings) {
             PINEntryView(mode: .verify, title: "Enter PIN to open Settings") {
                 showPINEntryForSettings = false
@@ -86,19 +124,27 @@ struct CompanionPanelView: View {
         }
         .sheet(isPresented: $showSettings) {
             SettingsPanelView()
+                .preferredColorScheme(.dark)
         }
         .alert("Quit Luma?", isPresented: $showQuitConfirmation) {
             Button("Quit", role: .destructive) { NSApp.terminate(nil) }
             Button("Cancel", role: .cancel) {}
         }
         .sheet(isPresented: Binding(
-            get: { !companionManager.hasCompletedOnboarding },
+            // Force onboarding if the flag isn't set, or if the user somehow lost
+            // their account or API profiles (e.g. cleared app data manually).
+            get: {
+                !companionManager.hasCompletedOnboarding
+                    || ProfileManager.shared.profiles.isEmpty
+                    || AccountManager.shared.currentAccount == nil
+            },
             set: { if !$0 { companionManager.hasCompletedOnboarding = true } }
         )) {
             OnboardingWizardView(hasCompletedOnboarding: Binding(
                 get: { companionManager.hasCompletedOnboarding },
                 set: { companionManager.hasCompletedOnboarding = $0 }
             ))
+            .preferredColorScheme(.dark)
         }
     }
 
@@ -115,31 +161,31 @@ struct CompanionPanelView: View {
 
                 Text("Luma")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(DS.Colors.textPrimary)
+                    .foregroundColor(LumaTheme.Colors.textPrimary)
             }
 
             Spacer()
 
             Text(statusText)
                 .font(.system(size: 12, weight: .medium))
-                .foregroundColor(DS.Colors.textTertiary)
+                .foregroundColor(LumaTheme.Colors.textTertiary)
 
             Button(action: {
                 NotificationCenter.default.post(name: .lumaDismissPanel, object: nil)
             }) {
                 Image(systemName: "xmark")
                     .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(DS.Colors.textTertiary)
+                    .foregroundColor(LumaTheme.Colors.textTertiary)
                     .frame(width: 20, height: 20)
                     .background(
                         Circle()
-                            .fill(Color.white.opacity(0.08))
+                            .fill(LumaTheme.textPrimary.opacity(0.08))
                     )
             }
             .buttonStyle(.plain)
             .pointerCursor()
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, LumaTheme.paddingLG)
         .padding(.vertical, 14)
     }
 
@@ -148,35 +194,42 @@ struct CompanionPanelView: View {
     @ViewBuilder
     private var permissionsCopySection: some View {
         if companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
-            Text("Hold Control+Option to talk.")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(DS.Colors.textSecondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            if companionManager.showTextInputFallback {
+                Text("Voice unavailable — type below instead.")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(LumaTheme.Colors.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                Text("Hold Control+Option to talk.")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(LumaTheme.Colors.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         } else if companionManager.allPermissionsGranted && !companionManager.hasSubmittedEmail {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Drop your email to get started.")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(DS.Colors.textSecondary)
+                    .foregroundColor(LumaTheme.Colors.textSecondary)
                 Text("If I keep building this, I'll keep you in the loop.")
                     .font(.system(size: 11))
-                    .foregroundColor(DS.Colors.textTertiary)
+                    .foregroundColor(LumaTheme.Colors.textTertiary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         } else if companionManager.allPermissionsGranted {
             Text("You're all set. Hit Start to meet Luma.")
                 .font(.system(size: 12, weight: .medium))
-                .foregroundColor(DS.Colors.textSecondary)
+                .foregroundColor(LumaTheme.Colors.textSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
         } else if companionManager.hasCompletedOnboarding {
             // Permissions were revoked after onboarding — tell user to re-grant
             VStack(alignment: .leading, spacing: 6) {
                 Text("Permissions needed")
                     .font(.system(size: 12, weight: .bold))
-                    .foregroundColor(DS.Colors.textSecondary)
+                    .foregroundColor(LumaTheme.Colors.textSecondary)
 
                 Text("Some permissions were revoked. Grant all four below to keep using Luma.")
                     .font(.system(size: 11))
-                    .foregroundColor(DS.Colors.textTertiary)
+                    .foregroundColor(LumaTheme.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -184,20 +237,194 @@ struct CompanionPanelView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Hi, I'm Omoju Oluwamayowa. This is Luma.")
                     .font(.system(size: 12, weight: .bold))
-                    .foregroundColor(DS.Colors.textSecondary)
+                    .foregroundColor(LumaTheme.Colors.textSecondary)
 
                 Text("A side project I made for fun to help me learn stuff as I use my computer.")
                     .font(.system(size: 11))
-                    .foregroundColor(DS.Colors.textTertiary)
+                    .foregroundColor(LumaTheme.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
 
                 Text("Nothing runs in the background. Luma will only take a screenshot when you press the hot key. So, you can give that permission in peace. If you are still sus, eh, I can't do much there champ.")
                     .font(.system(size: 11))
-                    .foregroundColor(Color(red: 0.9, green: 0.4, blue: 0.4))
+                    .foregroundColor(LumaTheme.destructive)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    // MARK: - API Error Banner
+
+    /// Shown below the status copy when the last AI request failed.
+    /// Displays the raw error from the API (e.g. "OpenRouter API Error (401): ...")
+    /// so the user can diagnose issues without needing Xcode open.
+    /// Tapping the X dismisses it by clearing `lastAPIErrorMessage` on the manager.
+    private func apiErrorBanner(message: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text(message)
+                .font(.system(size: 11))
+                .foregroundColor(Color(red: 1.0, green: 0.6, blue: 0.4))
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button {
+                companionManager.dismissLastAPIError()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(LumaTheme.Colors.textTertiary)
+            }
+            .buttonStyle(.plain)
+            .onHover { isHovering in
+                if isHovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+            }
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color(red: 0.25, green: 0.1, blue: 0.05))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(Color(red: 1.0, green: 0.6, blue: 0.4).opacity(0.3), lineWidth: 1)
+                )
+        )
+    }
+
+    // MARK: - Text Input Fallback
+
+    /// Shown in place of the "Hold Control+Option" hint when voice input is
+    /// unavailable (mic or speech recognition permission denied). Lets the user
+    /// type a message and submit it through the same AI pipeline as a voice transcript.
+    private var textInputFallbackRow: some View {
+        HStack(spacing: 8) {
+            TextField("Type a message…", text: $textInputFallbackDraft)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13))
+                .foregroundColor(LumaTheme.textPrimary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(
+                    RoundedRectangle(cornerRadius: LumaTheme.radiusSM, style: .continuous)
+                        .fill(LumaTheme.inputBackground)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: LumaTheme.radiusSM, style: .continuous)
+                        .stroke(LumaTheme.border, lineWidth: 0.5)
+                )
+                .onSubmit {
+                    submitTextInputFallback()
+                }
+
+            Button(action: submitTextInputFallback) {
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.system(size: 20))
+                    .foregroundColor(textInputFallbackDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        ? LumaTheme.textPlaceholder
+                        : LumaTheme.accent)
+            }
+            .buttonStyle(.plain)
+            .disabled(textInputFallbackDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .onHover { isHovering in
+                if isHovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+            }
+        }
+    }
+
+    private func submitTextInputFallback() {
+        let trimmedText = textInputFallbackDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedText.isEmpty else { return }
+        textInputFallbackDraft = ""
+        companionManager.submitTextInput(trimmedText)
+    }
+
+    // MARK: - Post-Onboarding Tutorial Overlay
+
+    /// Full-panel card that covers the normal content while the tutorial is active.
+    /// Floats over the panel via `.overlay(alignment: .top)` so it fills the same
+    /// visual space without disturbing the underlying layout.
+    private var tutorialOverlayCard: some View {
+        let tutorial = tutorialManager
+        let step = tutorial.currentStep
+
+        return VStack(alignment: .leading, spacing: 0) {
+            // Mirror the panel header so the card sits flush below it
+            Divider()
+                .background(LumaTheme.Colors.borderSubtle)
+                .padding(.horizontal, LumaTheme.paddingLG)
+
+            VStack(alignment: .leading, spacing: 16) {
+                // Step text
+                Text(step?.text ?? "")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(LumaTheme.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .animation(.none, value: tutorial.currentStepIndex)
+
+                // Pulse ring — only shown for shortcutHint steps since the
+                // menu bar icon and cursor bubble are outside the panel
+                if step?.highlightTarget == .shortcutHint {
+                    shortcutHintPulseRing
+                }
+
+                // Progress dots
+                HStack(spacing: 6) {
+                    ForEach(0..<tutorial.steps.count, id: \.self) { dotIndex in
+                        Circle()
+                            .fill(dotIndex <= tutorial.currentStepIndex
+                                  ? LumaTheme.accent
+                                  : LumaTheme.border)
+                            .frame(width: 5, height: 5)
+                    }
+                    Spacer()
+
+                    // Next / Done button
+                    Button(tutorial.isLastStep ? "Done" : "Next →") {
+                        tutorial.advance()
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(LumaTheme.accent)
+                    .onHover { isHovering in
+                        if isHovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 16)
+            .background(LumaTheme.surface)
+
+            Spacer()
+        }
+        .background(LumaTheme.surface)
+        // Clip so the card doesn't overflow the rounded panel corners
+        .clipShape(Rectangle())
+        .id(tutorial.currentStepIndex)
+        .transition(.opacity)
+        .animation(.easeInOut(duration: 0.25), value: tutorial.isActive)
+    }
+
+    /// A subtle pulsing outline that draws attention to the Ctrl+Option shortcut
+    /// hint — shown during tutorial steps that reference the voice shortcut.
+    private var shortcutHintPulseRing: some View {
+        Text("Hold Control+Option to talk")
+            .font(.system(size: 12, weight: .medium))
+            .foregroundColor(LumaTheme.textSecondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .overlay(
+                RoundedRectangle(cornerRadius: LumaTheme.radiusSM, style: .continuous)
+                    .stroke(LumaTheme.accent.opacity(tutorialPulseOpacity), lineWidth: 1.5)
+                    .scaleEffect(tutorialPulseScale)
+            )
+            .onAppear {
+                withAnimation(
+                    .easeInOut(duration: 1.0).repeatForever(autoreverses: true)
+                ) {
+                    tutorialPulseOpacity = 0.15
+                    tutorialPulseScale = 1.04
+                }
+            }
     }
 
     // MARK: - Email + Start Button
@@ -210,16 +437,16 @@ struct CompanionPanelView: View {
                     TextField("Enter your email", text: $emailInput)
                         .textFieldStyle(.plain)
                         .font(.system(size: 13))
-                        .foregroundColor(DS.Colors.textPrimary)
-                        .padding(.horizontal, 12)
+                        .foregroundColor(LumaTheme.Colors.textPrimary)
+                        .padding(.horizontal, LumaTheme.paddingMD)
                         .padding(.vertical, 8)
                         .background(
-                            RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
-                                .fill(Color.white.opacity(0.08))
+                            RoundedRectangle(cornerRadius: LumaTheme.CornerRadius.medium, style: .continuous)
+                                .fill(LumaTheme.textPrimary.opacity(0.08))
                         )
                         .overlay(
-                            RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
-                                .stroke(DS.Colors.borderSubtle, lineWidth: 0.5)
+                            RoundedRectangle(cornerRadius: LumaTheme.CornerRadius.medium, style: .continuous)
+                                .stroke(LumaTheme.Colors.borderSubtle, lineWidth: 0.5)
                         )
 
                     Button(action: {
@@ -227,14 +454,14 @@ struct CompanionPanelView: View {
                     }) {
                         Text("Submit")
                             .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(DS.Colors.textOnAccent)
+                            .foregroundColor(LumaTheme.Colors.textOnAccent)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 10)
                             .background(
-                                RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
+                                RoundedRectangle(cornerRadius: LumaTheme.CornerRadius.large, style: .continuous)
                                     .fill(emailInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                          ? DS.Colors.accent.opacity(0.4)
-                                          : DS.Colors.accent)
+                                          ? LumaTheme.Colors.accent.opacity(0.4)
+                                          : LumaTheme.Colors.accent)
                             )
                     }
                     .buttonStyle(.plain)
@@ -247,12 +474,12 @@ struct CompanionPanelView: View {
                 }) {
                     Text("Start")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(DS.Colors.textOnAccent)
+                        .foregroundColor(LumaTheme.Colors.textOnAccent)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 10)
                         .background(
-                            RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
-                                .fill(DS.Colors.accent)
+                            RoundedRectangle(cornerRadius: LumaTheme.CornerRadius.large, style: .continuous)
+                                .fill(LumaTheme.Colors.accent)
                         )
                 }
                 .buttonStyle(.plain)
@@ -267,7 +494,7 @@ struct CompanionPanelView: View {
         VStack(spacing: 2) {
             Text("PERMISSIONS")
                 .font(.system(size: 10, weight: .semibold, design: .rounded))
-                .foregroundColor(DS.Colors.textTertiary)
+                .foregroundColor(LumaTheme.Colors.textTertiary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.bottom, 6)
 
@@ -290,12 +517,12 @@ struct CompanionPanelView: View {
             HStack(spacing: 8) {
                 Image(systemName: "hand.raised")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(isGranted ? DS.Colors.textTertiary : DS.Colors.warning)
+                    .foregroundColor(isGranted ? LumaTheme.Colors.textTertiary : LumaTheme.Colors.warning)
                     .frame(width: 16)
 
                 Text("Accessibility")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(DS.Colors.textSecondary)
+                    .foregroundColor(LumaTheme.Colors.textSecondary)
             }
 
             Spacer()
@@ -303,11 +530,11 @@ struct CompanionPanelView: View {
             if isGranted {
                 HStack(spacing: 4) {
                     Circle()
-                        .fill(DS.Colors.success)
+                        .fill(LumaTheme.Colors.success)
                         .frame(width: 6, height: 6)
                     Text("Granted")
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(DS.Colors.success)
+                        .foregroundColor(LumaTheme.Colors.success)
                 }
             } else {
                 HStack(spacing: 6) {
@@ -318,12 +545,12 @@ struct CompanionPanelView: View {
                     }) {
                         Text("Grant")
                             .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(DS.Colors.textOnAccent)
+                            .foregroundColor(LumaTheme.Colors.textOnAccent)
                             .padding(.horizontal, 10)
                             .padding(.vertical, 4)
                             .background(
                                 Capsule()
-                                    .fill(DS.Colors.accent)
+                                    .fill(LumaTheme.Colors.accent)
                             )
                     }
                     .buttonStyle(.plain)
@@ -338,12 +565,12 @@ struct CompanionPanelView: View {
                     }) {
                         Text("Find App")
                             .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(DS.Colors.textSecondary)
+                            .foregroundColor(LumaTheme.Colors.textSecondary)
                             .padding(.horizontal, 10)
                             .padding(.vertical, 4)
                             .background(
                                 Capsule()
-                                    .stroke(DS.Colors.borderSubtle, lineWidth: 0.8)
+                                    .stroke(LumaTheme.Colors.borderSubtle, lineWidth: 0.8)
                             )
                     }
                     .buttonStyle(.plain)
@@ -360,19 +587,19 @@ struct CompanionPanelView: View {
             HStack(spacing: 8) {
                 Image(systemName: "rectangle.dashed.badge.record")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(isGranted ? DS.Colors.textTertiary : DS.Colors.warning)
+                    .foregroundColor(isGranted ? LumaTheme.Colors.textTertiary : LumaTheme.Colors.warning)
                     .frame(width: 16)
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Screen Recording")
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(DS.Colors.textSecondary)
+                        .foregroundColor(LumaTheme.Colors.textSecondary)
 
                     Text(isGranted
                          ? "Only takes a screenshot when you use the hotkey"
                          : "Quit and reopen after granting")
                         .font(.system(size: 10))
-                        .foregroundColor(DS.Colors.textTertiary)
+                        .foregroundColor(LumaTheme.Colors.textTertiary)
                 }
             }
 
@@ -381,11 +608,11 @@ struct CompanionPanelView: View {
             if isGranted {
                 HStack(spacing: 4) {
                     Circle()
-                        .fill(DS.Colors.success)
+                        .fill(LumaTheme.Colors.success)
                         .frame(width: 6, height: 6)
                     Text("Granted")
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(DS.Colors.success)
+                        .foregroundColor(LumaTheme.Colors.success)
                 }
             } else {
                 Button(action: {
@@ -396,12 +623,12 @@ struct CompanionPanelView: View {
                 }) {
                     Text("Grant")
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(DS.Colors.textOnAccent)
+                        .foregroundColor(LumaTheme.Colors.textOnAccent)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
                         .background(
                             Capsule()
-                                .fill(DS.Colors.accent)
+                                .fill(LumaTheme.Colors.accent)
                         )
                 }
                 .buttonStyle(.plain)
@@ -417,12 +644,12 @@ struct CompanionPanelView: View {
             HStack(spacing: 8) {
                 Image(systemName: "eye")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(isGranted ? DS.Colors.textTertiary : DS.Colors.warning)
+                    .foregroundColor(isGranted ? LumaTheme.Colors.textTertiary : LumaTheme.Colors.warning)
                     .frame(width: 16)
 
                 Text("Screen Content")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(DS.Colors.textSecondary)
+                    .foregroundColor(LumaTheme.Colors.textSecondary)
             }
 
             Spacer()
@@ -430,11 +657,11 @@ struct CompanionPanelView: View {
             if isGranted {
                 HStack(spacing: 4) {
                     Circle()
-                        .fill(DS.Colors.success)
+                        .fill(LumaTheme.Colors.success)
                         .frame(width: 6, height: 6)
                     Text("Granted")
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(DS.Colors.success)
+                        .foregroundColor(LumaTheme.Colors.success)
                 }
             } else {
                 Button(action: {
@@ -442,12 +669,12 @@ struct CompanionPanelView: View {
                 }) {
                     Text("Grant")
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(DS.Colors.textOnAccent)
+                        .foregroundColor(LumaTheme.Colors.textOnAccent)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
                         .background(
                             Capsule()
-                                .fill(DS.Colors.accent)
+                                .fill(LumaTheme.Colors.accent)
                         )
                 }
                 .buttonStyle(.plain)
@@ -463,12 +690,12 @@ struct CompanionPanelView: View {
             HStack(spacing: 8) {
                 Image(systemName: "mic")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(isGranted ? DS.Colors.textTertiary : DS.Colors.warning)
+                    .foregroundColor(isGranted ? LumaTheme.Colors.textTertiary : LumaTheme.Colors.warning)
                     .frame(width: 16)
 
                 Text("Microphone")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(DS.Colors.textSecondary)
+                    .foregroundColor(LumaTheme.Colors.textSecondary)
             }
 
             Spacer()
@@ -476,11 +703,11 @@ struct CompanionPanelView: View {
             if isGranted {
                 HStack(spacing: 4) {
                     Circle()
-                        .fill(DS.Colors.success)
+                        .fill(LumaTheme.Colors.success)
                         .frame(width: 6, height: 6)
                     Text("Granted")
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(DS.Colors.success)
+                        .foregroundColor(LumaTheme.Colors.success)
                 }
             } else {
                 Button(action: {
@@ -497,12 +724,12 @@ struct CompanionPanelView: View {
                 }) {
                     Text("Grant")
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(DS.Colors.textOnAccent)
+                        .foregroundColor(LumaTheme.Colors.textOnAccent)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
                         .background(
                             Capsule()
-                                .fill(DS.Colors.accent)
+                                .fill(LumaTheme.Colors.accent)
                         )
                 }
                 .buttonStyle(.plain)
@@ -522,12 +749,12 @@ struct CompanionPanelView: View {
             HStack(spacing: 8) {
                 Image(systemName: iconName)
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(isGranted ? DS.Colors.textTertiary : DS.Colors.warning)
+                    .foregroundColor(isGranted ? LumaTheme.Colors.textTertiary : LumaTheme.Colors.warning)
                     .frame(width: 16)
 
                 Text(label)
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(DS.Colors.textSecondary)
+                    .foregroundColor(LumaTheme.Colors.textSecondary)
             }
 
             Spacer()
@@ -535,11 +762,11 @@ struct CompanionPanelView: View {
             if isGranted {
                 HStack(spacing: 4) {
                     Circle()
-                        .fill(DS.Colors.success)
+                        .fill(LumaTheme.Colors.success)
                         .frame(width: 6, height: 6)
                     Text("Granted")
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(DS.Colors.success)
+                        .foregroundColor(LumaTheme.Colors.success)
                 }
             } else {
                 Button(action: {
@@ -549,12 +776,12 @@ struct CompanionPanelView: View {
                 }) {
                     Text("Grant")
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(DS.Colors.textOnAccent)
+                        .foregroundColor(LumaTheme.Colors.textOnAccent)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
                         .background(
                             Capsule()
-                                .fill(DS.Colors.accent)
+                                .fill(LumaTheme.Colors.accent)
                         )
                 }
                 .buttonStyle(.plain)
@@ -573,12 +800,12 @@ struct CompanionPanelView: View {
             HStack(spacing: 8) {
                 Image(systemName: "cursorarrow")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(DS.Colors.textTertiary)
+                    .foregroundColor(LumaTheme.Colors.textTertiary)
                     .frame(width: 16)
 
                 Text("Show Luma")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(DS.Colors.textSecondary)
+                    .foregroundColor(LumaTheme.Colors.textSecondary)
             }
 
             Spacer()
@@ -589,7 +816,7 @@ struct CompanionPanelView: View {
             ))
             .toggleStyle(.switch)
             .labelsHidden()
-            .tint(DS.Colors.accent)
+            .tint(LumaTheme.Colors.accent)
             .scaleEffect(0.8)
         }
         .padding(.vertical, 4)
@@ -600,19 +827,19 @@ struct CompanionPanelView: View {
             HStack(spacing: 8) {
                 Image(systemName: "mic.badge.waveform")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(DS.Colors.textTertiary)
+                    .foregroundColor(LumaTheme.Colors.textTertiary)
                     .frame(width: 16)
 
                 Text("Speech to Text")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(DS.Colors.textSecondary)
+                    .foregroundColor(LumaTheme.Colors.textSecondary)
             }
 
             Spacer()
 
             Text(companionManager.buddyDictationManager.transcriptionProviderDisplayName)
                 .font(.system(size: 11, weight: .medium))
-                .foregroundColor(DS.Colors.textTertiary)
+                .foregroundColor(LumaTheme.Colors.textTertiary)
         }
         .padding(.vertical, 4)
     }
@@ -620,46 +847,39 @@ struct CompanionPanelView: View {
     // MARK: - Model Picker
 
     private var modelPickerRow: some View {
-        HStack {
+        // Shows the model set in Settings → API Profile. Tapping the row opens Settings.
+        let activeModelID = ProfileManager.shared.activeProfile?.selectedModel ?? ""
+        let displayModelName = activeModelID.isEmpty ? "No model set" : activeModelID
+
+        return HStack {
             Text("Model")
                 .font(.system(size: 13, weight: .medium))
-                .foregroundColor(DS.Colors.textSecondary)
+                .foregroundColor(LumaTheme.Colors.textSecondary)
 
             Spacer()
 
-            HStack(spacing: 0) {
-                modelOptionButton(label: "Sonnet", modelID: "claude-sonnet-4-6")
-                modelOptionButton(label: "Opus", modelID: "claude-opus-4-6")
+            Button(action: openSettingsWithPINCheck) {
+                Text(displayModelName)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(activeModelID.isEmpty ? LumaTheme.Colors.textTertiary : LumaTheme.Colors.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(LumaTheme.textPrimary.opacity(0.06))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .stroke(LumaTheme.Colors.borderSubtle, lineWidth: 0.5)
+                    )
             }
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color.white.opacity(0.06))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .stroke(DS.Colors.borderSubtle, lineWidth: 0.5)
-            )
+            .buttonStyle(.plain)
+            .pointerCursor()
+            .help("Change model in Settings")
         }
         .padding(.vertical, 4)
-    }
-
-    private func modelOptionButton(label: String, modelID: String) -> some View {
-        let isSelected = companionManager.selectedModel == modelID
-        return Button(action: {
-            companionManager.setSelectedModel(modelID)
-        }) {
-            Text(label)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(isSelected ? DS.Colors.textPrimary : DS.Colors.textTertiary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .fill(isSelected ? Color.white.opacity(0.1) : Color.clear)
-                )
-        }
-        .buttonStyle(.plain)
-        .pointerCursor()
     }
 
     // MARK: - Bottom Bar
@@ -673,7 +893,7 @@ struct CompanionPanelView: View {
             } else {
                 // Placeholder avatar when no account exists yet (pre-onboarding)
                 Circle()
-                    .fill(Color.white.opacity(0.15))
+                    .fill(LumaTheme.textPrimary.opacity(0.15))
                     .frame(width: 28, height: 28)
             }
 
@@ -684,7 +904,7 @@ struct CompanionPanelView: View {
                 Button(action: openSettingsWithPINCheck) {
                     Image(systemName: "gearshape")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(DS.Colors.textTertiary)
+                        .foregroundColor(LumaTheme.Colors.textTertiary)
                 }
                 .buttonStyle(.plain)
                 .pointerCursor()
@@ -693,7 +913,7 @@ struct CompanionPanelView: View {
                 Button(action: { showQuitConfirmation = true }) {
                     Image(systemName: "power")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(DS.Colors.textTertiary)
+                        .foregroundColor(LumaTheme.Colors.textTertiary)
                 }
                 .buttonStyle(.plain)
                 .pointerCursor()
@@ -715,22 +935,22 @@ struct CompanionPanelView: View {
 
     private var panelBackground: some View {
         RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .fill(DS.Colors.background)
-            .shadow(color: Color.black.opacity(0.5), radius: 20, x: 0, y: 10)
-            .shadow(color: Color.black.opacity(0.3), radius: 4, x: 0, y: 2)
+            .fill(LumaTheme.Colors.background)
+            .shadow(color: LumaTheme.background.opacity(0.5), radius: 20, x: 0, y: 10)
+            .shadow(color: LumaTheme.background.opacity(0.3), radius: 4, x: 0, y: 2)
     }
 
     private var statusDotColor: Color {
         if !companionManager.isOverlayVisible {
-            return DS.Colors.textTertiary
+            return LumaTheme.Colors.textTertiary
         }
         switch companionManager.voiceState {
         case .idle:
-            return DS.Colors.success
+            return LumaTheme.Colors.success
         case .listening:
-            return DS.Colors.blue400
+            return LumaTheme.Colors.blue400
         case .processing, .responding:
-            return DS.Colors.blue400
+            return LumaTheme.Colors.blue400
         }
     }
 

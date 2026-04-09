@@ -190,6 +190,7 @@ final class APIClient {
     /// Anthropic's API expects the system prompt as a top-level key, not as a message.
     /// Images use the `source` block format with base64 data.
     private func buildAnthropicRequestBody(
+        modelID: String,
         images: [(data: Data, label: String)],
         systemPrompt: String,
         conversationHistory: [(userPlaceholder: String, assistantResponse: String)],
@@ -230,8 +231,8 @@ final class APIClient {
         messages.append(["role": "user", "content": currentUserContentBlocks])
 
         let requestBody: [String: Any] = [
-            "model": model,
-            "max_tokens": 1024,
+            "model": modelID,
+            "max_tokens": 150,
             "stream": shouldStream,
             "system": systemPrompt,
             "messages": messages
@@ -245,6 +246,7 @@ final class APIClient {
     /// The system prompt is sent as a system-role message.
     /// Images use the `image_url` format with a data URI.
     private func buildOpenAICompatibleRequestBody(
+        modelID: String,
         images: [(data: Data, label: String)],
         systemPrompt: String,
         conversationHistory: [(userPlaceholder: String, assistantResponse: String)],
@@ -287,8 +289,8 @@ final class APIClient {
         messages.append(["role": "user", "content": currentUserContentBlocks])
 
         let requestBody: [String: Any] = [
-            "model": model,
-            "max_tokens": 1024,
+            "model": modelID,
+            "max_tokens": 150,
             "stream": shouldStream,
             "messages": messages
         ]
@@ -355,11 +357,31 @@ final class APIClient {
             apiKey: apiKey
         )
 
+        // The model comes exclusively from the active profile — no hardcoded fallbacks.
+        // If the user hasn't set a model in Settings → Model, surface a clear error rather
+        // than silently sending the wrong model to the API.
+        let effectiveModelID = activeProfile.selectedModel.trimmingCharacters(in: .whitespaces)
+        guard !effectiveModelID.isEmpty else {
+            throw NSError(
+                domain: "APIClient",
+                code: -4,
+                userInfo: [NSLocalizedDescriptionKey: "No model configured for profile \"\(activeProfile.name)\". Go to Settings → Model and enter a model ID."]
+            )
+        }
+
+        // Diagnostic log — printed on every request so console always shows exactly
+        // what provider/endpoint/model/key is being used, without guessing.
+        let maskedAPIKey = apiKey.count > 8
+            ? String(apiKey.prefix(4)) + "…" + String(apiKey.suffix(4))
+            : String(repeating: "*", count: apiKey.count)
+        print("APIClient ▶ provider=\(activeProfile.provider.displayName) endpoint=\(endpointURL.absoluteString) model=\(effectiveModelID) key=\(maskedAPIKey)")
+
         // Build the request body in the format expected by this provider
         let requestBodyData: Data
         switch activeProfile.provider {
         case .anthropic:
             requestBodyData = try buildAnthropicRequestBody(
+                modelID: effectiveModelID,
                 images: images,
                 systemPrompt: systemPrompt,
                 conversationHistory: conversationHistory,
@@ -368,6 +390,7 @@ final class APIClient {
             )
         default:
             requestBodyData = try buildOpenAICompatibleRequestBody(
+                modelID: effectiveModelID,
                 images: images,
                 systemPrompt: systemPrompt,
                 conversationHistory: conversationHistory,
@@ -458,11 +481,26 @@ final class APIClient {
             apiKey: apiKey
         )
 
+        let effectiveModelID = activeProfile.selectedModel.trimmingCharacters(in: .whitespaces)
+        guard !effectiveModelID.isEmpty else {
+            throw NSError(
+                domain: "APIClient",
+                code: -4,
+                userInfo: [NSLocalizedDescriptionKey: "No model configured for profile \"\(activeProfile.name)\". Go to Settings → Model and enter a model ID."]
+            )
+        }
+
+        let maskedAPIKey = apiKey.count > 8
+            ? String(apiKey.prefix(4)) + "…" + String(apiKey.suffix(4))
+            : String(repeating: "*", count: apiKey.count)
+        print("APIClient ▶ provider=\(activeProfile.provider.displayName) endpoint=\(endpointURL.absoluteString) model=\(effectiveModelID) key=\(maskedAPIKey)")
+
         // Build the request body in the format expected by this provider (non-streaming)
         let requestBodyData: Data
         switch activeProfile.provider {
         case .anthropic:
             requestBodyData = try buildAnthropicRequestBody(
+                modelID: effectiveModelID,
                 images: images,
                 systemPrompt: systemPrompt,
                 conversationHistory: conversationHistory,
@@ -471,6 +509,7 @@ final class APIClient {
             )
         default:
             requestBodyData = try buildOpenAICompatibleRequestBody(
+                modelID: effectiveModelID,
                 images: images,
                 systemPrompt: systemPrompt,
                 conversationHistory: conversationHistory,

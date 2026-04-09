@@ -72,7 +72,8 @@ The app calls external APIs directly using keys stored in the macOS Keychain. Ke
 | `LumaAnalytics.swift` | ~121 | PostHog analytics integration for usage tracking. |
 | `WindowPositionManager.swift` | ~262 | Window placement logic, Screen Recording permission flow, and accessibility permission helpers. |
 | `AppBundleConfiguration.swift` | ~28 | Runtime configuration reader for keys stored in the app bundle Info.plist. |
-| `AccountManager.swift` | ~105 | Manages local user account persistence via UserDefaults. Owns `LumaAccount` model with username, display name, and avatar initials. Provides singleton manager with create, update, and delete lifecycle methods. Includes `LumaAvatarView` for displaying user initials in a black circle. |
+| `AccountManager.swift` | ~107 | Manages local user account persistence via UserDefaults. Owns `LumaAccount` model with username, display name, and avatar initials. Provides singleton manager with create, update, and delete lifecycle methods. Includes `LumaAvatarView` for displaying user initials using LumaTheme accent colors. |
+| `PostOnboardingTutorialManager.swift` | ~80 | Drives a 5-step post-onboarding walkthrough. Runs once after onboarding completes, highlights panel UI elements with a pulse ring, and auto-advances. Completion persisted in UserDefaults. |
 
 ## Build & Run
 

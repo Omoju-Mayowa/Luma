@@ -65,6 +65,7 @@ final class CompanionManager: ObservableObject {
     let buddyDictationManager = BuddyDictationManager()
     let globalPushToTalkShortcutMonitor = GlobalPushToTalkShortcutMonitor()
     let overlayWindowManager = OverlayWindowManager()
+    let tutorialManager = PostOnboardingTutorialManager()
     // Response text is now displayed inline on the cursor overlay via
     // streamingResponseText, so no separate response overlay manager is needed.
 
@@ -84,9 +85,18 @@ final class CompanionManager: ObservableObject {
     /// speaks again so a new response can begin immediately.
     private var currentResponseTask: Task<Void, Never>?
 
+    /// True when voice input is unavailable (mic or speech recognition denied) so
+    /// the panel shows a text field the user can type into instead of holding the hotkey.
+    @Published private(set) var showTextInputFallback: Bool = false
+
+    /// The last API error message, shown in the panel so the user can diagnose issues
+    /// without needing to open Xcode. Cleared at the start of each new request.
+    @Published private(set) var lastAPIErrorMessage: String? = nil
+
     private var shortcutTransitionCancellable: AnyCancellable?
     private var voiceStateCancellable: AnyCancellable?
     private var audioPowerCancellable: AnyCancellable?
+    private var permissionProblemCancellable: AnyCancellable?
     private var accessibilityCheckTimer: Timer?
     private var pendingKeyboardShortcutStartTask: Task<Void, Never>?
     /// Scheduled hide for transient cursor mode — cancelled if the user
@@ -103,8 +113,10 @@ final class CompanionManager: ObservableObject {
     /// Used by the panel to show accurate status text ("Active" vs "Ready").
     @Published private(set) var isOverlayVisible: Bool = false
 
-    /// The Claude model used for voice responses. Persisted to UserDefaults.
-    @Published var selectedModel: String = UserDefaults.standard.string(forKey: "selectedClaudeModel") ?? "claude-sonnet-4-6"
+    /// Legacy property kept for backwards compatibility — CompanionManager.selectedModel
+    /// is no longer used for API calls (APIClient reads the model from ProfileManager.activeProfile).
+    /// Kept as an observable so any UI binding to it doesn't crash.
+    @Published var selectedModel: String = UserDefaults.standard.string(forKey: "selectedClaudeModel") ?? ""
 
     func setSelectedModel(_ model: String) {
         selectedModel = model
@@ -175,6 +187,12 @@ final class CompanionManager: ObservableObject {
         bindVoiceStateObservation()
         bindAudioPowerLevel()
         bindShortcutTransitions()
+        bindPermissionProblemObservation()
+        // Sync the persisted model selection into the API client so the first
+        // request doesn't send an empty model string. Without this, apiClient.model
+        // stays "" until the user opens the model picker and changes it.
+        apiClient.model = selectedModel
+
         // APIClient.shared is already initialized as a singleton — its TLS warmup
         // fires on first access. Touch it here so the warmup handshake completes
         // well before the user's first push-to-talk interaction.
@@ -467,6 +485,45 @@ final class CompanionManager: ObservableObject {
             }
     }
 
+    /// Observes the dictation manager's permission problem so the panel can
+    /// switch to a text input field when voice is unavailable.
+    private func bindPermissionProblemObservation() {
+        permissionProblemCancellable = buddyDictationManager.$currentPermissionProblem
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] permissionProblem in
+                guard let self else { return }
+                self.showTextInputFallback = permissionProblem != nil
+                if let permissionProblem {
+                    print("🎙️ Voice unavailable (\(permissionProblem)) — showing text input fallback")
+                } else {
+                    print("🎙️ Voice permissions restored — hiding text input fallback")
+                }
+            }
+    }
+
+    /// Clears the last API error message, hiding the error banner in the panel.
+    func dismissLastAPIError() {
+        lastAPIErrorMessage = nil
+    }
+
+    /// Submits a typed message through the same AI response pipeline as a
+    /// voice transcript. Used when microphone or speech recognition is denied.
+    func submitTextInput(_ text: String) {
+        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedText.isEmpty else { return }
+        print("⌨️ Text input submitted: \"\(trimmedText)\"")
+        LumaAnalytics.trackUserMessageSent(transcript: trimmedText)
+
+        // Ensure the cursor overlay is visible in transient mode so the
+        // response and any pointing animation are shown.
+        if !isLumaCursorEnabled && !isOverlayVisible {
+            overlayWindowManager.showOverlay(onScreens: NSScreen.screens, companionManager: self)
+            isOverlayVisible = true
+        }
+
+        sendTranscriptToClaudeWithScreenshot(transcript: trimmedText)
+    }
+
     private func handleShortcutTransition(_ transition: BuddyPushToTalkShortcut.ShortcutTransition) {
         switch transition {
         case .pressed:
@@ -539,10 +596,11 @@ final class CompanionManager: ObservableObject {
     // MARK: - Companion Prompt
 
     private static let companionVoiceResponseSystemPrompt = """
-    you're luma, a friendly always-on companion that lives in the user's menu bar. the user just spoke to you via push-to-talk and you can see their screen(s). your reply will be spoken aloud via text-to-speech, so write the way you'd actually talk. this is an ongoing conversation — you remember everything they've said before.
+    you are luma, an AI teaching assistant that lives beside the user's cursor on macOS. the user just spoke to you via push-to-talk and you can see their screen(s). your reply will be spoken aloud via text-to-speech, so brevity is critical.
 
     rules:
-    - default to one or two sentences. be direct and dense. BUT if the user asks you to explain more, go deeper, or elaborate, then go all out — give a thorough, detailed explanation with no length limit.
+    - keep ALL responses under 2 sentences maximum. be direct, concise, and conversational. never explain more than what's needed.
+    - if the user explicitly asks you to explain more, go deeper, or elaborate, you may extend to 3-4 sentences — but no longer.
     - all lowercase, casual, warm. no emojis.
     - write for the ear, not the eye. short sentences. no lists, bullet points, markdown, or formatting — just natural speech.
     - don't use abbreviations or symbols that sound weird read aloud. write "for example" not "e.g.", spell out small numbers.
@@ -587,20 +645,30 @@ final class CompanionManager: ObservableObject {
         currentResponseTask = Task {
             // Stay in processing (spinner) state — no streaming text displayed
             voiceState = .processing
+            // Clear any previous API error so the panel doesn't show stale info
+            lastAPIErrorMessage = nil
 
             do {
-                // Capture all connected screens so the AI has full context
-                let screenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
+                // Capture all connected screens so the AI has full context.
+                // If screen content permission isn't granted yet (or capture fails
+                // for any other reason), fall back to a text-only request rather
+                // than surfacing a generic "couldn't reach the AI" error.
+                var screenCaptures: [CompanionScreenCapture] = []
+                let labeledImages: [(data: Data, label: String)]
+                do {
+                    screenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
+                    labeledImages = screenCaptures.map { capture in
+                        let dimensionInfo = " (image dimensions: \(capture.screenshotWidthInPixels)x\(capture.screenshotHeightInPixels) pixels)"
+                        return (data: capture.imageData, label: capture.label + dimensionInfo)
+                    }
+                } catch {
+                    // Screen capture unavailable — proceed without screenshot.
+                    // This happens when Screen Content permission hasn't been granted.
+                    print("⚠️ Screen capture failed, proceeding without screenshot: \(error)")
+                    labeledImages = []
+                }
 
                 guard !Task.isCancelled else { return }
-
-                // Build image labels with the actual screenshot pixel dimensions
-                // so Claude's coordinate space matches the image it sees. We
-                // scale from screenshot pixels to display points ourselves.
-                let labeledImages = screenCaptures.map { capture in
-                    let dimensionInfo = " (image dimensions: \(capture.screenshotWidthInPixels)x\(capture.screenshotHeightInPixels) pixels)"
-                    return (data: capture.imageData, label: capture.label + dimensionInfo)
-                }
 
                 // Pass conversation history so Claude remembers prior exchanges
                 let historyForAPI = conversationHistory.map { entry in
@@ -712,7 +780,10 @@ final class CompanionManager: ObservableObject {
                 // User spoke again — response was interrupted
             } catch {
                 LumaAnalytics.trackResponseError(error: error.localizedDescription)
-                print("⚠️ Companion response error: \(error)")
+                print("⚠️ Companion response error (\(type(of: error))): \(error.localizedDescription)")
+                print("⚠️ Full error: \(error)")
+                // Surface the actual error in the panel so the user can diagnose without Xcode
+                lastAPIErrorMessage = error.localizedDescription
                 speakCreditsErrorFallback()
             }
 

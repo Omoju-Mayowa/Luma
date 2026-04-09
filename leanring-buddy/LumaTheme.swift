@@ -2,9 +2,9 @@
 //  LumaTheme.swift
 //  leanring-buddy
 //
-//  Light theme design system for Luma. All UI tokens (colors, corner radii,
-//  typography, spacing, animation) live here so every view references a single
-//  source of truth.
+//  Luma dark design system. All UI tokens live here — colors, spacing,
+//  corner radii, typography, and animation timing — so every view
+//  references a single source of truth.
 //
 
 import SwiftUI
@@ -12,7 +12,7 @@ import SwiftUI
 // MARK: - Color Hex Initializer
 
 extension Color {
-    /// Convenience initialiser that accepts a hex string in `#RGB`, `#RRGGBB`,
+    /// Convenience initializer that accepts a hex string in `#RGB`, `#RRGGBB`,
     /// or `#AARRGGBB` format (the leading `#` is optional).
     init(hex: String) {
         let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
@@ -37,118 +37,161 @@ extension Color {
 
 // MARK: - LumaTheme
 
-enum LumaTheme {
+struct LumaTheme {
 
-    // MARK: Colors
+    // MARK: Backgrounds
 
-    enum Colors {
-        // Backgrounds
-        static let background      = Color.white
-        static let surface         = Color(hex: "#F5F5F7")
-        static let surfaceElevated = Color(hex: "#EBEBEB")
+    static let background      = Color(hex: "#0A0A0A")
+    static let surface         = Color(hex: "#141414")
+    static let surfaceElevated = Color(hex: "#1C1C1C")
 
-        // Text
-        static let primaryText   = Color(hex: "#1D1D1F")
-        static let secondaryText = Color(hex: "#6E6E73")
-        static let tertiaryText  = Color(hex: "#AEAEB2")
+    // MARK: Borders
 
-        // Accent
-        static let accent            = Color.black
-        static let accentForeground  = Color.white
+    static let border      = Color(hex: "#2A2A2A")
+    static let borderFocus = Color(hex: "#FFFFFF")
 
-        // State colors
-        static let success = Color(hex: "#34C759")
-        static let warning = Color(hex: "#FF9F0A")
-        static let error   = Color(hex: "#FF3B30")
+    // MARK: Text
 
-        // Blue used for the cursor overlay and waveform
-        static let blue400 = Color(hex: "#0A84FF")
+    static let textPrimary     = Color(hex: "#FFFFFF")
+    static let textSecondary   = Color(hex: "#888888")
+    static let textPlaceholder = Color(hex: "#444444")
 
-        // Overlay (for dark panels like CompanionBubbleWindow)
-        static let overlayBackground = Color.black.opacity(0.88)
-        static let overlayText       = Color.white
+    // MARK: Accent
 
-        // The bright blue dot / cursor used in OverlayWindow
-        static let overlayCursorBlue = Color(hex: "#0A84FF")
+    /// Primary accent — white on dark background.
+    static let accent           = Color(hex: "#FFFFFF")
+    /// Foreground drawn on top of accent-colored buttons (e.g. black text on white button).
+    static let accentForeground = Color(hex: "#000000")
 
-        // -----------------------------------------------------------------------
-        // Legacy DS compatibility aliases
-        // These map the old DS.Colors.* names used by CompanionPanelView and
-        // OverlayWindow so those views compile without any changes until they are
-        // fully migrated to LumaTheme naming.
-        // -----------------------------------------------------------------------
+    // MARK: Semantic
 
-        // Panel chrome (intentionally dark — these views are dark-themed panels)
-        static let panelBackground = Color(hex: "#1C1C1E")
-        static let panelBorder     = Color.white.opacity(0.08)
-        static let inputBackground = Color(hex: "#2C2C2E")
-        static let buttonHover     = Color.white.opacity(0.08)
-        static let iconTint        = Color(hex: "#AEAEB2")
+    static let destructive = Color(hex: "#FF3B30")
+    static let success     = Color(hex: "#34C759")
+    static let warning     = Color(hex: "#FF9500")
 
-        // Text aliases (old DS names → LumaTheme equivalents)
-        static let textPrimary   = Color(hex: "#E5E5EA")  // light text on dark panel
-        static let textSecondary = Color(hex: "#AEAEB2")
-        static let textTertiary  = Color(hex: "#636366")
-        static let textOnAccent  = Color.white             // text drawn on accent-coloured buttons
+    // MARK: Input
 
-        // Border alias used by CompanionPanelView
-        static let borderSubtle = Color.white.opacity(0.08)
-    }
+    static let inputBackground = Color(hex: "#1C1C1C")
+    static let inputBorder     = Color(hex: "#2A2A2A")
+    static let inputText       = Color(hex: "#FFFFFF")
 
-    // MARK: Corner Radii
+    // MARK: Cursor Overlay
 
-    enum CornerRadius {
-        static let small:      CGFloat = 6
-        static let medium:     CGFloat = 10
-        static let large:      CGFloat = 14
-        static let extraLarge: CGFloat = 20
-        static let panel:      CGFloat = 16
-        static let bubble:     CGFloat = 16
-    }
+    /// Bright blue used for the animated cursor dot and waveform in OverlayWindow.
+    static let cursorBlue = Color(hex: "#0A84FF")
+
+    // MARK: Spacing
+
+    static let spacingXS:  CGFloat = 4
+    static let spacingSM:  CGFloat = 8
+    static let spacingMD:  CGFloat = 16
+    static let spacingLG:  CGFloat = 24
+    static let spacingXL:  CGFloat = 32
+    static let spacingXXL: CGFloat = 40
+
+    // MARK: Padding
+    // Use these for view padding (insets), not for spacing between elements.
+    // paddingMD (12) ≠ spacingMD (16) — intentional: inputs use tighter insets.
+
+    static let paddingXS:      CGFloat = 4
+    static let paddingSM:      CGFloat = 8
+    static let paddingMD:      CGFloat = 12
+    static let paddingLG:      CGFloat = 16
+    static let paddingXL:      CGFloat = 20
+    static let paddingXXL:     CGFloat = 24
+    static let sectionSpacing: CGFloat = 32
+
+    // MARK: Corner Radius
+
+    static let radiusSM:   CGFloat = 6
+    static let radiusMD:   CGFloat = 10
+    static let radiusLG:   CGFloat = 16
+    static let radiusXL:   CGFloat = 20
+    static let radiusFull: CGFloat = 999
+
+    // MARK: Animation Durations (seconds)
+
+    static let animationFast:   Double = 0.15
+    static let animationNormal: Double = 0.25
+    static let animationSlow:   Double = 0.4
+
+    // MARK: Menu Bar
+
+    /// SF Symbol name for the Luma menu bar icon.
+    static let menuBarIconName = "lightbulb.fill"
 
     // MARK: Typography
 
     enum Typography {
-        static let caption     = Font.system(size: 11, weight: .regular)
-        static let body        = Font.system(size: 13, weight: .regular)
-        static let bodyMedium  = Font.system(size: 13, weight: .medium)
-        static let headline    = Font.system(size: 15, weight: .semibold)
-        static let title       = Font.system(size: 20, weight: .bold)
-        static let largeTitle  = Font.system(size: 28, weight: .bold)
+        static let caption    = Font.system(size: 11, weight: .regular)
+        static let body       = Font.system(size: 13, weight: .regular)
+        static let bodyMedium = Font.system(size: 13, weight: .medium)
+        static let headline   = Font.system(size: 15, weight: .semibold)
+        static let title      = Font.system(size: 20, weight: .bold)
+        static let largeTitle = Font.system(size: 28, weight: .bold)
     }
 
-    // MARK: Spacing
+    // MARK: - Backward Compatibility Shims
+    //
+    // Views that still use the old nested-enum token paths (LumaTheme.Colors.*,
+    // LumaTheme.Spacing.*, etc.) continue to compile via these computed-property
+    // aliases. Migrate call-sites to the flat names above over time, then delete
+    // these shims.
+
+    enum Colors {
+        static var background:       Color { LumaTheme.background }
+        static var surface:          Color { LumaTheme.surface }
+        static var surfaceElevated:  Color { LumaTheme.surfaceElevated }
+        static var primaryText:      Color { LumaTheme.textPrimary }
+        static var secondaryText:    Color { LumaTheme.textSecondary }
+        static var tertiaryText:     Color { LumaTheme.textPlaceholder }
+        static var accent:           Color { LumaTheme.accent }
+        static var accentForeground: Color { LumaTheme.accentForeground }
+        static var error:            Color { LumaTheme.destructive }
+        static var success:          Color { LumaTheme.success }
+        static var warning:          Color { LumaTheme.warning }
+        static var overlayCursorBlue: Color { LumaTheme.cursorBlue }
+        static var panelBackground:  Color { LumaTheme.surface }
+        static var borderSubtle:     Color { LumaTheme.border }
+        static var textPrimary:      Color { LumaTheme.textPrimary }
+        static var textSecondary:    Color { LumaTheme.textSecondary }
+        static var textTertiary:     Color { LumaTheme.textPlaceholder }
+        static var textOnAccent:     Color { LumaTheme.accentForeground }
+        static var inputBackground:  Color { LumaTheme.inputBackground }
+        static var blue400:          Color { LumaTheme.cursorBlue }
+        static var buttonHover:      Color { LumaTheme.surfaceElevated }
+        static var iconTint:         Color { LumaTheme.textSecondary }
+        static var panelBorder:      Color { LumaTheme.border }
+    }
+
+    enum CornerRadius {
+        static var small:      CGFloat { LumaTheme.radiusSM }
+        static var medium:     CGFloat { LumaTheme.radiusMD }
+        static var large:      CGFloat { LumaTheme.radiusLG }
+        static var extraLarge: CGFloat { LumaTheme.radiusXL }
+        static var panel:      CGFloat { LumaTheme.radiusLG }
+        static var bubble:     CGFloat { LumaTheme.radiusLG }
+    }
 
     enum Spacing {
-        static let xs:  CGFloat = 4
-        static let sm:  CGFloat = 8
-        static let md:  CGFloat = 12
-        static let lg:  CGFloat = 16
-        static let xl:  CGFloat = 24
-        static let xxl: CGFloat = 32
+        static var xs:  CGFloat { LumaTheme.spacingXS }
+        static var sm:  CGFloat { LumaTheme.spacingSM }
+        static var md:  CGFloat { LumaTheme.spacingMD }
+        static var lg:  CGFloat { LumaTheme.spacingLG }
+        static var xl:  CGFloat { LumaTheme.spacingXL }
+        static var xxl: CGFloat { LumaTheme.spacingXXL }
     }
-
-    // MARK: Animation durations (seconds)
 
     enum Animation {
-        static let fast:     Double = 0.15
-        static let standard: Double = 0.25
-        static let slow:     Double = 0.4
+        static var fast:     Double { LumaTheme.animationFast }
+        static var standard: Double { LumaTheme.animationNormal }
+        static var slow:     Double { LumaTheme.animationSlow }
     }
-
-    // MARK: Menu Bar
 
     enum MenuBar {
-        /// SF Symbol name for the Luma menu bar icon
-        static let iconName = "lightbulb.fill"
+        static var iconName: String { LumaTheme.menuBarIconName }
     }
 }
-
-// MARK: - DS Compatibility Alias
-// Temporary typealias so all existing views that reference DS.Colors.*,
-// DS.CornerRadius.* etc. continue to compile while they are gradually
-// migrated to use LumaTheme directly. Remove once migration is complete.
-typealias DS = LumaTheme
 
 // MARK: - View Cursor Extension
 

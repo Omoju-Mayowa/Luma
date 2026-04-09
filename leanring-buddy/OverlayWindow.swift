@@ -184,19 +184,19 @@ struct BlueCursorView: View {
     var body: some View {
         ZStack {
             // Nearly transparent background (helps with compositing)
-            Color.black.opacity(0.001)
+            LumaTheme.background.opacity(0.001)
 
             // Welcome speech bubble (first launch only)
             if isCursorOnThisScreen && showWelcome && !welcomeText.isEmpty {
                 Text(welcomeText)
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.white)
+                    .foregroundColor(LumaTheme.textPrimary)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
                     .background(
                         RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(DS.Colors.overlayCursorBlue)
-                            .shadow(color: DS.Colors.overlayCursorBlue.opacity(0.5), radius: 6, x: 0, y: 0)
+                            .fill(LumaTheme.Colors.overlayCursorBlue)
+                            .shadow(color: LumaTheme.Colors.overlayCursorBlue.opacity(0.5), radius: 6, x: 0, y: 0)
                     )
                     .fixedSize()
                     .overlay(
@@ -220,7 +220,7 @@ struct BlueCursorView: View {
             OnboardingVideoPlayerView(player: companionManager.onboardingVideoPlayer)
                 .frame(width: onboardingVideoPlayerWidth, height: onboardingVideoPlayerHeight)
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .shadow(color: Color.black.opacity(0.4 * companionManager.onboardingVideoOpacity), radius: 12, x: 0, y: 6)
+                .shadow(color: LumaTheme.background.opacity(0.4 * companionManager.onboardingVideoOpacity), radius: 12, x: 0, y: 6)
                 .opacity(isCursorOnThisScreen ? companionManager.onboardingVideoOpacity : 0)
                 .position(
                     x: cursorPosition.x + 10 + (onboardingVideoPlayerWidth / 2),
@@ -234,13 +234,13 @@ struct BlueCursorView: View {
             if isCursorOnThisScreen && companionManager.showOnboardingPrompt && !companionManager.onboardingPromptText.isEmpty {
                 Text(companionManager.onboardingPromptText)
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.white)
+                    .foregroundColor(LumaTheme.textPrimary)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
                     .background(
                         RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(DS.Colors.overlayCursorBlue)
-                            .shadow(color: DS.Colors.overlayCursorBlue.opacity(0.5), radius: 6, x: 0, y: 0)
+                            .fill(LumaTheme.Colors.overlayCursorBlue)
+                            .shadow(color: LumaTheme.Colors.overlayCursorBlue.opacity(0.5), radius: 6, x: 0, y: 0)
                     )
                     .fixedSize()
                     .overlay(
@@ -264,14 +264,14 @@ struct BlueCursorView: View {
             if buddyNavigationMode == .pointingAtTarget && !navigationBubbleText.isEmpty {
                 Text(navigationBubbleText)
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.white)
+                    .foregroundColor(LumaTheme.textPrimary)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
                     .background(
                         RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(DS.Colors.overlayCursorBlue)
+                            .fill(LumaTheme.Colors.overlayCursorBlue)
                             .shadow(
-                                color: DS.Colors.overlayCursorBlue.opacity(0.5 + (1.0 - navigationBubbleScale) * 1.0),
+                                color: LumaTheme.Colors.overlayCursorBlue.opacity(0.5 + (1.0 - navigationBubbleScale) * 1.0),
                                 radius: 6 + (1.0 - navigationBubbleScale) * 16,
                                 x: 0, y: 0
                             )
@@ -303,10 +303,10 @@ struct BlueCursorView: View {
             // During navigation: NO implicit animation — the frame-by-frame bezier
             // timer controls position directly at 60fps for a smooth arc flight.
             Triangle()
-                .fill(DS.Colors.overlayCursorBlue)
+                .fill(LumaTheme.Colors.overlayCursorBlue)
                 .frame(width: 16, height: 16)
                 .rotationEffect(.degrees(triangleRotationDegrees))
-                .shadow(color: DS.Colors.overlayCursorBlue, radius: 8 + (buddyFlightScale - 1.0) * 20, x: 0, y: 0)
+                .shadow(color: LumaTheme.Colors.overlayCursorBlue, radius: 8 + (buddyFlightScale - 1.0) * 20, x: 0, y: 0)
                 .scaleEffect(buddyFlightScale)
                 .opacity(buddyIsVisibleOnThisScreen && (companionManager.voiceState == .idle || companionManager.voiceState == .responding) ? cursorOpacity : 0)
                 .position(cursorPosition)
@@ -717,7 +717,7 @@ private struct BlueCursorWaveformView: View {
             HStack(alignment: .center, spacing: 2) {
                 ForEach(0..<barCount, id: \.self) { barIndex in
                     RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-                        .fill(DS.Colors.overlayCursorBlue)
+                        .fill(LumaTheme.Colors.overlayCursorBlue)
                         .frame(
                             width: 2,
                             height: barHeight(
@@ -727,7 +727,7 @@ private struct BlueCursorWaveformView: View {
                         )
                 }
             }
-            .shadow(color: DS.Colors.overlayCursorBlue.opacity(0.6), radius: 6, x: 0, y: 0)
+            .shadow(color: LumaTheme.Colors.overlayCursorBlue.opacity(0.6), radius: 6, x: 0, y: 0)
             .animation(.linear(duration: 0.08), value: audioPowerLevel)
         }
     }
@@ -755,8 +755,8 @@ private struct BlueCursorSpinnerView: View {
             .stroke(
                 AngularGradient(
                     colors: [
-                        DS.Colors.overlayCursorBlue.opacity(0.0),
-                        DS.Colors.overlayCursorBlue
+                        LumaTheme.Colors.overlayCursorBlue.opacity(0.0),
+                        LumaTheme.Colors.overlayCursorBlue
                     ],
                     center: .center
                 ),
@@ -764,7 +764,7 @@ private struct BlueCursorSpinnerView: View {
             )
             .frame(width: 14, height: 14)
             .rotationEffect(.degrees(isSpinning ? 360 : 0))
-            .shadow(color: DS.Colors.overlayCursorBlue.opacity(0.6), radius: 6, x: 0, y: 0)
+            .shadow(color: LumaTheme.Colors.overlayCursorBlue.opacity(0.6), radius: 6, x: 0, y: 0)
             .onAppear {
                 withAnimation(.linear(duration: 0.8).repeatForever(autoreverses: false)) {
                     isSpinning = true

@@ -7,6 +7,7 @@
 //  opens a floating panel with companion voice controls.
 //
 
+import ApplicationServices
 import ServiceManagement
 import SwiftUI
 import Sparkle
@@ -34,10 +35,24 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     private var sparkleUpdaterController: SPUStandardUpdaterController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Force dark appearance app-wide so system controls (Picker, TextField, etc.)
+        // always render with dark chrome, even when macOS is in light mode.
+        NSApp.appearance = NSAppearance(named: .darkAqua)
+
         print("🎯 Luma: Starting...")
         print("🎯 Luma: Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown")")
 
         UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 0])
+
+        // Prompt for accessibility permission on first launch so the system TCC
+        // database associates the grant with our stable bundle ID (com.nox.luma).
+        // Without this prompt the OS may silently deny accessibility on subsequent
+        // launches even if the user previously approved a differently-named build.
+        if !AXIsProcessTrusted() {
+            let promptKey = kAXTrustedCheckOptionPrompt.takeRetainedValue() as String
+            let options = [promptKey: true] as CFDictionary
+            AXIsProcessTrustedWithOptions(options)
+        }
 
         LumaAnalytics.configure()
         LumaAnalytics.trackAppOpened()

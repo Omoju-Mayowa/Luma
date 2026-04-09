@@ -62,9 +62,15 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
             callback: eventTapCallback,
             userInfo: Unmanaged.passUnretained(self).toOpaque()
         ) else {
-            print("⚠️ Global push-to-talk: couldn't create CGEvent tap")
+            // CGEvent.tapCreate fails when Accessibility permission is not granted.
+            // The app needs to be in System Settings → Privacy → Accessibility.
+            print("⚠️ GlobalPTT: CGEvent tap creation FAILED — hotkey will not fire")
+            print("⚠️ GlobalPTT: AXIsProcessTrusted = \(AXIsProcessTrusted())")
+            print("⚠️ GlobalPTT: Grant Accessibility in System Settings → Privacy → Accessibility, then relaunch")
             return
         }
+
+        print("🎹 GlobalPTT: CGEvent tap registered successfully — hotkey active")
 
         guard let globalEventTapRunLoopSource = CFMachPortCreateRunLoopSource(
             kCFAllocatorDefault,
@@ -120,9 +126,12 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
         case .none:
             break
         case .pressed:
+            print("[Luma] Hotkey triggered")
+            print("🎹 GlobalPTT: shortcut PRESSED — starting voice capture")
             isShortcutCurrentlyPressed = true
             shortcutTransitionPublisher.send(.pressed)
         case .released:
+            print("🎹 GlobalPTT: shortcut RELEASED — finalizing transcript")
             isShortcutCurrentlyPressed = false
             shortcutTransitionPublisher.send(.released)
         }

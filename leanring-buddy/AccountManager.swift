@@ -96,11 +96,11 @@ struct LumaAvatarView: View {
     var body: some View {
         ZStack {
             Circle()
-                .fill(Color.black)
+                .fill(LumaTheme.accentForeground)
                 .frame(width: size, height: size)
             Text(initials)
                 .font(.system(size: size * 0.35, weight: .semibold))
-                .foregroundColor(.white)
+                .foregroundColor(LumaTheme.accent)
         }
     }
 }

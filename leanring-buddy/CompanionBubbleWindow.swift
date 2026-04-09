@@ -96,7 +96,7 @@ struct BubbleContentView: View {
     var body: some View {
         Text(contentState.bubbleText)
             .font(.system(size: 13, weight: .regular))
-            .foregroundColor(.white)
+            .foregroundColor(LumaTheme.textPrimary)
             .multilineTextAlignment(.leading)
             // Allow text to grow vertically for multi-line content.
             .fixedSize(horizontal: false, vertical: true)
@@ -112,7 +112,7 @@ struct BubbleContentView: View {
 
                     // Solid dark overlay on top of the blur so text contrast is
                     // guaranteed even on very light or high-contrast screens.
-                    Color.black.opacity(0.88)
+                    LumaTheme.background.opacity(0.88)
                         .clipShape(RoundedRectangle(cornerRadius: bubbleCornerRadius))
                 }
             )
@@ -120,7 +120,7 @@ struct BubbleContentView: View {
             // dark system backgrounds where the overlay might be hard to see.
             .overlay(
                 RoundedRectangle(cornerRadius: bubbleCornerRadius)
-                    .stroke(Color.white.opacity(0.10), lineWidth: borderLineWidth)
+                    .stroke(LumaTheme.textPrimary.opacity(0.10), lineWidth: borderLineWidth)
             )
             // Drop shadow gives the bubble visual lift above the content below.
             .shadow(color: .black.opacity(0.4), radius: 12)

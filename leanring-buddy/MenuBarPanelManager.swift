@@ -69,47 +69,11 @@ final class MenuBarPanelManager: NSObject {
 
         guard let button = statusItem?.button else { return }
 
-        button.image = makeLumaMenuBarIcon()
-        button.image?.isTemplate = true
+        button.image = NSImage(systemSymbolName: LumaTheme.menuBarIconName, accessibilityDescription: "Luma")
+        button.image?.isTemplate = true  // adapts to light/dark menu bar automatically
         button.toolTip = "Luma"
         button.action = #selector(statusItemClicked)
         button.target = self
-    }
-
-    /// Draws the luma triangle as a menu bar icon. Uses the same shape
-    /// and rotation as the in-app cursor so the menu bar icon matches.
-    private func makeLumaMenuBarIcon() -> NSImage {
-        let iconSize: CGFloat = 18
-        let image = NSImage(size: NSSize(width: iconSize, height: iconSize))
-        image.lockFocus()
-
-        let triangleSize = iconSize * 0.7
-        let cx = iconSize * 0.50
-        let cy = iconSize * 0.50
-        let height = triangleSize * sqrt(3.0) / 2.0
-
-        let top = CGPoint(x: cx, y: cy + height / 1.5)
-        let bottomLeft = CGPoint(x: cx - triangleSize / 2, y: cy - height / 3)
-        let bottomRight = CGPoint(x: cx + triangleSize / 2, y: cy - height / 3)
-
-        let angle = 35.0 * .pi / 180.0
-        func rotate(_ point: CGPoint) -> CGPoint {
-            let dx = point.x - cx, dy = point.y - cy
-            let cosA = CGFloat(cos(angle)), sinA = CGFloat(sin(angle))
-            return CGPoint(x: cx + cosA * dx - sinA * dy, y: cy + sinA * dx + cosA * dy)
-        }
-
-        let path = NSBezierPath()
-        path.move(to: rotate(top))
-        path.line(to: rotate(bottomLeft))
-        path.line(to: rotate(bottomRight))
-        path.close()
-
-        NSColor.black.setFill()
-        path.fill()
-
-        image.unlockFocus()
-        return image
     }
 
     /// Opens the panel automatically on app launch so the user sees
@@ -151,6 +115,7 @@ final class MenuBarPanelManager: NSObject {
     private func createPanel() {
         let companionPanelView = CompanionPanelView(companionManager: companionManager)
             .frame(width: panelWidth)
+            .preferredColorScheme(.dark)
 
         let hostingView = NSHostingView(rootView: companionPanelView)
         hostingView.frame = NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight)
@@ -175,6 +140,9 @@ final class MenuBarPanelManager: NSObject {
         menuBarPanel.isMovableByWindowBackground = false
         menuBarPanel.titleVisibility = .hidden
         menuBarPanel.titlebarAppearsTransparent = true
+        // Force dark appearance so system controls (Picker, TextField, etc.)
+        // render with dark chrome even when the user's macOS is in light mode.
+        menuBarPanel.appearance = NSAppearance(named: .darkAqua)
 
         menuBarPanel.contentView = hostingView
         panel = menuBarPanel

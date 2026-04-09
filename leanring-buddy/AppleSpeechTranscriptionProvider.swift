@@ -86,10 +86,9 @@ private final class AppleSpeechTranscriptionSession: NSObject, BuddyStreamingTra
         recognitionRequest.shouldReportPartialResults = true
         recognitionRequest.taskHint = .dictation
         recognitionRequest.addsPunctuation = true
-
-        if speechRecognizer.supportsOnDeviceRecognition {
-            recognitionRequest.requiresOnDeviceRecognition = true
-        }
+        // Do NOT set requiresOnDeviceRecognition = true — forcing on-device models causes
+        // immediate recognition task errors when the model isn't loaded or the language
+        // isn't supported on-device. Let macOS decide (cloud vs on-device) automatically.
 
         recognitionTask = speechRecognizer.recognitionTask(with: recognitionRequest) { [weak self] result, error in
             self?.handleRecognitionEvent(result: result, error: error)

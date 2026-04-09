@@ -387,7 +387,7 @@ private struct OnboardingPINSetupStep: View {
                 .background(
                     RoundedRectangle(cornerRadius: LumaTheme.CornerRadius.extraLarge)
                         .fill(LumaTheme.Colors.background)
-                        .shadow(color: Color.black.opacity(0.1), radius: 20, x: 0, y: 8)
+                        .shadow(color: LumaTheme.background.opacity(0.1), radius: 20, x: 0, y: 8)
                 )
                 .frame(maxWidth: 360)
             }
@@ -625,14 +625,12 @@ private struct OnboardingAPIProfileStep: View {
         let apiKeyToTest = enteredAPIKey.trimmingCharacters(in: .whitespaces)
         let providerToTest = selectedProvider
         let customBaseURLToTest = enteredCustomBaseURL.trimmingCharacters(in: .whitespaces)
-        let modelForProvider = defaultModel(forProvider: providerToTest)
 
         Task {
             let result = await performLightweightConnectionTest(
                 provider: providerToTest,
                 apiKey: apiKeyToTest,
-                customBaseURL: customBaseURLToTest,
-                modelIdentifier: modelForProvider
+                customBaseURL: customBaseURLToTest
             )
             connectionTestStatus = result
         }
@@ -676,64 +674,50 @@ private struct OnboardingAPIProfileStep: View {
 
     // MARK: - Connection Test
 
-    /// Sends a minimal 1-token chat request to the selected provider to verify the API key works.
+    /// GETs the provider's models list endpoint to verify the API key is valid.
     /// Returns a `ConnectionTestStatus` result. Does NOT use ProfileManager or APIClient
     /// because the profile hasn't been fully saved yet at this point.
     private func performLightweightConnectionTest(
         provider: LumaAPIProvider,
         apiKey: String,
-        customBaseURL: String,
-        modelIdentifier: String
+        customBaseURL: String
     ) async -> ConnectionTestStatus {
 
-        let effectiveBaseURL: String
-        if provider == .custom {
-            effectiveBaseURL = customBaseURL.isEmpty ? provider.defaultBaseURL : customBaseURL
-        } else {
-            effectiveBaseURL = provider.defaultBaseURL
+        // Each provider exposes a GET /models endpoint for lightweight key validation
+        let modelsEndpointURLString: String
+        switch provider {
+        case .openRouter:
+            modelsEndpointURLString = "https://openrouter.ai/api/v1/models"
+        case .anthropic:
+            modelsEndpointURLString = "https://api.anthropic.com/v1/models"
+        case .google:
+            modelsEndpointURLString = "https://generativelanguage.googleapis.com/v1beta/models"
+        case .custom:
+            let trimmedBaseURL = customBaseURL.trimmingCharacters(in: .whitespaces)
+            let baseURL = trimmedBaseURL.isEmpty ? provider.defaultBaseURL : trimmedBaseURL
+            modelsEndpointURLString = baseURL + "/models"
         }
 
-        // Anthropic uses /messages with its own request format; all others use /chat/completions
-        let endpointPath = provider == .anthropic ? "/messages" : "/chat/completions"
-        let fullEndpointURLString = effectiveBaseURL + endpointPath
-
-        guard let endpointURL = URL(string: fullEndpointURLString) else {
+        guard let endpointURL = URL(string: modelsEndpointURLString) else {
             return .failure(errorDescription: "Invalid URL")
         }
 
         var request = URLRequest(url: endpointURL)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpMethod = "GET"
         request.timeoutInterval = 15
 
-        // Anthropic uses x-api-key header; all others use Authorization: Bearer
+        // Each provider uses a different auth header:
+        // Anthropic: x-api-key (no Bearer prefix) + required anthropic-version header
+        // Google: x-goog-api-key (the /v1beta/models endpoint uses this header, not Authorization)
+        // All others: Authorization: Bearer
         if provider == .anthropic {
             request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
             request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        } else if provider == .google {
+            request.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
         } else {
             request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         }
-
-        // Anthropic's /messages format differs from OpenAI-compatible /chat/completions
-        let requestBodyDictionary: [String: Any]
-        if provider == .anthropic {
-            requestBodyDictionary = [
-                "model": modelIdentifier,
-                "max_tokens": 1,
-                "messages": [["role": "user", "content": "hi"]]
-            ]
-        } else {
-            requestBodyDictionary = [
-                "model": modelIdentifier,
-                "max_tokens": 1,
-                "messages": [["role": "user", "content": "hi"]]
-            ]
-        }
-
-        guard let requestBodyData = try? JSONSerialization.data(withJSONObject: requestBodyDictionary) else {
-            return .failure(errorDescription: "Failed to build request")
-        }
-        request.httpBody = requestBodyData
 
         do {
             let (_, httpResponse) = try await URLSession.shared.data(for: request)
@@ -742,9 +726,8 @@ private struct OnboardingAPIProfileStep: View {
                 return .failure(errorDescription: "Invalid response")
             }
 
-            // Any 2xx status code means the key was accepted
-            let isSuccess = (200...299).contains(statusCodeResponse.statusCode)
-            if isSuccess {
+            // A 200 response means the key is valid
+            if statusCodeResponse.statusCode == 200 {
                 return .success
             } else {
                 return .failure(errorDescription: "HTTP \(statusCodeResponse.statusCode)")
@@ -846,7 +829,7 @@ private struct OnboardingPrimaryButton: View {
                 RoundedRectangle(cornerRadius: LumaTheme.CornerRadius.large)
                     .fill(isDisabled
                           ? LumaTheme.Colors.tertiaryText
-                          : (isHovering ? Color.black.opacity(0.85) : LumaTheme.Colors.accent))
+                          : (isHovering ? LumaTheme.Colors.accent.opacity(0.85) : LumaTheme.Colors.accent))
             )
         }
         .buttonStyle(.plain)

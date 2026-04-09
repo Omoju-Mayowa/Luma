@@ -199,7 +199,7 @@ private struct CompanionResponseOverlayView: View {
         if viewModel.isShowingResponse {
             Text(viewModel.streamingResponseText.isEmpty ? "..." : viewModel.streamingResponseText)
                 .font(.system(size: 13, weight: .regular))
-                .foregroundColor(DS.Colors.textPrimary)
+                .foregroundColor(LumaTheme.Colors.textPrimary)
                 .lineSpacing(3)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: 300, alignment: .leading)
@@ -207,12 +207,12 @@ private struct CompanionResponseOverlayView: View {
                 .padding(.vertical, 10)
                 .background(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(DS.Colors.panelBackground.opacity(0.95))
+                        .fill(LumaTheme.Colors.panelBackground.opacity(0.95))
                         .overlay(
                             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .stroke(DS.Colors.borderSubtle.opacity(0.5), lineWidth: 0.8)
+                                .stroke(LumaTheme.Colors.borderSubtle.opacity(0.5), lineWidth: 0.8)
                         )
-                        .shadow(color: Color.black.opacity(0.35), radius: 16, x: 0, y: 8)
+                        .shadow(color: LumaTheme.background.opacity(0.35), radius: 16, x: 0, y: 8)
                 )
         }
     }
