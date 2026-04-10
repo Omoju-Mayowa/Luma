@@ -93,9 +93,18 @@ final class WalkthroughEngine: ObservableObject {
     private var lastAIValidationDate: Date = .distantPast
 
     /// Minimum seconds between consecutive AI screenshot validation calls.
-    /// Reduced from 2.5 to 1.0 — the API call itself takes 2–4s, so waiting 2.5s
-    /// before even starting meant a 4–6s total delay before a step could auto-advance.
-    private let minimumSecondsBetweenAIValidations: TimeInterval = 1.0
+    private let minimumSecondsBetweenAIValidations: TimeInterval = 1.5
+
+    /// Tracks the last time the user visibly interacted (mouse click or AX event).
+    /// The periodic validation timer only fires AI validation when this is recent —
+    /// prevents the AI from marking a step complete just because 3 seconds passed
+    /// with nothing happening (idle screen → permissive prompt → false COMPLETED).
+    private var lastUserInteractionDate: Date = .distantPast
+
+    /// Seconds of inactivity after which the periodic timer skips AI validation.
+    /// If the user hasn't clicked or triggered an AX event in this window, there's
+    /// no visual state change to validate and we'd risk a false positive.
+    private let maximumSecondsToValidateAfterLastInteraction: TimeInterval = 6.0
 
     // MARK: - AX Observer State
 
@@ -308,6 +317,7 @@ final class WalkthroughEngine: ObservableObject {
         isAIValidationInProgress = false
         lastCorrectionDate = .distantPast
         lastAIValidationDate = .distantPast
+        lastUserInteractionDate = .distantPast
     }
 
     // MARK: - Element Pointing
@@ -498,22 +508,75 @@ final class WalkthroughEngine: ObservableObject {
 
         mouseEventMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseUp, .rightMouseDown]
-        ) { [weak self] _ in
+        ) { [weak self] clickedEvent in
             Task { @MainActor [weak self] in
                 guard let self = self,
                       generation == self.currentStepGeneration else { return }
 
-                // Immediate AX check — catches cases where the click DID move keyboard focus
-                self.checkFocusedElementForStepCompletion(step: step, allSteps: allSteps, generation: generation)
+                // Use AX hit-testing to identify exactly which element was clicked.
+                // This gives us ground-truth label data without taking a screenshot,
+                // so we can reject wrong-element clicks immediately without any AI call.
+                let clickLocationInAppKitCoords = NSEvent.mouseLocation
+                let clickedElementLabel = self.getAXElementLabel(atAppKitPoint: clickLocationInAppKitCoords)
 
-                // Delayed AI screenshot validation — gives the UI 0.6s to visually react
-                // to the click (context menu to appear, sidebar to highlight, dialog to open)
-                // before we capture the screenshot for the COMPLETED / INCOMPLETE check.
+                if let label = clickedElementLabel, !label.isEmpty {
+                    // We have an AX label — compare directly against the expected element name.
+                    // Accept if the label contains the target OR the target contains the label
+                    // (handles cases like label="Downloads" when target="Downloads Folder").
+                    let labelLowercased = label.lowercased()
+                    let targetLowercased = step.elementName.lowercased()
+                    let isCorrectElement = labelLowercased == targetLowercased
+                        || labelLowercased.contains(targetLowercased)
+                        || (targetLowercased.contains(labelLowercased) && label.count > 3)
+
+                    if isCorrectElement {
+                        // Exact match — complete the step without any AI call.
+                        self.lastUserInteractionDate = Date()
+                        if case .executing(let currentSteps, let currentIndex) = self.state {
+                            self.completeCurrentStep(steps: currentSteps, currentIndex: currentIndex)
+                        }
+                    }
+                    // Wrong element — silently ignore. No interaction stamp, no AI validation.
+                    return
+                }
+
+                // No AX label available (some elements don't expose one, e.g. canvas areas).
+                // Fall back to timed AI screenshot validation as a last resort.
+                self.lastUserInteractionDate = Date()
                 try? await Task.sleep(nanoseconds: 600_000_000)
                 guard generation == self.currentStepGeneration else { return }
                 self.triggerPeriodicAIValidationIfNeeded()
             }
         }
+    }
+
+    /// Returns the AX accessibility label of the UI element at the given AppKit screen point.
+    /// AppKit uses bottom-left origin (Y increases upward); AX/Quartz uses top-left origin
+    /// (Y increases downward), so we flip Y relative to the main screen height before querying.
+    /// Tries kAXTitleAttribute, then kAXDescriptionAttribute, then kAXValueAttribute in order.
+    private func getAXElementLabel(atAppKitPoint appKitPoint: CGPoint) -> String? {
+        let mainScreenHeight = NSScreen.screens.first?.frame.height ?? 0
+        let axX = Float(appKitPoint.x)
+        let axY = Float(mainScreenHeight - appKitPoint.y)
+
+        let systemWideElement = AXUIElementCreateSystemWide()
+        var axElement: AXUIElement?
+        guard AXUIElementCopyElementAtPosition(systemWideElement, axX, axY, &axElement) == .success,
+              let axElement = axElement else { return nil }
+
+        var titleRef: CFTypeRef?
+        AXUIElementCopyAttributeValue(axElement, kAXTitleAttribute as CFString, &titleRef)
+        if let title = titleRef as? String, !title.isEmpty { return title }
+
+        var descriptionRef: CFTypeRef?
+        AXUIElementCopyAttributeValue(axElement, kAXDescriptionAttribute as CFString, &descriptionRef)
+        if let description = descriptionRef as? String, !description.isEmpty { return description }
+
+        var valueRef: CFTypeRef?
+        AXUIElementCopyAttributeValue(axElement, kAXValueAttribute as CFString, &valueRef)
+        if let value = valueRef as? String, !value.isEmpty { return value }
+
+        return nil
     }
 
     // MARK: - AX Polling
@@ -606,6 +669,10 @@ final class WalkthroughEngine: ObservableObject {
               currentIndex < steps.count else { return }
 
         let currentStep = steps[currentIndex]
+
+        // Any AX notification means the user did something — stamp interaction time so the
+        // periodic validation timer knows real activity occurred and is allowed to validate.
+        lastUserInteractionDate = Date()
 
         // If the step has no specific element requirement, any action in the right app counts
         if currentStep.elementName.isEmpty {
@@ -729,25 +796,27 @@ final class WalkthroughEngine: ObservableObject {
                 : "\"\(step.elementName)\""
 
             let validationSystemPrompt = """
-            You are validating whether a macOS user completed a guided walkthrough step.
+            You are validating whether a macOS user completed a specific walkthrough step.
 
             Instruction given to the user: "\(step.instruction)"
             Target UI element: \(targetElementDescription)
 
-            Look at the screenshot and decide: has this step been completed?
+            Look at the screenshot and answer: has this specific step been completed?
 
-            Answer COMPLETED if ANY of these are true:
-            - A context menu is visible (means the user right-clicked something)
-            - The content area changed to show what clicking the target would reveal (e.g. a folder's contents, a settings panel, an app window)
-            - A sidebar item, list row, or tab matching the target appears selected or highlighted
-            - A dialog, sheet, alert, or new window appeared as a result of the action
-            - The target element or the area around it looks activated, focused, or visually different from its idle state
-            - The app generally looks like progress was made toward the instruction
+            Answer COMPLETED only if there is clear visual evidence the action was taken:
+            - A context menu is currently open (proves a right-click happened)
+            - A new dialog, sheet, alert, or window has appeared as a direct result of the action
+            - The main content area now shows content that would only appear after interacting with the target (e.g. a folder's contents are visible after clicking that folder)
+            - A sidebar item or list row matching the target is clearly highlighted/selected AND the content area reflects that selection
+            - The target element shows a clear activated or pressed state that it would not have in its idle state
 
-            Answer INCOMPLETE only if:
-            - Nothing has visually changed at all and the target is clearly still in its pre-action idle state
+            Answer INCOMPLETE if:
+            - No context menu, dialog, or new content is visible
+            - The screen looks like a normal idle state — elements are visible but not interacted with
+            - The target element is present on screen but shows no sign of having been clicked
+            - You are not certain that the action described in the instruction has actually occurred
 
-            When uncertain, answer COMPLETED — getting stuck on a step is worse than advancing slightly early.
+            Do not answer COMPLETED just because the target element is visible. It must show evidence of being actively interacted with.
 
             Reply with one word only: COMPLETED or INCOMPLETE
             """
@@ -866,6 +935,12 @@ final class WalkthroughEngine: ObservableObject {
               currentIndex < steps.count else { return }
 
         let currentStep = steps[currentIndex]
+
+        // Only validate if the user has recently interacted (clicked or triggered an AX event).
+        // Without this gate, the timer fires every 3s on an idle screen and the AI marks the
+        // step complete despite no visible state change — causing false positive completions.
+        let timeSinceLastInteraction = Date().timeIntervalSince(lastUserInteractionDate)
+        guard timeSinceLastInteraction <= maximumSecondsToValidateAfterLastInteraction else { return }
 
         // Respect the same debounce guards as the AX-triggered validation path
         let timeSinceLastValidation = Date().timeIntervalSince(lastAIValidationDate)

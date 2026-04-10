@@ -708,9 +708,15 @@ final class CompanionManager: ObservableObject {
     private static let multiStepPlanningSystemPrompt = """
     You are Luma, a friendly macOS guide. The user needs help with a multi-step task. You can see their screen.
 
-    Respond with exactly two parts in this order:
-    1. A short spoken intro — 1 to 2 natural sentences max. Write for the ear: no markdown, no bullet points, no lists, no numbered steps.
-    2. A JSON step plan wrapped in <STEPS>...</STEPS> tags — no spaces, no newlines around the tags.
+    Respond with EXACTLY two parts — nothing else:
+
+    PART 1 — Spoken intro (required):
+    One sentence only. Acknowledge the task warmly. Do NOT list steps, do NOT say "first", "then", "step 1", or describe any actions. Just a brief friendly confirmation that you will guide them.
+    Good example: "Sure, let me walk you through that!"
+    Bad example: "First open Finder, then right-click the file, then select Compress."
+
+    PART 2 — Step plan (required, immediately after the intro):
+    A JSON block wrapped in <STEPS> and </STEPS> tags with no spaces or newlines around the tags.
 
     JSON format inside <STEPS>...</STEPS>:
     {"steps":[{"index":0,"instruction":"What to say to the user for this step","elementName":"exact AX label","elementRole":"AXButton|AXMenuItem|AXMenuBarItem|AXTextField|null","appBundleID":"com.apple.finder or null","isMenuBar":false,"timeoutSeconds":15}]}
@@ -723,7 +729,7 @@ final class CompanionManager: ObservableObject {
     - If a step has no specific UI element to click: elementName = ""
     - instruction: one natural spoken sentence for that step only — what the user should do right now
 
-    Always include both the spoken intro AND the <STEPS>...</STEPS> block. Never skip the step plan.
+    CRITICAL: You MUST output the <STEPS>...</STEPS> block. Never skip it. Never replace it with plain text steps.
     """
 
     // MARK: - AI Response Pipeline
@@ -840,7 +846,27 @@ final class CompanionManager: ObservableObject {
                         WalkthroughEngine.shared.executeSteps(extractedSteps)
                         return
                     }
-                    print("[Luma] Multi-step: no valid <STEPS> block in response — falling back to voice response")
+                    // The model didn't produce a valid <STEPS> block — speaking the full response
+                    // text would read out a structured step plan which sounds terrible via TTS.
+                    // Instead, say a brief generic intro and use TaskPlanner (dedicated JSON-only
+                    // prompt) to build the step plan. This is the reliable fallback for weaker
+                    // models that ignore the <STEPS> format instruction.
+                    print("[Luma] Multi-step: no valid <STEPS> block — falling back to TaskPlanner")
+                    try? await nativeTTSClient.speakText("Sure, let me guide you through that.")
+                    voiceState = .idle
+                    scheduleTransientHideIfNeeded()
+                    Task {
+                        do {
+                            let frontmostAppNameForPlanner = NSWorkspace.shared.frontmostApplication?.localizedName ?? ""
+                            let plan = try await TaskPlanner().planSteps(goal: transcript, frontmostAppName: frontmostAppNameForPlanner)
+                            if !plan.steps.isEmpty {
+                                WalkthroughEngine.shared.executeSteps(plan.steps)
+                            }
+                        } catch {
+                            print("[Luma] TaskPlanner fallback failed: \(error.localizedDescription)")
+                        }
+                    }
+                    return
                 }
 
                 // Parse the [POINT:...] tag from Claude's response
