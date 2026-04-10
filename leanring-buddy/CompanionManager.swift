@@ -830,6 +830,10 @@ final class CompanionManager: ObservableObject {
                         if !spokenIntroText.isEmpty {
                             try? await nativeTTSClient.speakText(spokenIntroText)
                             voiceState = .responding
+                            // Wait for the intro to finish before WalkthroughEngine starts speaking.
+                            // Both use separate AVSpeechSynthesizer instances so without this wait
+                            // the step 1 instruction overlaps the intro simultaneously.
+                            await nativeTTSClient.waitUntilFinished()
                         }
                         voiceState = .idle
                         scheduleTransientHideIfNeeded()

@@ -79,6 +79,14 @@ final class WalkthroughEngine: ObservableObject {
     // element while the user is already working on step N+1.
     private var activePointingTask: Task<Void, Never>?
 
+    // MARK: - Mouse Event Monitor
+
+    // Global monitor for left-click and right-click events. The AX observer and AX polling
+    // only fire on keyboard-focus changes — sidebar clicks, right-clicks, and most direct
+    // mouse interactions don't change kAXFocusedUIElementAttribute and are therefore missed.
+    // This monitor catches those interactions and immediately triggers AX + AI validation.
+    private var mouseEventMonitor: Any?
+
     // MARK: - AI Validation State
 
     private var isAIValidationInProgress: Bool = false
@@ -277,6 +285,12 @@ final class WalkthroughEngine: ObservableObject {
         // primitive values from the context (not the context itself), so this is safe.
         axObserverContext = nil
 
+        // Remove the global mouse event monitor — no further clicks should trigger validation
+        if let existingMonitor = mouseEventMonitor {
+            NSEvent.removeMonitor(existingMonitor)
+            mouseEventMonitor = nil
+        }
+
         // Cancel the AX polling timer
         axPollingTimer?.invalidate()
         axPollingTimer = nil
@@ -362,7 +376,7 @@ final class WalkthroughEngine: ObservableObject {
         // 3. Install the AX observer to detect when the user interacts with the target
         startWatching(for: step, allSteps: allSteps, generation: stepGeneration)
 
-        // 4. Start fast AX polling (0.3s) to catch interactions the observer misses
+        // 4. Start AX polling (0.5s) to catch keyboard-driven interactions the observer misses
         startAXPolling(for: step, allSteps: allSteps, generation: stepGeneration)
 
         // 5. Start the nudge timer in case the user doesn't act within timeoutSeconds
@@ -372,6 +386,12 @@ final class WalkthroughEngine: ObservableObject {
         //    Context menu picks, keyboard shortcuts, and drag-and-drop don't emit AX focus
         //    events, so the AXObserver slow path never fires for those interactions.
         startPeriodicValidationTimer()
+
+        // 7. Start global mouse event monitoring.
+        //    Sidebar clicks, right-clicks, and direct mouse interactions don't change
+        //    AX keyboard focus, so the AXObserver and polling timer miss them entirely.
+        //    This monitor fires immediately on any click and triggers fast AI validation.
+        startMouseEventMonitoring(for: step, allSteps: allSteps, generation: stepGeneration)
     }
 
     // MARK: - AX Observer Management
@@ -458,14 +478,57 @@ final class WalkthroughEngine: ObservableObject {
         print("[Luma] WalkthroughEngine: watching PID \(targetPID) for '\(step.elementName)'")
     }
 
+    // MARK: - Mouse Event Monitoring
+
+    /// Installs a global NSEvent monitor for left-click and right-click events.
+    ///
+    /// Why this is needed: the AXObserver and AX polling timer only detect changes in
+    /// keyboard focus (kAXFocusedUIElementAttribute). Most mouse-driven interactions —
+    /// Finder sidebar clicks, right-clicks opening context menus, System Settings category
+    /// selection — do NOT change keyboard focus and are therefore invisible to those paths.
+    ///
+    /// This monitor fires on any mouse click, immediately runs the AX check in case focus
+    /// did change, then schedules an AI screenshot validation 0.6s later so the UI has
+    /// time to visually settle (context menu to appear, sidebar to update, etc.) before
+    /// the screenshot is taken.
+    private func startMouseEventMonitoring(for step: WalkthroughStep, allSteps: [WalkthroughStep], generation: Int) {
+        if let existingMonitor = mouseEventMonitor {
+            NSEvent.removeMonitor(existingMonitor)
+        }
+
+        mouseEventMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseUp, .rightMouseDown]
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self = self,
+                      generation == self.currentStepGeneration else { return }
+
+                // Immediate AX check — catches cases where the click DID move keyboard focus
+                self.checkFocusedElementForStepCompletion(step: step, allSteps: allSteps, generation: generation)
+
+                // Delayed AI screenshot validation — gives the UI 0.6s to visually react
+                // to the click (context menu to appear, sidebar to highlight, dialog to open)
+                // before we capture the screenshot for the COMPLETED / INCOMPLETE check.
+                try? await Task.sleep(nanoseconds: 600_000_000)
+                guard generation == self.currentStepGeneration else { return }
+                self.triggerPeriodicAIValidationIfNeeded()
+            }
+        }
+    }
+
     // MARK: - AX Polling
 
-    /// Starts a 0.3-second repeating timer that reads the system-wide focused element and
+    /// Starts a 0.5-second repeating timer that reads the system-wide focused element and
     /// compares it to the expected step element. This catches button clicks and menu selections
     /// that don't always emit AXObserver focus-changed notifications.
     private func startAXPolling(for step: WalkthroughStep, allSteps: [WalkthroughStep], generation: Int) {
         axPollingTimer?.invalidate()
-        axPollingTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] _ in
+        // 0.5s interval instead of 0.3s — the mouse event monitor now handles real-time
+        // click detection, so the polling timer is a secondary fallback for keyboard-driven
+        // interactions. Reducing frequency cuts synchronous AXUIElementCopyAttributeValue
+        // calls on the main thread, which was causing perceptible lag when the target app
+        // (e.g. System Settings, Finder under memory pressure) was slow to respond.
+        axPollingTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.checkFocusedElementForStepCompletion(step: step, allSteps: allSteps, generation: generation)
             }
@@ -661,24 +724,32 @@ final class WalkthroughEngine: ObservableObject {
 
             let imageTuples = screenCaptures.map { (data: $0.imageData, label: $0.label) }
 
+            let targetElementDescription = step.elementName.isEmpty
+                ? "(no specific element — any relevant action counts)"
+                : "\"\(step.elementName)\""
+
             let validationSystemPrompt = """
-            You are a walkthrough step completion validator.
-            The user was guided to: "\(step.instruction)"
-            The target UI element was: "\(step.elementName)"
+            You are validating whether a macOS user completed a guided walkthrough step.
 
-            Look at the screenshot and determine if the user has COMPLETED this step.
+            Instruction given to the user: "\(step.instruction)"
+            Target UI element: \(targetElementDescription)
 
-            COMPLETED signs:
-            - A context menu or menu is now open on screen
-            - A dialog, sheet, popover, or new window appeared
-            - The app's visual state clearly changed to reflect the action (e.g., file moved, window opened)
-            - The target element has been activated and something visibly changed
+            Look at the screenshot and decide: has this step been completed?
 
-            INCOMPLETE signs:
-            - The screen looks the same as before (no menus, no dialogs, no state change)
-            - The target element is still idle
+            Answer COMPLETED if ANY of these are true:
+            - A context menu is visible (means the user right-clicked something)
+            - The content area changed to show what clicking the target would reveal (e.g. a folder's contents, a settings panel, an app window)
+            - A sidebar item, list row, or tab matching the target appears selected or highlighted
+            - A dialog, sheet, alert, or new window appeared as a result of the action
+            - The target element or the area around it looks activated, focused, or visually different from its idle state
+            - The app generally looks like progress was made toward the instruction
 
-            Reply with exactly one word: COMPLETED or INCOMPLETE
+            Answer INCOMPLETE only if:
+            - Nothing has visually changed at all and the target is clearly still in its pre-action idle state
+
+            When uncertain, answer COMPLETED — getting stuck on a step is worse than advancing slightly early.
+
+            Reply with one word only: COMPLETED or INCOMPLETE
             """
 
             // Validation only needs 1 word ("COMPLETED" or "INCOMPLETE") — keep token budget tiny
