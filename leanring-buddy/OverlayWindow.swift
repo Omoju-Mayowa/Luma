@@ -29,6 +29,9 @@ class OverlayWindow: NSWindow {
         self.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
         self.isReleasedWhenClosed = false
         self.hasShadow = false
+        // Exclude from screen capture so Luma's overlay doesn't appear in
+        // Cmd+Shift+3/4 screenshots or other apps capturing the screen.
+        self.sharingType = .none
 
         // Important: Allow the window to appear even when app is not active
         self.hidesOnDeactivate = false

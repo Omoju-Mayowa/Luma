@@ -7,17 +7,21 @@
 //
 //  Coordinate system notes:
 //  ─────────────────────────────────────────────────────────
-//  The macOS Accessibility API returns AXFrame values in AppKit/Cocoa
-//  screen coordinates: origin at the BOTTOM-LEFT of the primary display,
-//  Y increases upward.
-//
-//  CGDisplayMoveCursorToPoint and CGEvent use Quartz/CoreGraphics coordinates:
+//  The macOS Accessibility API returns AXFrame values in Quartz/CG coordinates:
 //  origin at the TOP-LEFT of the primary display, Y increases downward.
 //
-//  The correct Y-axis flip uses the maximum Y extent across all connected
-//  screens: cgY = maxScreenY - axFrame.midY
-//  Using only the containing screen's height gives wrong results when the
-//  element is on a secondary screen positioned above or below the primary.
+//  The Luma overlay (SwiftUI via NSHostingView) and AppKit APIs expect
+//  AppKit coordinates: origin at the BOTTOM-LEFT of the primary display,
+//  Y increases upward.
+//
+//  The correct Y-axis flip uses the MAIN screen's height:
+//    appKitY = NSScreen.main.frame.height - axFrame.midY
+//
+//  Using max($0, $1.frame.maxY) across all screens is wrong when a secondary
+//  screen is taller than the primary — elements on the primary display get
+//  shifted upward by the height difference. Using mainH is always correct
+//  because Quartz Y=0 always corresponds to AppKit Y=mainH regardless of
+//  how other monitors are arranged.
 //
 
 import AppKit
@@ -39,22 +43,23 @@ final class CursorGuide {
     // userInfo key for the target CGPoint (wrapped in NSValue, in AppKit coordinates).
     static let targetPointUserInfoKey = "targetPoint"
 
+    // userInfo key for the optional bubble text shown next to the Luma cursor when it arrives.
+    static let bubbleTextUserInfoKey = "bubbleText"
+
     private init() {}
 
     // MARK: - Public API
 
-    /// Finds a UI element by name and moves the OS cursor to its center.
+    /// Finds a UI element by name in the AX tree and animates the Luma cursor to it.
     /// Tries the target app (if bundleID given) then the menu bar, then the frontmost app.
-    func pointAtElement(withTitle elementTitle: String, inApp bundleID: String?) async {
+    /// Luma never moves the OS cursor — only the blue overlay cursor animates.
+    func pointAtElement(withTitle elementTitle: String, inApp bundleID: String?, bubbleText: String? = nil) async {
         print("[Luma] CursorGuide.pointAt() — target='\(elementTitle)' bundleID='\(bundleID ?? "any")'")
 
         guard AXIsProcessTrusted() else {
             print("[Luma] CursorGuide: aborting — Accessibility permission not granted.")
             return
         }
-
-        let postEventAccessGranted = CGRequestPostEventAccess()
-        print("[Luma] CursorGuide: CGRequestPostEventAccess = \(postEventAccessGranted)")
 
         // --- Element search ---
 
@@ -80,7 +85,12 @@ final class CursorGuide {
             return
         }
 
-        moveCursorAndNotifyOverlay(to: foundElement.axFrame)
+        // AX frames use Quartz coordinates (top-left origin, Y↓). Convert to AppKit (bottom-left, Y↑).
+        // Use the main screen's height — Quartz Y=0 always equals AppKit Y=mainH regardless of monitor config.
+        // Using max($0, $1.frame.maxY) across all screens is wrong when a secondary screen is taller.
+        let mainScreenHeight = NSScreen.main?.frame.height ?? 0
+        let appKitPoint = CGPoint(x: foundElement.axFrame.midX, y: mainScreenHeight - foundElement.axFrame.midY)
+        notifyOverlay(appKitPoint: appKitPoint, bubbleText: bubbleText)
     }
 
     /// Posts the clear-pointer notification so the overlay removes any active cursor guidance.
@@ -112,7 +122,7 @@ final class CursorGuide {
     /// Falls back to AX tree search if the AI call fails, the Task is cancelled, or no coordinate
     /// is returned. Using both AI vision and AX means we find elements whose AX labels differ from
     /// their visible labels (e.g. toolbar buttons with icon-only AX descriptions).
-    func pointAtElementViaAIScreenshot(named elementTitle: String, inApp bundleID: String?) async {
+    func pointAtElementViaAIScreenshot(named elementTitle: String, inApp bundleID: String?, bubbleText: String? = nil) async {
         // Check for Task cancellation before starting expensive work
         guard !Task.isCancelled else { return }
 
@@ -136,12 +146,20 @@ final class CursorGuide {
                 ? "You are shown \(screenCaptures.count) screens. Each image label identifies the screen number."
                 : "You are shown 1 screen."
 
+            // Include the exact pixel dimensions of each capture so the AI calibrates
+            // its coordinates to the actual image size — prevents coordinate scaling errors.
+            let dimensionLines = screenCaptures.enumerated().map { (index, capture) in
+                let screenLabel = screenCaptures.count > 1 ? "Screen \(index + 1)" : "The screenshot"
+                return "\(screenLabel) is \(capture.screenshotWidthInPixels)×\(capture.screenshotHeightInPixels) pixels."
+            }.joined(separator: " ")
+
             let elementLocationSystemPrompt = """
             You are a macOS screen analyzer that locates UI elements.
-            \(screenCountDescription)
+            \(screenCountDescription) \(dimensionLines)
 
             When asked to find a UI element, respond with ONLY a [POINT:x,y:label] tag — nothing else.
-            - x and y are integer pixel coordinates in the screenshot (top-left origin, 0,0 = top-left corner)
+            - x and y are integer pixel coordinates of the CENTER of the target element (top-left origin, 0,0 = top-left corner)
+            - The center is the middle of the element's bounding box, not its top-left corner
             - label is a 1-3 word description of the element
             - If the element is on the first/cursor screen: [POINT:x,y:label]
             - If the element is on screen 2: [POINT:x,y:label:screen2]
@@ -153,11 +171,13 @@ final class CursorGuide {
                 (data: capture.imageData, label: capture.label)
             }
 
+            // Only needs a [POINT:x,y:label] tag — 32 tokens is plenty
             let (aiResponse, _) = try await APIClient.shared.analyzeImage(
                 images: imageTuples,
                 systemPrompt: elementLocationSystemPrompt,
                 conversationHistory: [],
-                userPrompt: "Find the UI element named \"\(elementTitle)\" and return its pixel coordinates."
+                userPrompt: "Find the UI element named \"\(elementTitle)\" and return its pixel coordinates.",
+                maxOutputTokens: 32
             )
 
             guard !Task.isCancelled else { return }
@@ -170,7 +190,7 @@ final class CursorGuide {
                     pixelPoint: pointingResult.pixelCoordinate,
                     screenCapture: targetScreenCapture
                 )
-                moveCursorToAppKitPoint(appKitPoint)
+                notifyOverlay(appKitPoint: appKitPoint, bubbleText: bubbleText)
                 return
             }
         } catch {
@@ -181,7 +201,7 @@ final class CursorGuide {
         // Fallback: AX tree search when AI pointing fails or the Task was cancelled before move
         guard !Task.isCancelled else { return }
         print("[Luma] CursorGuide: falling back to AX tree search for '\(elementTitle)'")
-        await pointAtElement(withTitle: elementTitle, inApp: bundleID)
+        await pointAtElement(withTitle: elementTitle, inApp: bundleID, bubbleText: bubbleText)
     }
 
     /// Parses a [POINT:x,y:label] or [POINT:x,y:label:screenN] tag from the AI's response.
@@ -255,31 +275,21 @@ final class CursorGuide {
         )
     }
 
-    /// Converts a global AppKit point (bottom-left origin) to a CG/Quartz point (top-left origin),
-    /// moves the OS cursor there, and notifies the overlay to animate the Luma cursor.
-    private func moveCursorToAppKitPoint(_ appKitPoint: CGPoint) {
-        let maximumScreenY = NSScreen.screens.reduce(0.0) { max($0, $1.frame.maxY) }
-        let cgPoint = CGPoint(x: appKitPoint.x, y: maximumScreenY - appKitPoint.y)
-
-        print("[Luma] CursorGuide AI move — AppKit: \(appKitPoint) → CG: \(cgPoint)")
-
-        let displayID = findCGDisplayContaining(cgPoint: cgPoint)
-        CGDisplayMoveCursorToPoint(displayID, cgPoint)
-
-        if let mouseMovedEvent = CGEvent(
-            mouseEventSource: nil,
-            mouseType: .mouseMoved,
-            mouseCursorPosition: cgPoint,
-            mouseButton: .left
-        ) {
-            mouseMovedEvent.post(tap: .cghidEventTap)
+    /// Posts the pointAt notification so CompanionManager updates detectedElementScreenLocation,
+    /// which triggers the Luma cursor overlay to animate to the target.
+    /// Luma NEVER moves the OS cursor — only the blue overlay cursor animates.
+    private func notifyOverlay(appKitPoint: CGPoint, bubbleText: String? = nil) {
+        print("[Luma] CursorGuide: notifying overlay → AppKit \(appKitPoint)")
+        var userInfo: [String: Any] = [
+            CursorGuide.targetPointUserInfoKey: NSValue(point: appKitPoint)
+        ]
+        if let text = bubbleText {
+            userInfo[CursorGuide.bubbleTextUserInfoKey] = text
         }
-
-        // Notify the overlay in AppKit coordinates so the Luma cursor animates there
         NotificationCenter.default.post(
             name: CursorGuide.pointAtNotificationName,
             object: nil,
-            userInfo: [CursorGuide.targetPointUserInfoKey: NSValue(point: appKitPoint)]
+            userInfo: userInfo
         )
     }
 
@@ -290,7 +300,7 @@ final class CursorGuide {
         let element: AXUIElement
         let title: String       // Best matching text attribute (title, description, or value)
         let role: String        // AXRole string (e.g. "AXButton")
-        let axFrame: CGRect     // Frame in AppKit/AX coordinates (bottom-left origin)
+        let axFrame: CGRect     // Frame in Quartz/AX coordinates (top-left origin, Y↓)
     }
 
     /// Searches the given app's AX tree for the best match to `query`.
@@ -450,10 +460,31 @@ final class CursorGuide {
 
         // Role bonuses — prefer interactive elements when scores are otherwise tied
         switch collected.role {
-        case "AXMenuBarItem": score += 15.0   // Top-level menu bar items (File, Edit…)
-        case "AXButton":      score += 10.0   // Buttons are usually the primary action targets
-        case "AXMenuItem":    score += 10.0   // Menu items are often exactly what we want
+        case "AXMenuBarItem": score += 15.0
+        case "AXButton":      score += 10.0
+        case "AXMenuItem":    score += 10.0
         default: break
+        }
+
+        // Penalize large container elements — a Finder window named "Downloads" should
+        // not beat the actual folder icon with the same title.
+        let elementArea = collected.axFrame.width * collected.axFrame.height
+        if elementArea > 200_000 {
+            score = max(1.0, score - 50.0)
+        } else if elementArea > 60_000 {
+            score = max(1.0, score - 25.0)
+        }
+
+        // Penalize non-interactive container roles
+        switch collected.role {
+        case "AXWindow", "AXSheet", "AXDrawer":
+            score = max(1.0, score - 40.0)
+        case "AXGroup", "AXScrollArea", "AXList", "AXTable", "AXOutline":
+            score = max(1.0, score - 20.0)
+        case "AXStaticText", "AXImage":
+            score = max(1.0, score - 8.0)
+        default:
+            break
         }
 
         return score
@@ -461,74 +492,7 @@ final class CursorGuide {
 
     // MARK: - Cursor Movement
 
-    /// Converts the AX frame center to a CG/Quartz coordinate point, moves the OS
-    /// cursor there, and posts an overlay notification so the Luma cursor animates to match.
-    private func moveCursorAndNotifyOverlay(to axFrame: CGRect) {
-        let cgTargetPoint = axCenterToCGPoint(axFrame)
-
-        print("[Luma] AX frame (AppKit):   \(axFrame)")
-        print("[Luma] Cursor target (CG):  \(cgTargetPoint)")
-
-        // Primary: direct cursor warp — fast and reliable on most macOS versions
-        let displayID = findCGDisplayContaining(cgPoint: cgTargetPoint)
-        let moveResult = CGDisplayMoveCursorToPoint(displayID, cgTargetPoint)
-        print("[Luma] CGDisplayMoveCursorToPoint → \(moveResult == .success ? "success" : "error(\(moveResult.rawValue))")")
-
-        // Fallback: CGEvent HID tap — works even when the direct warp is blocked by
-        // macOS 14+ entitlement restrictions
-        if let mouseMoveEvent = CGEvent(
-            mouseEventSource: nil,
-            mouseType: .mouseMoved,
-            mouseCursorPosition: cgTargetPoint,
-            mouseButton: .left
-        ) {
-            mouseMoveEvent.post(tap: .cghidEventTap)
-            print("[Luma] CGEvent mouseMoved posted at \(cgTargetPoint)")
-        }
-
-        // Notify the overlay in AppKit coordinates (no conversion needed — the
-        // AX frame is already in AppKit space, and the overlay renders in AppKit space)
-        let overlayTarget = CGPoint(x: axFrame.midX, y: axFrame.midY)
-        NotificationCenter.default.post(
-            name: CursorGuide.pointAtNotificationName,
-            object: nil,
-            userInfo: [CursorGuide.targetPointUserInfoKey: NSValue(point: overlayTarget)]
-        )
-        print("[Luma] Overlay notified at AppKit point \(overlayTarget)")
-    }
-
-    // MARK: - Coordinate Conversion
-
-    /// Converts the center of an AX frame (AppKit/bottom-left origin) to a
-    /// Quartz/CG coordinate point (top-left origin).
-    ///
-    /// Uses the maximum Y extent across ALL connected screens as the flip height.
-    /// This correctly handles elements on secondary screens positioned above, below,
-    /// or beside the primary display in a multi-monitor setup.
-    private func axCenterToCGPoint(_ axFrame: CGRect) -> CGPoint {
-        // The maximum Y of any screen in AppKit coordinates equals the total vertical
-        // height of the desktop space from the bottom-left of the primary display upward.
-        let maximumScreenY = NSScreen.screens.reduce(0.0) { max($0, $1.frame.maxY) }
-
-        let cgX = axFrame.midX
-        let cgY = maximumScreenY - axFrame.midY
-
-        return CGPoint(x: cgX, y: cgY)
-    }
-
-    // MARK: - Display Helpers
-
-    /// Returns the CGDirectDisplayID of the display containing `cgPoint`
-    /// (in Quartz/CG coordinates). Falls back to the main display.
-    private func findCGDisplayContaining(cgPoint: CGPoint) -> CGDirectDisplayID {
-        var displayCount: UInt32 = 0
-        CGGetDisplaysWithPoint(cgPoint, 0, nil, &displayCount)
-        guard displayCount > 0 else { return CGMainDisplayID() }
-
-        var displayIDs = [CGDirectDisplayID](repeating: 0, count: Int(displayCount))
-        CGGetDisplaysWithPoint(cgPoint, displayCount, &displayIDs, nil)
-        return displayIDs.first ?? CGMainDisplayID()
-    }
+    // MARK: - Display Helpers (unused after cursor movement removal, kept for potential future use)
 
     // MARK: - AX Attribute Helpers
 

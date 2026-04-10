@@ -45,14 +45,16 @@ final class NativeTTSClient: NSObject, AVSpeechSynthesizerDelegate {
         stopPlayback()
 
         let utterance = AVSpeechUtterance(string: text)
-        utterance.rate = AVSpeechUtteranceDefaultSpeechRate
-        utterance.pitchMultiplier = 1.0
+        // Higher pitch and slightly slower rate for a sassier, more expressive delivery
+        utterance.rate = 0.52
+        utterance.pitchMultiplier = 1.4
         utterance.volume = 1.0
 
-        // Prefer a natural-sounding English voice. Try enhanced Zoe first,
-        // then Samantha compact, then fall back to the best available English voice.
-        if let zoeVoice = AVSpeechSynthesisVoice(identifier: "com.apple.voice.enhanced.en-US.Zoe") {
-            utterance.voice = zoeVoice
+        // Prefer Zoe (enhanced) → Zoe (compact) → Samantha → system default
+        if let zoeEnhancedVoice = AVSpeechSynthesisVoice(identifier: "com.apple.voice.enhanced.en-US.Zoe") {
+            utterance.voice = zoeEnhancedVoice
+        } else if let zoeCompactVoice = AVSpeechSynthesisVoice(identifier: "com.apple.ttsbundle.Zoe-compact") {
+            utterance.voice = zoeCompactVoice
         } else if let samanthaVoice = AVSpeechSynthesisVoice(identifier: "com.apple.ttsbundle.Samantha-compact") {
             utterance.voice = samanthaVoice
         } else {

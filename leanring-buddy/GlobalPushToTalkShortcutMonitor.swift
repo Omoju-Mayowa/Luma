@@ -15,6 +15,10 @@ import Foundation
 final class GlobalPushToTalkShortcutMonitor: ObservableObject {
     let shortcutTransitionPublisher = PassthroughSubject<BuddyPushToTalkShortcut.ShortcutTransition, Never>()
 
+    /// Posted when the user presses Cmd+Shift+3/4/5 so the overlay can
+    /// temporarily hide itself before the system grabs the screenshot.
+    static let systemScreenshotShortcutDetectedNotificationName = NSNotification.Name("lumaSystemScreenshotShortcutDetected")
+
     private var globalEventTap: CFMachPort?
     private var globalEventTapRunLoopSource: CFRunLoopSource?
     /// Mutated exclusively from the CGEvent tap callback, which runs on
@@ -115,6 +119,19 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
         }
 
         let eventKeyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
+
+        // Detect macOS system screenshot shortcuts (Cmd+Shift+3/4/5) so the overlay can
+        // temporarily hide before the system captures the screen. Key codes: '3'=20, '4'=21, '5'=23.
+        // We only fire on keyDown so there's one hide per key press, not one per repeat.
+        let isScreenshotKeyCode = eventKeyCode == 20 || eventKeyCode == 21 || eventKeyCode == 23
+        let hasCmdAndShift = event.flags.contains(.maskCommand) && event.flags.contains(.maskShift)
+        if eventType == .keyDown && isScreenshotKeyCode && hasCmdAndShift {
+            NotificationCenter.default.post(
+                name: GlobalPushToTalkShortcutMonitor.systemScreenshotShortcutDetectedNotificationName,
+                object: nil
+            )
+        }
+
         let shortcutTransition = BuddyPushToTalkShortcut.shortcutTransition(
             for: eventType,
             keyCode: eventKeyCode,

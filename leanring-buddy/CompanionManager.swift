@@ -103,6 +103,18 @@ final class CompanionManager: ObservableObject {
     /// speaks again before the delay elapses.
     private var transientHideTask: Task<Void, Never>?
 
+    /// Observer for the CursorGuide pointAt notification, which LIPE and CursorGuide post
+    /// when they want the Luma cursor overlay to animate to a target element.
+    /// Kept so we can remove it cleanly in stop().
+    private var elementPointingObserver: NSObjectProtocol?
+
+    /// Observer for macOS system screenshot shortcuts (Cmd+Shift+3/4/5).
+    /// When detected the overlay hides for 2 seconds so it doesn't appear in the screenshot.
+    private var screenshotShortcutObserver: NSObjectProtocol?
+
+    /// Task that restores the overlay visibility after the screenshot hide delay.
+    private var screenshotHideRestoreTask: Task<Void, Never>?
+
     /// True when all three required permissions (accessibility, screen recording,
     /// microphone) are granted. Used by the panel to show a single "all good" state.
     var allPermissionsGranted: Bool {
@@ -207,6 +219,59 @@ final class CompanionManager: ObservableObject {
             overlayWindowManager.showOverlay(onScreens: NSScreen.screens, companionManager: self)
             isOverlayVisible = true
         }
+
+        // Listen for the pointAt notification from CursorGuide / LumaImageProcessingEngine.
+        // These singletons post this notification when they want the Luma cursor overlay to
+        // animate to a UI element. Setting detectedElementScreenLocation triggers the
+        // BlueCursorView onChange handler which starts the bezier flight animation.
+        elementPointingObserver = NotificationCenter.default.addObserver(
+            forName: CursorGuide.pointAtNotificationName,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                guard let nsValue = notification.userInfo?[CursorGuide.targetPointUserInfoKey] as? NSValue else { return }
+                let appKitPoint = nsValue.pointValue
+
+                // Find which screen contains this AppKit point so BlueCursorView knows
+                // which overlay window should animate (only the one on that screen does).
+                let containingScreen = NSScreen.screens.first { $0.frame.contains(appKitPoint) }
+                    ?? NSScreen.main
+
+                self.detectedElementBubbleText = notification.userInfo?[CursorGuide.bubbleTextUserInfoKey] as? String
+                self.detectedElementDisplayFrame = containingScreen?.frame
+                // Setting this last triggers the onChange in BlueCursorView.
+                self.detectedElementScreenLocation = appKitPoint
+            }
+        }
+
+        // Hide the overlay for 2 seconds when the user presses a system screenshot shortcut
+        // (Cmd+Shift+3/4/5) so Luma doesn't appear in their screenshot.
+        screenshotShortcutObserver = NotificationCenter.default.addObserver(
+            forName: GlobalPushToTalkShortcutMonitor.systemScreenshotShortcutDetectedNotificationName,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.isOverlayVisible else { return }
+
+                // Cancel any pending restore from a previous screenshot key press
+                self.screenshotHideRestoreTask?.cancel()
+
+                // Hide immediately so the overlay is gone before the system captures the screen
+                self.overlayWindowManager.hideOverlay()
+                self.isOverlayVisible = false
+
+                // Restore after 2 seconds — long enough for the user to drag their selection
+                self.screenshotHideRestoreTask = Task {
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    guard !Task.isCancelled else { return }
+                    self.overlayWindowManager.showOverlay(onScreens: NSScreen.screens, companionManager: self)
+                    self.isOverlayVisible = true
+                }
+            }
+        }
     }
 
     /// Called by BlueCursorView after the buddy finishes its pointing
@@ -307,6 +372,16 @@ final class CompanionManager: ObservableObject {
         buddyDictationManager.cancelCurrentDictation()
         overlayWindowManager.hideOverlay()
         transientHideTask?.cancel()
+        screenshotHideRestoreTask?.cancel()
+        screenshotHideRestoreTask = nil
+        if let observer = elementPointingObserver {
+            NotificationCenter.default.removeObserver(observer)
+            elementPointingObserver = nil
+        }
+        if let observer = screenshotShortcutObserver {
+            NotificationCenter.default.removeObserver(observer)
+            screenshotShortcutObserver = nil
+        }
 
         currentResponseTask?.cancel()
         currentResponseTask = nil
@@ -642,6 +717,48 @@ final class CompanionManager: ObservableObject {
             // Clear any previous API error so the panel doesn't show stale info
             lastAPIErrorMessage = nil
 
+            // Offline detection: check network status before any API call.
+            // If offline and a pre-built guide matches the transcript, run it locally.
+            // If offline with no matching guide, tell the user and stop early.
+            if !OfflineGuideManager.shared.isOnline {
+                if let matchingOfflineGuide = OfflineGuideManager.shared.findGuide(for: transcript) {
+                    print("[Luma] Offline — executing guide '\(matchingOfflineGuide.title)' for '\(transcript)'")
+                    try? await nativeTTSClient.speakText("You're offline. Let me guide you through this.")
+                    OfflineGuideManager.shared.executeGuide(matchingOfflineGuide)
+                    voiceState = .idle
+                    scheduleTransientHideIfNeeded()
+                    return
+                } else {
+                    lastAPIErrorMessage = LumaWriteEngine.shared.errorMessage(for: .offline)
+                    try? await nativeTTSClient.speakText("You're offline. I can still help with common tasks like compress, screenshot, or Wi-Fi.")
+                    voiceState = .idle
+                    scheduleTransientHideIfNeeded()
+                    return
+                }
+            }
+
+            // Classify the transcript on-device to decide how to route it.
+            // .multiStep → WalkthroughEngine (AI plans steps, executes silently)
+            // .singleStep / .question / .unknown → existing Claude voice response flow
+            // Classification is instant (keyword heuristics) so there's no perceived delay.
+            let taskClassification = await LumaOnDeviceAI.shared.classifyTask(transcript)
+            print("[Luma] Task classification: .\(taskClassification.taskType) confidence=\(String(format: "%.2f", taskClassification.confidence)) — \(taskClassification.reason)")
+
+            if taskClassification.taskType == .multiStep && !WalkthroughEngine.shared.isRunning {
+                // Hand off to WalkthroughEngine — it will plan and execute steps silently.
+                // If planning succeeds, voiceState returns to idle (WalkthroughEngine owns TTS).
+                // If planning fails (API error, bad model, etc.), fall through to the normal
+                // voice response path so the user always gets a spoken reply.
+                let walkthroughPlanningSucceeded = await WalkthroughEngine.shared.startWalkthroughSilently(goal: transcript)
+                if walkthroughPlanningSucceeded {
+                    voiceState = .idle
+                    scheduleTransientHideIfNeeded()
+                    return
+                }
+                print("[Luma] Walkthrough planning failed — falling back to voice response for: \(transcript)")
+                // Fall through: voiceState stays .processing, continue to the API call below
+            }
+
             do {
                 // Capture all connected screens so the AI has full context.
                 // If screen content permission isn't granted yet (or capture fails
@@ -784,8 +901,11 @@ final class CompanionManager: ObservableObject {
                 LumaAnalytics.trackResponseError(error: error.localizedDescription)
                 print("⚠️ Companion response error (\(type(of: error))): \(error.localizedDescription)")
                 print("⚠️ Full error: \(error)")
-                // Surface the actual error in the panel so the user can diagnose without Xcode
-                lastAPIErrorMessage = error.localizedDescription
+                // Map the raw API error to a brief human-readable message via LumaWriteEngine.
+                // Raw error strings from the API (e.g. "The operation couldn't be completed") are
+                // never shown — LumaWriteEngine always produces a short, friendly alternative.
+                let lumaErrorType = Self.mapErrorToLumaErrorType(error)
+                lastAPIErrorMessage = LumaWriteEngine.shared.errorMessage(for: lumaErrorType)
                 speakCreditsErrorFallback()
             }
 
@@ -805,8 +925,10 @@ final class CompanionManager: ObservableObject {
 
         transientHideTask?.cancel()
         transientHideTask = Task {
-            // Wait for TTS audio to finish playing
-            while nativeTTSClient.isPlaying {
+            // Wait for TTS audio to finish playing.
+            // Also wait for any active walkthrough — WalkthroughEngine uses NativeTTSClient.shared
+            // (a different instance from CompanionManager's nativeTTSClient) so we check both.
+            while nativeTTSClient.isPlaying || NativeTTSClient.shared.isPlaying || WalkthroughEngine.shared.isRunning {
                 try? await Task.sleep(nanoseconds: 200_000_000)
                 guard !Task.isCancelled else { return }
             }
@@ -925,6 +1047,42 @@ final class CompanionManager: ObservableObject {
         guard elementName.count >= 3 else { return nil }
 
         return elementName
+    }
+
+    // MARK: - Error Classification
+
+    /// Maps a raw API Error to the closest LumaWriteEngine ErrorType by inspecting
+    /// the error description for well-known substrings. This keeps raw API error strings
+    /// out of the UI — LumaWriteEngine always produces a short human-readable message.
+    private static func mapErrorToLumaErrorType(_ error: Error) -> ErrorType {
+        let description = error.localizedDescription.lowercased()
+
+        if description.contains("offline") || description.contains("network connection")
+            || description.contains("internet") || description.contains("not connected") {
+            return .offline
+        }
+
+        if description.contains("rate limit") || description.contains("429")
+            || description.contains("too many requests") {
+            return .rateLimited
+        }
+
+        if description.contains("api key") || description.contains("unauthorized")
+            || description.contains("401") || description.contains("no profile")
+            || description.contains("invalid key") {
+            return .noAPIKey
+        }
+
+        if description.contains("model") && (description.contains("not found") || description.contains("404")) {
+            return .modelNotFound
+        }
+
+        if description.contains("could not connect") || description.contains("connection")
+            || description.contains("timed out") || description.contains("unreachable") {
+            return .connectionFailed(providerName: "AI")
+        }
+
+        return .unknown(error.localizedDescription)
     }
 
     // MARK: - Onboarding Video

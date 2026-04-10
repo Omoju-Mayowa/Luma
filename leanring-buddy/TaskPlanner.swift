@@ -69,22 +69,22 @@ final class TaskPlanner {
             {
               "index": <0-based number>,
               "instruction": "<exact words to say to the user>",
-              "elementName": "<exact text visible on screen for the UI element to click>",
+              "elementName": "<shortest label that uniquely identifies this UI element in the AX tree>",
               "elementRole": "<AXButton | AXMenuItem | AXMenuBarItem | AXTextField | null>",
               "appBundleID": "<com.apple.finder etc., or null if not app-specific>",
               "isMenuBar": <true if the element is in the macOS menu bar, otherwise false>,
-              "timeoutSeconds": 30
+              "timeoutSeconds": 15
             }
           ]
         }
 
         Rules:
-        - elementName must be the EXACT text visible on screen (e.g. "Compress \\"Downloads\\"" not just "Compress")
+        - elementName must match the AX accessibility label exactly — use the shortest label that is unique (e.g. "Compress" not "Compress 'Downloads'"). macOS AX titles strip contextual suffixes.
+        - For context menu interactions, split into two steps: (1) right-click the item (elementName = the file/folder name, instruction = "Right-click <name>"), then (2) select from the menu (elementName = the menu item label, isMenuBar = false).
         - For Finder: use appBundleID "com.apple.finder"
         - For menu bar system items (battery, wifi, clock, Control Center): set isMenuBar to true and appBundleID to "com.apple.controlcenter"
         - For app menu items (File, Edit, View menus): set isMenuBar to true, appBundleID to that app's bundle ID
         - For Control Center: appBundleID "com.apple.controlcenter"
-        - Be specific — prefer the full visible label over a partial one
         - If a step has no specific element (e.g. "press a key"), use elementName ""
         """
 

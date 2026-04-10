@@ -22,7 +22,7 @@ struct WalkthroughStep: Codable, Identifiable {
     let elementRole: String?    // AXButton, AXMenuItem, etc. — optional scoring hint
     let appBundleID: String?    // Which app this step happens in (nil = frontmost app)
     let isMenuBar: Bool         // true when the element lives in the macOS menu bar hierarchy
-    let timeoutSeconds: Int     // Seconds before the first nudge fires (default 30)
+    let timeoutSeconds: Int     // Seconds before the first nudge fires (default 15)
 
     init(
         index: Int,
@@ -31,7 +31,7 @@ struct WalkthroughStep: Codable, Identifiable {
         elementRole: String? = nil,
         appBundleID: String? = nil,
         isMenuBar: Bool = false,
-        timeoutSeconds: Int = 30
+        timeoutSeconds: Int = 15
     ) {
         self.id = UUID()
         self.index = index
@@ -67,7 +67,7 @@ struct WalkthroughStep: Codable, Identifiable {
         self.elementRole    = try? container.decode(String.self, forKey: .elementRole)
         self.appBundleID    = try? container.decode(String.self, forKey: .appBundleID)
         self.isMenuBar      = (try? container.decode(Bool.self, forKey: .isMenuBar)) ?? false
-        self.timeoutSeconds = (try? container.decode(Int.self, forKey: .timeoutSeconds)) ?? 30
+        self.timeoutSeconds = (try? container.decode(Int.self, forKey: .timeoutSeconds)) ?? 15
     }
 }
 

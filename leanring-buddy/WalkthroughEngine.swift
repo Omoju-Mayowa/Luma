@@ -85,8 +85,9 @@ final class WalkthroughEngine: ObservableObject {
     private var lastAIValidationDate: Date = .distantPast
 
     /// Minimum seconds between consecutive AI screenshot validation calls.
-    /// Each call takes 2-4 seconds, so this prevents pile-up of concurrent requests.
-    private let minimumSecondsBetweenAIValidations: TimeInterval = 2.5
+    /// Reduced from 2.5 to 1.0 — the API call itself takes 2–4s, so waiting 2.5s
+    /// before even starting meant a 4–6s total delay before a step could auto-advance.
+    private let minimumSecondsBetweenAIValidations: TimeInterval = 1.0
 
     // MARK: - AX Observer State
 
@@ -116,16 +117,34 @@ final class WalkthroughEngine: ObservableObject {
     /// duration of the observer's life. Set to nil in stopActiveStepAndCleanUp.
     private var axObserverContext: WalkthroughObserverContext?
 
+    // MARK: - AX Polling State
+
+    /// 0.3-second repeating timer that reads the system-wide focused element and checks
+    /// it against the expected step element. This catches interactions (button clicks, menu
+    /// selections) that don't reliably emit AXObserver notifications in every app.
+    private var axPollingTimer: Timer?
+
+    // MARK: - Periodic AI Validation State
+
+    /// 3-second repeating timer that triggers AI screenshot validation independently of AX events.
+    /// Many interactions (context menu picks, drag-and-drop, keyboard shortcuts) don't emit any
+    /// AX focus notification. Without this timer, validateStepCompletionViaAIScreenshot would
+    /// only fire when the AXObserver happens to deliver an event — which is unreliable for those cases.
+    private var periodicValidationTimer: Timer?
+
     // MARK: - Nudge Timer State
 
     private var nudgeTimer: Timer?
     private var nudgeCount: Int = 0
     private let maximumInstructionNudgesBeforeSwitchingToPatientMessage: Int = 3
+    /// After this many nudges, Luma disengages rather than continuing to repeat.
+    /// Nudge-count-based (not time-based) so it scales correctly with any timeoutSeconds value.
+    private let maximumTotalNudgesBeforeDisengaging: Int = 5
 
     // MARK: - Correction Debounce
 
     private var lastCorrectionDate: Date = .distantPast
-    private let minimumSecondsBetweenCorrections: TimeInterval = 4.0
+    private let minimumSecondsBetweenCorrections: TimeInterval = 2.0
 
     private init() {}
 
@@ -150,6 +169,47 @@ final class WalkthroughEngine: ObservableObject {
         }
     }
 
+    /// Plans steps for `goal` via AI and immediately starts executing — no confirmation dialog.
+    /// Used when LumaTaskClassifier routes a transcript to the multi-step path. The user
+    /// hears the first instruction as soon as planning succeeds.
+    ///
+    /// Returns `true` if planning succeeded and execution started, `false` if planning failed.
+    /// CompanionManager uses the return value to fall back to the voice response path when
+    /// this returns false — so the user always gets SOME response even if planning fails.
+    ///
+    /// State transitions: idle → planning → executing (skips confirming entirely)
+    func startWalkthroughSilently(goal: String) async -> Bool {
+        guard !isRunning else {
+            print("[Luma] WalkthroughEngine: startWalkthroughSilently ignored — engine already running")
+            return false
+        }
+
+        state = .planning
+        let frontmostAppName = NSWorkspace.shared.frontmostApplication?.localizedName ?? "unknown"
+
+        do {
+            let walkthroughPlan = try await taskPlanner.planSteps(
+                goal: goal,
+                frontmostAppName: frontmostAppName
+            )
+
+            guard !walkthroughPlan.steps.isEmpty else {
+                print("[Luma] WalkthroughEngine: plan returned 0 steps — returning to idle")
+                state = .idle
+                return false
+            }
+
+            print("[Luma] WalkthroughEngine: silent start — \(walkthroughPlan.steps.count) step(s) planned")
+            state = .executing(steps: walkthroughPlan.steps, currentIndex: 0)
+            executeStep(walkthroughPlan.steps[0], allSteps: walkthroughPlan.steps)
+            return true
+        } catch {
+            print("[Luma] WalkthroughEngine: silent planning failed — \(error.localizedDescription)")
+            state = .idle
+            return false
+        }
+    }
+
     /// Confirms the planned steps and starts executing from step 0.
     /// Must be called while in the `.confirming` state.
     func confirmAndBeginWalkthrough() {
@@ -158,6 +218,17 @@ final class WalkthroughEngine: ObservableObject {
             return
         }
 
+        state = .executing(steps: steps, currentIndex: 0)
+        executeStep(steps[0], allSteps: steps)
+    }
+
+    /// Directly starts executing a pre-built list of steps without AI planning or user confirmation.
+    /// Used by OfflineGuideManager to run offline guides that don't need an API call.
+    func executeSteps(_ steps: [WalkthroughStep]) {
+        guard !steps.isEmpty else {
+            print("[Luma] WalkthroughEngine: executeSteps called with empty array — ignored")
+            return
+        }
         state = .executing(steps: steps, currentIndex: 0)
         executeStep(steps[0], allSteps: steps)
     }
@@ -206,6 +277,14 @@ final class WalkthroughEngine: ObservableObject {
         // primitive values from the context (not the context itself), so this is safe.
         axObserverContext = nil
 
+        // Cancel the AX polling timer
+        axPollingTimer?.invalidate()
+        axPollingTimer = nil
+
+        // Cancel the periodic AI validation timer
+        periodicValidationTimer?.invalidate()
+        periodicValidationTimer = nil
+
         // Cancel the nudge timer
         nudgeTimer?.invalidate()
         nudgeTimer = nil
@@ -215,6 +294,38 @@ final class WalkthroughEngine: ObservableObject {
         isAIValidationInProgress = false
         lastCorrectionDate = .distantPast
         lastAIValidationDate = .distantPast
+    }
+
+    // MARK: - Element Pointing
+
+    /// Points the Luma cursor at `elementName` using LumaImageProcessingEngine (AX + visual fusion).
+    /// Falls back to CursorGuide's AI screenshot path if LIPE finds nothing above its
+    /// confidence threshold. `bubbleText` is shown in the small speech bubble when the cursor arrives.
+    private func pointAtStepElement(
+        elementName: String,
+        appBundleID: String?,
+        isMenuBar: Bool,
+        bubbleText: String?
+    ) async {
+        guard !elementName.isEmpty else { return }
+
+        let candidate = await LumaImageProcessingEngine.shared.findElement(
+            query: elementName,
+            appBundleID: isMenuBar ? nil : appBundleID,
+            isMenuBar: isMenuBar
+        )
+
+        if let confirmedCandidate = candidate {
+            LumaImageProcessingEngine.shared.pointCursor(at: confirmedCandidate, bubbleText: bubbleText)
+        } else {
+            // LIPE confidence too low — fall back to the AI screenshot path which asks
+            // the model to visually locate the element when AX and on-device vision fail.
+            await cursorGuide.pointAtElementViaAIScreenshot(
+                named: elementName,
+                inApp: isMenuBar ? nil : appBundleID,
+                bubbleText: bubbleText
+            )
+        }
     }
 
     // MARK: - Step Execution
@@ -232,20 +343,35 @@ final class WalkthroughEngine: ObservableObject {
         // 1. Speak the instruction so the user knows what to do
         ttsClient.speak("Step \(humanReadableStepNumber). \(step.instruction)")
 
+        // Bubble text for the small speech bubble shown next to the Luma cursor.
+        // Kept short so it fits the bubble — the full instruction plays via TTS.
+        let stepBubbleText = step.elementName.isEmpty ? "here!" : "→ \(step.elementName)"
+
         // 2. Point the cursor. Stored as a cancellable Task so we can abort it if the step
-        //    ends before the AI response comes back (e.g. user completes the step quickly).
+        //    ends before the element is found (e.g. user completes the step quickly).
+        //    Uses LIPE (AX + visual fusion) with CursorGuide AI as fallback.
         activePointingTask = Task {
-            await cursorGuide.pointAtElementViaAIScreenshot(
-                named: step.elementName,
-                inApp: step.isMenuBar ? nil : step.appBundleID
+            await self.pointAtStepElement(
+                elementName: step.elementName,
+                appBundleID: step.appBundleID,
+                isMenuBar: step.isMenuBar,
+                bubbleText: stepBubbleText
             )
         }
 
         // 3. Install the AX observer to detect when the user interacts with the target
         startWatching(for: step, allSteps: allSteps, generation: stepGeneration)
 
-        // 4. Start the nudge timer in case the user doesn't act within timeoutSeconds
+        // 4. Start fast AX polling (0.3s) to catch interactions the observer misses
+        startAXPolling(for: step, allSteps: allSteps, generation: stepGeneration)
+
+        // 5. Start the nudge timer in case the user doesn't act within timeoutSeconds
         startNudgeTimer(for: step, allSteps: allSteps, generation: stepGeneration)
+
+        // 6. Start periodic AI validation to catch completions the AX observer misses.
+        //    Context menu picks, keyboard shortcuts, and drag-and-drop don't emit AX focus
+        //    events, so the AXObserver slow path never fires for those interactions.
+        startPeriodicValidationTimer()
     }
 
     // MARK: - AX Observer Management
@@ -305,15 +431,19 @@ final class WalkthroughEngine: ObservableObject {
 
         let appElement = AXUIElementCreateApplication(targetPID)
 
-        // Register for the four standard kAX notifications. We deliberately omit "AXMenuOpened" /
-        // "AXMenuClosed" because those are private notifications that must be registered on the
-        // system-wide AXUIElement to fire reliably — they silently fail on an app-level element.
-        // Menu interactions are detected instead by the AI screenshot validator.
+        // Register for AX notifications. More notification types means fewer interactions slip
+        // through to the slower AI validation path.
+        // Note: AXMenuOpened/AXMenuClosed must be registered on the system-wide element to fire
+        // reliably — they silently fail on an app-level element. Menu interactions are caught by
+        // the AX polling timer instead.
         let notificationsToRegister: [String] = [
-            kAXFocusedUIElementChangedNotification,  // keyboard nav, most button clicks
-            kAXValueChangedNotification,             // text field edits, checkbox toggles
-            kAXWindowCreatedNotification,            // new windows / dialogs opening
-            kAXSelectedTextChangedNotification,      // text selection in documents
+            kAXFocusedUIElementChangedNotification,     // keyboard nav, most button clicks
+            kAXValueChangedNotification,                // text field edits, checkbox toggles
+            kAXWindowCreatedNotification,               // new windows / dialogs opening
+            kAXSelectedTextChangedNotification,         // text selection in documents
+            kAXUIElementDestroyedNotification,          // element removed (e.g. popover closed)
+            kAXFocusedWindowChangedNotification,        // window focus switched
+            kAXSelectedChildrenChangedNotification,     // list/outline selection changed
         ]
 
         for notificationName in notificationsToRegister {
@@ -326,6 +456,74 @@ final class WalkthroughEngine: ObservableObject {
         axObserver = createdObserver
 
         print("[Luma] WalkthroughEngine: watching PID \(targetPID) for '\(step.elementName)'")
+    }
+
+    // MARK: - AX Polling
+
+    /// Starts a 0.3-second repeating timer that reads the system-wide focused element and
+    /// compares it to the expected step element. This catches button clicks and menu selections
+    /// that don't always emit AXObserver focus-changed notifications.
+    private func startAXPolling(for step: WalkthroughStep, allSteps: [WalkthroughStep], generation: Int) {
+        axPollingTimer?.invalidate()
+        axPollingTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.checkFocusedElementForStepCompletion(step: step, allSteps: allSteps, generation: generation)
+            }
+        }
+    }
+
+    /// Reads the system-wide focused element via AX and checks whether it matches the current step's
+    /// expected element. If it does, marks the step complete. This runs every 0.3 seconds as a
+    /// fast supplement to the AXObserver — it catches interactions (clicks, menu picks) that don't
+    /// always emit a focus-changed notification.
+    private func checkFocusedElementForStepCompletion(
+        step: WalkthroughStep,
+        allSteps: [WalkthroughStep],
+        generation: Int
+    ) {
+        guard generation == currentStepGeneration,
+              case .executing(let steps, let currentIndex) = state,
+              currentIndex < steps.count else { return }
+
+        let currentStep = steps[currentIndex]
+        guard !currentStep.elementName.isEmpty else { return }
+
+        // Read the currently focused element from the system-wide AX tree.
+        // kAXFocusedUIElementAttribute on the system-wide element returns whatever
+        // element currently has keyboard focus across all running apps.
+        let systemWideElement = AXUIElementCreateSystemWide()
+        var focusedElementRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            systemWideElement,
+            kAXFocusedUIElementAttribute as CFString,
+            &focusedElementRef
+        ) == .success,
+              let focusedElement = focusedElementRef else { return }
+
+        let axElement = focusedElement as! AXUIElement
+
+        var titleRef: CFTypeRef?
+        AXUIElementCopyAttributeValue(axElement, kAXTitleAttribute as CFString, &titleRef)
+        let elementTitle = (titleRef as? String) ?? ""
+
+        var descriptionRef: CFTypeRef?
+        AXUIElementCopyAttributeValue(axElement, kAXDescriptionAttribute as CFString, &descriptionRef)
+        let elementDescription = (descriptionRef as? String) ?? ""
+
+        let elementLabel = elementTitle.isEmpty ? elementDescription : elementTitle
+        guard !elementLabel.isEmpty else { return }
+
+        let labelLower = elementLabel.lowercased()
+        let expectedLower = currentStep.elementName.lowercased()
+
+        let isMatch = labelLower == expectedLower
+            || labelLower.contains(expectedLower)
+            || (expectedLower.contains(labelLower) && labelLower.count > 3)
+
+        if isMatch {
+            print("[Luma] WalkthroughEngine: AX poll match on '\(elementLabel)' — step complete")
+            completeCurrentStep(steps: steps, currentIndex: currentIndex)
+        }
     }
 
     // MARK: - AX Event Handling
@@ -367,13 +565,20 @@ final class WalkthroughEngine: ObservableObject {
         print("[Luma] AX event: \(notification) on '\(elementLabel)'")
 
         // --- Fast path: AX label matches ---
-        // Exact match or the label contains the expected name as a substring.
-        // We do NOT check "expected contains label" — that's too broad (e.g. "load" matching "Downloads").
+        // Three conditions (in order of precision):
+        //   1. Exact match
+        //   2. Label contains the expected name (e.g. "Save As..." matches "Save")
+        //   3. Expected name contains the label, but only for labels > 3 chars
+        //      (e.g. "File" label matches step element "File menu")
         if !elementLabel.isEmpty {
             let labelLower = elementLabel.lowercased()
             let expectedLower = currentStep.elementName.lowercased()
 
-            if labelLower == expectedLower || labelLower.contains(expectedLower) {
+            let isMatch = labelLower == expectedLower
+                || labelLower.contains(expectedLower)
+                || (expectedLower.contains(labelLower) && labelLower.count > 3)
+
+            if isMatch {
                 print("[Luma] WalkthroughEngine: fast-path match on '\(elementLabel)'")
                 completeCurrentStep(steps: steps, currentIndex: currentIndex)
                 return
@@ -387,11 +592,14 @@ final class WalkthroughEngine: ObservableObject {
                 if timeSinceLastCorrection >= minimumSecondsBetweenCorrections {
                     lastCorrectionDate = Date()
                     ttsClient.speak("We need \(currentStep.elementName). \(currentStep.instruction)")
+                    let correctionBubbleText = "→ \(currentStep.elementName)"
                     activePointingTask?.cancel()
                     activePointingTask = Task {
-                        await cursorGuide.pointAtElementViaAIScreenshot(
-                            named: currentStep.elementName,
-                            inApp: currentStep.appBundleID
+                        await self.pointAtStepElement(
+                            elementName: currentStep.elementName,
+                            appBundleID: currentStep.appBundleID,
+                            isMenuBar: currentStep.isMenuBar,
+                            bubbleText: correctionBubbleText
                         )
                     }
                 }
@@ -473,11 +681,14 @@ final class WalkthroughEngine: ObservableObject {
             Reply with exactly one word: COMPLETED or INCOMPLETE
             """
 
+            // Validation only needs 1 word ("COMPLETED" or "INCOMPLETE") — keep token budget tiny
+            // so this call returns fast and doesn't waste quota.
             let (aiResponse, _) = try await APIClient.shared.analyzeImage(
                 images: imageTuples,
                 systemPrompt: validationSystemPrompt,
                 conversationHistory: [],
-                userPrompt: "Has the user completed the step?"
+                userPrompt: "Has the user completed the step?",
+                maxOutputTokens: 16
             )
 
             let trimmedResponse = aiResponse.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
@@ -510,7 +721,7 @@ final class WalkthroughEngine: ObservableObject {
         let capturedIndex = currentIndex
 
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 800_000_000) // 0.8 seconds
+            try? await Task.sleep(nanoseconds: 400_000_000) // 0.4 seconds — halved from 0.8s
             self.advanceToNextStep(steps: capturedSteps, completedIndex: capturedIndex)
         }
     }
@@ -559,6 +770,50 @@ final class WalkthroughEngine: ObservableObject {
         }
     }
 
+    // MARK: - Periodic AI Validation
+
+    /// Starts a 3-second repeating timer that calls `triggerPeriodicAIValidationIfNeeded`.
+    /// The generation is NOT captured at timer creation — it is read fresh on each fire
+    /// so the check always compares against whichever step is currently live.
+    private func startPeriodicValidationTimer() {
+        periodicValidationTimer?.invalidate()
+        periodicValidationTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.triggerPeriodicAIValidationIfNeeded()
+            }
+        }
+    }
+
+    /// Reads the current engine state and fires an AI screenshot validation if the debounce
+    /// guards allow it. Called every 3 seconds by the periodic validation timer.
+    private func triggerPeriodicAIValidationIfNeeded() {
+        // Read the live generation at fire time — never captured at timer creation.
+        // This guarantees we validate the step that is actually running right now.
+        let generationAtFireTime = currentStepGeneration
+
+        guard case .executing(let steps, let currentIndex) = state,
+              currentIndex < steps.count else { return }
+
+        let currentStep = steps[currentIndex]
+
+        // Respect the same debounce guards as the AX-triggered validation path
+        let timeSinceLastValidation = Date().timeIntervalSince(lastAIValidationDate)
+        guard !isAIValidationInProgress,
+              timeSinceLastValidation >= minimumSecondsBetweenAIValidations else { return }
+
+        isAIValidationInProgress = true
+        lastAIValidationDate = Date()
+
+        Task {
+            await self.validateStepCompletionViaAIScreenshot(
+                step: currentStep,
+                steps: steps,
+                currentIndex: currentIndex,
+                generation: generationAtFireTime
+            )
+        }
+    }
+
     // MARK: - Nudge Timer
 
     /// Schedules a one-shot timer that fires `fireNudge` after `step.timeoutSeconds`.
@@ -577,12 +832,21 @@ final class WalkthroughEngine: ObservableObject {
     }
 
     /// Speaks a reminder and re-points the cursor, then reschedules the nudge timer.
+    /// After maximumTotalNudgesBeforeDisengaging nudges, disengages so the user isn't pestered.
     private func fireNudge(for step: WalkthroughStep, allSteps: [WalkthroughStep], generation: Int) {
         // Drop nudges from previous steps using the generation counter
         guard generation == currentStepGeneration,
               case .executing = state else { return }
 
         nudgeCount += 1
+
+        // Disengage after too many nudges — nudge-count-based so it works correctly with
+        // any timeoutSeconds value (time-based logic broke when timeoutSeconds dropped to 15).
+        if nudgeCount > maximumTotalNudgesBeforeDisengaging {
+            ttsClient.speak("Disengaging — call me back when you need help.")
+            cancelWalkthrough()
+            return
+        }
 
         if nudgeCount >= maximumInstructionNudgesBeforeSwitchingToPatientMessage {
             ttsClient.speak("Take your time, I'm here when you're ready.")
@@ -592,11 +856,14 @@ final class WalkthroughEngine: ObservableObject {
 
         // Re-point the cursor so the user can find the target element
         if !step.elementName.isEmpty {
+            let nudgeBubbleText = "→ \(step.elementName)"
             activePointingTask?.cancel()
             activePointingTask = Task {
-                await cursorGuide.pointAtElementViaAIScreenshot(
-                    named: step.elementName,
-                    inApp: step.isMenuBar ? nil : step.appBundleID
+                await self.pointAtStepElement(
+                    elementName: step.elementName,
+                    appBundleID: step.appBundleID,
+                    isMenuBar: step.isMenuBar,
+                    bubbleText: nudgeBubbleText
                 )
             }
         }

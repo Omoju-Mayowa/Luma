@@ -195,7 +195,8 @@ final class APIClient {
         systemPrompt: String,
         conversationHistory: [(userPlaceholder: String, assistantResponse: String)],
         userPrompt: String,
-        shouldStream: Bool
+        shouldStream: Bool,
+        maxOutputTokens: Int
     ) throws -> Data {
         var messages: [[String: Any]] = []
 
@@ -232,7 +233,7 @@ final class APIClient {
 
         let requestBody: [String: Any] = [
             "model": modelID,
-            "max_tokens": 400,
+            "max_tokens": maxOutputTokens,
             "stream": shouldStream,
             "system": systemPrompt,
             "messages": messages
@@ -251,7 +252,8 @@ final class APIClient {
         systemPrompt: String,
         conversationHistory: [(userPlaceholder: String, assistantResponse: String)],
         userPrompt: String,
-        shouldStream: Bool
+        shouldStream: Bool,
+        maxOutputTokens: Int
     ) throws -> Data {
         var messages: [[String: Any]] = []
 
@@ -264,33 +266,40 @@ final class APIClient {
             messages.append(["role": "assistant", "content": assistantResponse])
         }
 
-        // Build the current user message with all labeled screenshots and the text prompt
-        var currentUserContentBlocks: [[String: Any]] = []
-        for image in images {
-            // OpenAI-compatible APIs use data URIs inside an image_url object
-            let imageMimeType = detectImageMediaType(for: image.data)
-            let base64EncodedImageData = image.data.base64EncodedString()
-            let imageDataURI = "data:\(imageMimeType);base64,\(base64EncodedImageData)"
-            currentUserContentBlocks.append([
-                "type": "image_url",
-                "image_url": ["url": imageDataURI]
-            ])
-            // The label (e.g. "Screen 1") immediately follows the image so the model
-            // knows which display each screenshot belongs to
+        // Build the current user message.
+        // When there are no images, send content as a plain string — this is more broadly
+        // compatible across providers than wrapping a lone text block in an array.
+        // When images are present, use the content array format with image_url blocks.
+        if images.isEmpty {
+            messages.append(["role": "user", "content": userPrompt])
+        } else {
+            var currentUserContentBlocks: [[String: Any]] = []
+            for image in images {
+                // OpenAI-compatible APIs use data URIs inside an image_url object
+                let imageMimeType = detectImageMediaType(for: image.data)
+                let base64EncodedImageData = image.data.base64EncodedString()
+                let imageDataURI = "data:\(imageMimeType);base64,\(base64EncodedImageData)"
+                currentUserContentBlocks.append([
+                    "type": "image_url",
+                    "image_url": ["url": imageDataURI]
+                ])
+                // The label (e.g. "Screen 1") immediately follows the image so the model
+                // knows which display each screenshot belongs to
+                currentUserContentBlocks.append([
+                    "type": "text",
+                    "text": image.label
+                ])
+            }
             currentUserContentBlocks.append([
                 "type": "text",
-                "text": image.label
+                "text": userPrompt
             ])
+            messages.append(["role": "user", "content": currentUserContentBlocks])
         }
-        currentUserContentBlocks.append([
-            "type": "text",
-            "text": userPrompt
-        ])
-        messages.append(["role": "user", "content": currentUserContentBlocks])
 
         let requestBody: [String: Any] = [
             "model": modelID,
-            "max_tokens": 400,
+            "max_tokens": maxOutputTokens,
             "stream": shouldStream,
             "messages": messages
         ]
@@ -339,11 +348,16 @@ final class APIClient {
     /// Returns the full accumulated text and total wall-clock duration when the stream ends.
     ///
     /// The active profile is read on each call (not cached), so profile switches take effect immediately.
+    ///
+    /// - Parameter maxOutputTokens: Token budget for the response. Default 1024 — enough for
+    ///   conversational voice responses (2-4 sentences). Callers that need longer structured output
+    ///   (e.g. JSON planning) should use `analyzeImage` with a higher limit instead.
     func analyzeImageStreaming(
         images: [(data: Data, label: String)],
         systemPrompt: String,
         conversationHistory: [(userPlaceholder: String, assistantResponse: String)] = [],
         userPrompt: String,
+        maxOutputTokens: Int = 1024,
         onTextChunk: @MainActor @Sendable (String) -> Void
     ) async throws -> (text: String, duration: TimeInterval) {
         let startTime = Date()
@@ -386,7 +400,8 @@ final class APIClient {
                 systemPrompt: systemPrompt,
                 conversationHistory: conversationHistory,
                 userPrompt: userPrompt,
-                shouldStream: true
+                shouldStream: true,
+                maxOutputTokens: maxOutputTokens
             )
         default:
             requestBodyData = try buildOpenAICompatibleRequestBody(
@@ -395,13 +410,14 @@ final class APIClient {
                 systemPrompt: systemPrompt,
                 conversationHistory: conversationHistory,
                 userPrompt: userPrompt,
-                shouldStream: true
+                shouldStream: true,
+                maxOutputTokens: maxOutputTokens
             )
         }
 
         urlRequest.httpBody = requestBodyData
         let payloadSizeMB = Double(requestBodyData.count) / 1_048_576.0
-        print("APIClient: streaming request to \(activeProfile.provider.displayName) — \(String(format: "%.1f", payloadSizeMB))MB, \(images.count) image(s)")
+        print("APIClient: streaming request to \(activeProfile.provider.displayName) — \(String(format: "%.1f", payloadSizeMB))MB, \(images.count) image(s), max_tokens=\(maxOutputTokens)")
 
         // Use bytes streaming to read the SSE response line by line
         let (byteStream, httpResponse) = try await urlSession.bytes(for: urlRequest)
@@ -464,11 +480,16 @@ final class APIClient {
     /// Returns the full response text and wall-clock duration.
     ///
     /// The active profile is read on each call (not cached), so profile switches take effect immediately.
+    ///
+    /// - Parameter maxOutputTokens: Token budget for the response. Default 2048 — enough for
+    ///   full JSON task plans (5+ steps). Callers that only need a short answer (e.g. "COMPLETED")
+    ///   can pass a lower value to reduce latency.
     func analyzeImage(
         images: [(data: Data, label: String)],
         systemPrompt: String,
         conversationHistory: [(userPlaceholder: String, assistantResponse: String)] = [],
-        userPrompt: String
+        userPrompt: String,
+        maxOutputTokens: Int = 2048
     ) async throws -> (text: String, duration: TimeInterval) {
         let startTime = Date()
 
@@ -505,7 +526,8 @@ final class APIClient {
                 systemPrompt: systemPrompt,
                 conversationHistory: conversationHistory,
                 userPrompt: userPrompt,
-                shouldStream: false
+                shouldStream: false,
+                maxOutputTokens: maxOutputTokens
             )
         default:
             requestBodyData = try buildOpenAICompatibleRequestBody(
@@ -514,13 +536,14 @@ final class APIClient {
                 systemPrompt: systemPrompt,
                 conversationHistory: conversationHistory,
                 userPrompt: userPrompt,
-                shouldStream: false
+                shouldStream: false,
+                maxOutputTokens: maxOutputTokens
             )
         }
 
         urlRequest.httpBody = requestBodyData
         let payloadSizeMB = Double(requestBodyData.count) / 1_048_576.0
-        print("APIClient: non-streaming request to \(activeProfile.provider.displayName) — \(String(format: "%.1f", payloadSizeMB))MB, \(images.count) image(s)")
+        print("APIClient: non-streaming request to \(activeProfile.provider.displayName) — \(String(format: "%.1f", payloadSizeMB))MB, \(images.count) image(s), max_tokens=\(maxOutputTokens)")
 
         let (responseData, httpResponse) = try await urlSession.data(for: urlRequest)
 

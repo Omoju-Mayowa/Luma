@@ -144,6 +144,9 @@ final class MenuBarPanelManager: NSObject {
         // render with dark chrome even when the user's macOS is in light mode.
         menuBarPanel.appearance = NSAppearance(named: .darkAqua)
 
+        // Exclude from screen capture so the Luma panel doesn't appear in
+        // Cmd+Shift+3/4 screenshots or other apps capturing the screen.
+        menuBarPanel.sharingType = .none
         menuBarPanel.contentView = hostingView
         panel = menuBarPanel
     }

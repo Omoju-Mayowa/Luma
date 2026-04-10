@@ -1,0 +1,191 @@
+{
+  "version": "1.0",
+  "guides": [
+    {
+      "id": "compress-folder",
+      "triggers": ["compress", "zip", "compress folder", "zip folder"],
+      "title": "Compress a Folder",
+      "app": "Finder",
+      "appBundleID": "com.apple.finder",
+      "steps": [
+        {
+          "instruction": "Open Finder",
+          "elementName": "Finder",
+          "elementRole": "AXApplication",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Navigate to the folder you want to compress",
+          "elementName": null,
+          "elementRole": null,
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Right-click the folder",
+          "elementName": null,
+          "elementRole": "AXIcon",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Compress",
+          "elementName": "Compress",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "battery-icon",
+      "triggers": ["battery", "battery icon", "battery level", "check battery"],
+      "title": "Find Battery Status",
+      "app": "Control Center",
+      "appBundleID": "com.apple.controlcenter",
+      "steps": [
+        {
+          "instruction": "Look at the top-right menu bar for the Battery icon",
+          "elementName": "Battery",
+          "elementRole": "AXStatusItem",
+          "isMenuBar": true
+        }
+      ]
+    },
+    {
+      "id": "wifi-settings",
+      "triggers": ["wifi", "connect wifi", "change network", "wi-fi", "wireless"],
+      "title": "Change WiFi Network",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Wi-Fi icon in the menu bar",
+          "elementName": "Wi-Fi",
+          "elementRole": "AXStatusItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click the network you want to connect to",
+          "elementName": null,
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "screenshot",
+      "triggers": ["screenshot", "take screenshot", "capture screen", "screen capture"],
+      "title": "Take a Screenshot",
+      "app": "System",
+      "appBundleID": null,
+      "steps": [
+        {
+          "instruction": "Press Command + Shift + 3 for a full-screen screenshot",
+          "elementName": null,
+          "elementRole": null,
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "dark-mode",
+      "triggers": ["dark mode", "light mode", "change appearance", "toggle dark", "appearance"],
+      "title": "Toggle Dark Mode",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Appearance in the sidebar",
+          "elementName": "Appearance",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Choose Dark or Light",
+          "elementName": "Dark",
+          "elementRole": "AXRadioButton",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "empty-trash",
+      "triggers": ["empty trash", "clear trash", "delete trash", "trash"],
+      "title": "Empty Trash",
+      "app": "Finder",
+      "appBundleID": "com.apple.finder",
+      "steps": [
+        {
+          "instruction": "Click the Finder icon in the Dock",
+          "elementName": "Finder",
+          "elementRole": "AXApplication",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Trash in the sidebar",
+          "elementName": "Trash",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Empty in the top-right corner",
+          "elementName": "Empty",
+          "elementRole": "AXButton",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "volume",
+      "triggers": ["volume", "sound", "mute", "unmute", "audio"],
+      "title": "Adjust Volume",
+      "app": "Control Center",
+      "appBundleID": "com.apple.controlcenter",
+      "steps": [
+        {
+          "instruction": "Click the Control Center icon in the menu bar",
+          "elementName": "Control Center",
+          "elementRole": "AXStatusItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Drag the Sound slider to adjust volume",
+          "elementName": "Sound",
+          "elementRole": "AXSlider",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "force-quit",
+      "triggers": ["force quit", "kill app", "close frozen app", "app frozen"],
+      "title": "Force Quit an App",
+      "app": "System",
+      "appBundleID": null,
+      "steps": [
+        {
+          "instruction": "Press Command + Option + Escape",
+          "elementName": null,
+          "elementRole": null,
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Select the frozen app and click Force Quit",
+          "elementName": "Force Quit",
+          "elementRole": "AXButton",
+          "isMenuBar": false
+        }
+      ]
+    }
+  ]
+}

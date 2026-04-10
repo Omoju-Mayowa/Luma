@@ -24,33 +24,43 @@ struct SettingsPanelView: View {
     @State private var selectedTabIndex: Int = 0
 
     var body: some View {
-        TabView(selection: $selectedTabIndex) {
+        VStack(spacing: 0) {
+            // Custom tab bar — replaces native TabView tab bar to eliminate the blue accent
+            // glow/ring that macOS renders on the selected tab item. Active tab uses
+            // surfaceElevated fill only; no shadow, no ring, no glow in either state.
+            HStack(spacing: 0) {
+                settingsTabBarButton(label: "Account",      icon: "person.circle",  index: 0)
+                settingsTabBarButton(label: "API Profiles", icon: "key.horizontal", index: 1)
+                settingsTabBarButton(label: "Model",        icon: "cpu",            index: 2)
+                settingsTabBarButton(label: "General",      icon: "gearshape",      index: 3)
+            }
+            .padding(.top, LumaTheme.paddingXL)
 
-            AccountTabView(
-                accountManager: accountManager,
-                profileManager: profileManager,
-                pinManager: pinManager,
-                onResetComplete: { dismiss() }
-            )
-            .tabItem { Label("Account", systemImage: "person.circle") }
-            .tag(0)
+            Divider()
+                .background(LumaTheme.border)
 
-            APIProfilesTabView(profileManager: profileManager)
-                .tabItem { Label("API Profiles", systemImage: "key.horizontal") }
-                .tag(1)
-
-            ModelTabView(profileManager: profileManager)
-                .tabItem { Label("Model", systemImage: "cpu") }
-                .tag(2)
-
-            GeneralTabView(pinManager: pinManager)
-                .tabItem { Label("General", systemImage: "gearshape") }
-                .tag(3)
+            // Tab content — only the selected view renders at a time
+            Group {
+                switch selectedTabIndex {
+                case 0:
+                    AccountTabView(
+                        accountManager: accountManager,
+                        profileManager: profileManager,
+                        pinManager: pinManager,
+                        onResetComplete: { dismiss() }
+                    )
+                case 1:
+                    APIProfilesTabView(profileManager: profileManager)
+                case 2:
+                    ModelTabView(profileManager: profileManager)
+                default:
+                    GeneralTabView(pinManager: pinManager)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .tabViewStyle(.automatic)
-        .padding(.top, LumaTheme.paddingXL)
         .frame(width: 480, height: 540)
-        .background(LumaTheme.Colors.background)
+        .background(LumaTheme.background)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Done") { dismiss() }
@@ -58,6 +68,32 @@ struct SettingsPanelView: View {
                         if isHovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
                     }
             }
+        }
+    }
+
+    /// One button in the custom settings tab bar.
+    /// Selected: LumaTheme.surfaceElevated background, primary text — no glow or ring.
+    /// Unselected: LumaTheme.surface background, secondary text.
+    @ViewBuilder
+    private func settingsTabBarButton(label: String, icon: String, index: Int) -> some View {
+        let isSelected = selectedTabIndex == index
+        Button {
+            selectedTabIndex = index
+        } label: {
+            VStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 14))
+                Text(label)
+                    .font(.system(size: 11))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(isSelected ? LumaTheme.surfaceElevated : LumaTheme.surface)
+            .foregroundColor(isSelected ? LumaTheme.textPrimary : LumaTheme.textSecondary)
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering in
+            if isHovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
         }
     }
 }
