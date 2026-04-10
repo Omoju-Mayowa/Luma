@@ -579,18 +579,44 @@ final class APIClient {
 
         default:
             // OpenAI-compatible returns: { "choices": [{ "message": { "content": "..." } }] }
+            // The content field is normally a String, but thinking models (e.g. Gemini 2.5 Flash)
+            // may return it as an array of typed content blocks. Handle both to avoid a cast
+            // failure silently propagating up as a planning failure.
             guard let choices = parsedJSON?["choices"] as? [[String: Any]],
                   let firstChoice = choices.first,
-                  let message = firstChoice["message"] as? [String: Any],
-                  let extractedText = message["content"] as? String
+                  let message = firstChoice["message"] as? [String: Any]
             else {
                 throw NSError(
                     domain: "APIClient",
                     code: -1,
-                    userInfo: [NSLocalizedDescriptionKey: "Unexpected \(activeProfile.provider.displayName) response format — could not find text content"]
+                    userInfo: [NSLocalizedDescriptionKey: "Unexpected \(activeProfile.provider.displayName) response format — could not find choices/message"]
                 )
             }
-            responseText = extractedText
+
+            if let textContent = message["content"] as? String {
+                // Standard string content — most models
+                responseText = textContent
+            } else if let contentBlocks = message["content"] as? [[String: Any]] {
+                // Thinking-model array content — concatenate all text-type blocks
+                let assembledText = contentBlocks.compactMap { block -> String? in
+                    guard (block["type"] as? String) == "text" else { return nil }
+                    return block["text"] as? String
+                }.joined()
+                guard !assembledText.isEmpty else {
+                    throw NSError(
+                        domain: "APIClient",
+                        code: -1,
+                        userInfo: [NSLocalizedDescriptionKey: "\(activeProfile.provider.displayName) returned content blocks but no text blocks were found"]
+                    )
+                }
+                responseText = assembledText
+            } else {
+                throw NSError(
+                    domain: "APIClient",
+                    code: -1,
+                    userInfo: [NSLocalizedDescriptionKey: "Unexpected \(activeProfile.provider.displayName) response format — content field was neither String nor content-block array"]
+                )
+            }
         }
 
         let totalDuration = Date().timeIntervalSince(startTime)

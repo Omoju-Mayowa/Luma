@@ -74,10 +74,13 @@ struct WalkthroughStep: Codable, Identifiable {
 // MARK: - WalkthroughPlan
 
 /// The full JSON object the AI returns from TaskPlanner.
-/// Wraps the step array with a total count so we can validate the parse.
+/// totalSteps is computed from steps.count so a missing or differently-keyed
+/// "totalSteps" field in the AI response never causes a decode failure.
 struct WalkthroughPlan: Codable {
-    let totalSteps: Int
     let steps: [WalkthroughStep]
+    var totalSteps: Int { steps.count }
+
+    private enum CodingKeys: String, CodingKey { case steps }
 }
 
 // MARK: - WalkthroughState

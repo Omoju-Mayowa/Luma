@@ -90,14 +90,22 @@ final class TaskPlanner {
 
         let userMessage = "Goal: \(goal)\nCurrent frontmost app: \(frontmostAppName)\n\nReturn the JSON plan."
 
-        // Use non-streaming analyzeImage with an empty images array — step planning is text-only.
-        // We need the full response before we can parse the JSON.
-        let (responseText, _) = try await APIClient.shared.analyzeImage(
+        // Use the streaming path — same as CompanionManager's voice response, which is proven
+        // to work across providers. The non-streaming path was the previous approach but it
+        // has a separate response-extraction code path that can fail for thinking models
+        // (e.g. Gemini 2.5 Flash returning array content blocks instead of a plain string).
+        // Streaming accumulates the full text and returns it at completion.
+        // Step planning is text-only — no images needed.
+        let (responseText, _) = try await APIClient.shared.analyzeImageStreaming(
             images: [],
             systemPrompt: stepGenerationSystemPrompt,
             conversationHistory: [],
-            userPrompt: userMessage
+            userPrompt: userMessage,
+            maxOutputTokens: 4096,
+            onTextChunk: { _ in }
         )
+
+        print("[Luma] TaskPlanner raw AI response: \(responseText)")
 
         return responseText
     }
@@ -105,17 +113,28 @@ final class TaskPlanner {
     // MARK: - JSON Parsing
 
     /// Extracts and decodes the WalkthroughPlan from the AI's response.
-    /// Locates the outermost { } object to handle any surrounding prose the AI might add.
+    /// Anchors on the "steps" key to find the correct JSON object, so any preamble
+    /// text (including Gemini's thinking output with brace characters) doesn't cause
+    /// firstIndex(of: "{") to land on the wrong opening brace.
     private func parsePlanFromJSON(_ rawJSONString: String) throws -> WalkthroughPlan {
-        // Find the bounds of the JSON object. The AI occasionally adds surrounding
-        // sentences despite the prompt, so we extract just the object portion.
-        guard let objectStartIndex = rawJSONString.firstIndex(of: "{"),
-              let objectEndIndex = rawJSONString.lastIndex(of: "}")
+        // Locate the "steps" key — the only required key in WalkthroughPlan.
+        // Walk left from there to find the enclosing "{", then find the final "}".
+        guard let stepsKeyRange = rawJSONString.range(of: "\"steps\"") else {
+            throw NSError(
+                domain: "TaskPlanner",
+                code: -2,
+                userInfo: [NSLocalizedDescriptionKey: "AI response contained no \"steps\" key. Raw: \(rawJSONString)"]
+            )
+        }
+
+        // The opening brace for the top-level object is the last "{" before "steps".
+        guard let objectStartIndex = rawJSONString[..<stepsKeyRange.lowerBound].lastIndex(of: "{"),
+              let objectEndIndex   = rawJSONString.lastIndex(of: "}")
         else {
             throw NSError(
                 domain: "TaskPlanner",
                 code: -2,
-                userInfo: [NSLocalizedDescriptionKey: "AI response did not contain a JSON object. Raw: \(rawJSONString)"]
+                userInfo: [NSLocalizedDescriptionKey: "AI response did not contain a valid JSON object around \"steps\". Raw: \(rawJSONString)"]
             )
         }
 

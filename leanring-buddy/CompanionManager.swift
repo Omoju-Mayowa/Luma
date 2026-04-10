@@ -700,6 +700,32 @@ final class CompanionManager: ObservableObject {
     - element is on screen 2: "that's over on your other monitor — see the terminal window? [POINT:400,300:terminal:screen2]"
     """
 
+    /// System prompt for multi-step procedural requests.
+    /// Unlike the voice response prompt, this asks the AI to embed a JSON step plan
+    /// in <STEPS>...</STEPS> tags alongside a short spoken intro. Parsing the block
+    /// in parseStepsFromTaggedResponse lets one streaming API call replace the separate
+    /// TaskPlanner round-trip, saving latency and tokens.
+    private static let multiStepPlanningSystemPrompt = """
+    You are Luma, a friendly macOS guide. The user needs help with a multi-step task. You can see their screen.
+
+    Respond with exactly two parts in this order:
+    1. A short spoken intro — 1 to 2 natural sentences max. Write for the ear: no markdown, no bullet points, no lists, no numbered steps.
+    2. A JSON step plan wrapped in <STEPS>...</STEPS> tags — no spaces, no newlines around the tags.
+
+    JSON format inside <STEPS>...</STEPS>:
+    {"steps":[{"index":0,"instruction":"What to say to the user for this step","elementName":"exact AX label","elementRole":"AXButton|AXMenuItem|AXMenuBarItem|AXTextField|null","appBundleID":"com.apple.finder or null","isMenuBar":false,"timeoutSeconds":15}]}
+
+    Rules for the JSON:
+    - elementName: shortest label that uniquely identifies the element in macOS AX (e.g. "Compress" not "Compress 'Downloads'"). macOS strips contextual suffixes from AX titles.
+    - For context menu interactions: two steps — (1) right-click the target item, elementName = the item name; (2) select from the menu, elementName = the menu item label, isMenuBar = false
+    - isMenuBar = true for: app menus (File, Edit, View) and menu bar system items (Wi-Fi, Battery, Control Center, Clock)
+    - appBundleID: "com.apple.finder" for Finder; "com.apple.controlcenter" for Control Center; null if not app-specific
+    - If a step has no specific UI element to click: elementName = ""
+    - instruction: one natural spoken sentence for that step only — what the user should do right now
+
+    Always include both the spoken intro AND the <STEPS>...</STEPS> block. Never skip the step plan.
+    """
+
     // MARK: - AI Response Pipeline
 
     /// Captures a screenshot, sends it along with the transcript to the AI,
@@ -744,20 +770,11 @@ final class CompanionManager: ObservableObject {
             let taskClassification = await LumaOnDeviceAI.shared.classifyTask(transcript)
             print("[Luma] Task classification: .\(taskClassification.taskType) confidence=\(String(format: "%.2f", taskClassification.confidence)) — \(taskClassification.reason)")
 
-            if taskClassification.taskType == .multiStep && !WalkthroughEngine.shared.isRunning {
-                // Hand off to WalkthroughEngine — it will plan and execute steps silently.
-                // If planning succeeds, voiceState returns to idle (WalkthroughEngine owns TTS).
-                // If planning fails (API error, bad model, etc.), fall through to the normal
-                // voice response path so the user always gets a spoken reply.
-                let walkthroughPlanningSucceeded = await WalkthroughEngine.shared.startWalkthroughSilently(goal: transcript)
-                if walkthroughPlanningSucceeded {
-                    voiceState = .idle
-                    scheduleTransientHideIfNeeded()
-                    return
-                }
-                print("[Luma] Walkthrough planning failed — falling back to voice response for: \(transcript)")
-                // Fall through: voiceState stays .processing, continue to the API call below
-            }
+            // Determine whether this is a multi-step request so we can pick the right system prompt.
+            // Multi-step requests use multiStepPlanningSystemPrompt which asks the AI to embed a
+            // <STEPS>...</STEPS> JSON plan in the same streaming response — one API call total
+            // instead of a separate TaskPlanner round-trip.
+            let isMultiStepRequest = taskClassification.taskType == .multiStep && !WalkthroughEngine.shared.isRunning
 
             do {
                 // Capture all connected screens so the AI has full context.
@@ -788,15 +805,39 @@ final class CompanionManager: ObservableObject {
 
                 let (fullResponseText, _) = try await apiClient.analyzeImageStreaming(
                     images: labeledImages,
-                    systemPrompt: Self.companionVoiceResponseSystemPrompt,
+                    systemPrompt: isMultiStepRequest
+                        ? Self.multiStepPlanningSystemPrompt
+                        : Self.companionVoiceResponseSystemPrompt,
                     conversationHistory: historyForAPI,
                     userPrompt: transcript,
+                    maxOutputTokens: isMultiStepRequest ? 2048 : 1024,
                     onTextChunk: { _ in
                         // No streaming text display — spinner stays until TTS plays
                     }
                 )
 
                 guard !Task.isCancelled else { return }
+
+                // For multi-step requests: extract the <STEPS>...</STEPS> block from the response
+                // and hand the steps directly to WalkthroughEngine. The AI has already embedded
+                // the step plan in the same streaming response — no second API call needed.
+                // If no valid step plan is found, fall through to the normal voice response path.
+                if isMultiStepRequest {
+                    let extractedSteps = Self.parseStepsFromTaggedResponse(fullResponseText)
+                    if !extractedSteps.isEmpty {
+                        let spokenIntroText = Self.stripStepsTagFromResponse(fullResponseText)
+                        print("[Luma] Multi-step: \(extractedSteps.count) step(s) extracted — starting walkthrough")
+                        if !spokenIntroText.isEmpty {
+                            try? await nativeTTSClient.speakText(spokenIntroText)
+                            voiceState = .responding
+                        }
+                        voiceState = .idle
+                        scheduleTransientHideIfNeeded()
+                        WalkthroughEngine.shared.executeSteps(extractedSteps)
+                        return
+                    }
+                    print("[Luma] Multi-step: no valid <STEPS> block in response — falling back to voice response")
+                }
 
                 // Parse the [POINT:...] tag from Claude's response
                 let parseResult = Self.parsePointingCoordinates(from: fullResponseText)
@@ -1012,6 +1053,59 @@ final class CompanionManager: ObservableObject {
             elementLabel: elementLabel,
             screenNumber: screenNumber
         )
+    }
+
+    // MARK: - Step Plan Tag Parsing
+
+    /// Extracts WalkthroughSteps from a <STEPS>...</STEPS> block embedded in the AI response.
+    /// Returns an empty array if the block is absent or the JSON inside is malformed.
+    /// Logs the failure reason so it's visible in Xcode's console for debugging.
+    static func parseStepsFromTaggedResponse(_ responseText: String) -> [WalkthroughStep] {
+        guard let stepsOpenRange = responseText.range(of: "<STEPS>"),
+              let stepsCloseRange = responseText.range(of: "</STEPS>"),
+              stepsOpenRange.upperBound < stepsCloseRange.lowerBound else {
+            print("[Luma] parseStepsFromTaggedResponse: no <STEPS>...</STEPS> block in response")
+            return []
+        }
+
+        let jsonContent = String(responseText[stepsOpenRange.upperBound..<stepsCloseRange.lowerBound])
+
+        // Anchor on "steps" key to locate the correct JSON object — same robust approach as TaskPlanner.
+        // This handles any extra whitespace or characters the model adds inside the tags.
+        guard let stepsKeyRange = jsonContent.range(of: "\"steps\""),
+              let objectStartIndex = jsonContent[..<stepsKeyRange.lowerBound].lastIndex(of: "{"),
+              let objectEndIndex = jsonContent.lastIndex(of: "}") else {
+            print("[Luma] parseStepsFromTaggedResponse: could not locate JSON object. Block: \(jsonContent)")
+            return []
+        }
+
+        let jsonString = String(jsonContent[objectStartIndex...objectEndIndex])
+
+        guard let jsonData = jsonString.data(using: .utf8) else {
+            print("[Luma] parseStepsFromTaggedResponse: could not encode JSON as UTF-8")
+            return []
+        }
+
+        do {
+            let plan = try JSONDecoder().decode(WalkthroughPlan.self, from: jsonData)
+            print("[Luma] parseStepsFromTaggedResponse: decoded \(plan.steps.count) step(s)")
+            return plan.steps
+        } catch {
+            print("[Luma] parseStepsFromTaggedResponse: decode failed — \(error.localizedDescription). JSON: \(jsonString)")
+            return []
+        }
+    }
+
+    /// Returns the response text with the <STEPS>...</STEPS> block removed.
+    /// Used to get the clean spoken intro text before handing the steps to WalkthroughEngine.
+    static func stripStepsTagFromResponse(_ responseText: String) -> String {
+        guard let stepsOpenRange = responseText.range(of: "<STEPS>"),
+              let stepsCloseRange = responseText.range(of: "</STEPS>") else {
+            return responseText
+        }
+        let textBeforeSteps = String(responseText[..<stepsOpenRange.lowerBound])
+        let textAfterSteps = String(responseText[stepsCloseRange.upperBound...])
+        return (textBeforeSteps + textAfterSteps).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Scans the spoken response text for action words (click, open, select, etc.)
