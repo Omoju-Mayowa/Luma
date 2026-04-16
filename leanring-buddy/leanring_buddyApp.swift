@@ -44,11 +44,10 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
 
         UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 0])
 
-        // Prompt for accessibility permission on first launch so the system TCC
-        // database associates the grant with our stable bundle ID (com.nox.luma).
-        // Without this prompt the OS may silently deny accessibility on subsequent
-        // launches even if the user previously approved a differently-named build.
-        if !AXIsProcessTrusted() {
+        // Only prompt for accessibility if onboarding is already done.
+        // First-time users will be prompted for accessibility at the end of the
+        // onboarding wizard so the two flows don't overlap and confuse the user.
+        if !AXIsProcessTrusted() && companionManager.hasCompletedOnboarding {
             let promptKey = kAXTrustedCheckOptionPrompt.takeRetainedValue() as String
             let options = [promptKey: true] as CFDictionary
             AXIsProcessTrustedWithOptions(options)

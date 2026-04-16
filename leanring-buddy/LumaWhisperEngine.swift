@@ -10,7 +10,7 @@
 //  NOTE: whisper-tiny.mlmodelc is encoder-only. It produces audio embeddings
 //  [1, 1500, 384], not text. A decoder is required to convert embeddings to words.
 //  Until a decoder is bundled, transcribe() returns nil and the app falls back to
-//  the configured STT provider (AssemblyAI, OpenAI, or Apple Speech).
+//  the configured STT provider (Apple Speech).
 //
 //  TO ADD FULL ON-DEVICE STT:
 //    Add WhisperKit (encoder + decoder) via SPM:
@@ -77,7 +77,7 @@ final class LumaWhisperEngine {
 
     /// Runs mel spectrogram preprocessing and encoder inference on the given buffer.
     /// Always returns nil — the encoder produces embeddings, not text.
-    /// Callers should fall back to AssemblyAI/OpenAI/Apple Speech for transcribed text.
+    /// Callers should fall back to Apple Speech for transcribed text.
     func transcribe(_ audioBuffer: AVAudioPCMBuffer) async -> String? {
         guard isModelAvailable, let model = encoderModel else { return nil }
         guard !isSilent(audioBuffer) else { return nil }

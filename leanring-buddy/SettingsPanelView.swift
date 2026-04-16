@@ -59,11 +59,16 @@ struct SettingsPanelView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(width: 480, height: 540)
+        .frame(width: 500, height: 580)
         .background(LumaTheme.background)
+        .focusEffectDisabled()
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Done") { dismiss() }
+                    .buttonStyle(.plain)
+                    .font(LumaTheme.Typography.bodyMedium)
+                    .foregroundColor(LumaTheme.textPrimary)
+                    .focusEffectDisabled()
                     .onHover { isHovering in
                         if isHovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
                     }
@@ -162,8 +167,18 @@ private struct AccountTabView: View {
                     .foregroundColor(LumaTheme.Colors.primaryText)
 
                 TextField("Display name", text: $editedDisplayName)
-                    .textFieldStyle(.roundedBorder)
+                    .textFieldStyle(.plain)
                     .font(LumaTheme.Typography.body)
+                    .foregroundColor(LumaTheme.Colors.primaryText)
+                    .padding(LumaTheme.Spacing.sm)
+                    .background(
+                        RoundedRectangle(cornerRadius: LumaTheme.CornerRadius.medium)
+                            .fill(LumaTheme.Colors.surface)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: LumaTheme.CornerRadius.medium)
+                            .stroke(LumaTheme.Colors.surfaceElevated, lineWidth: 1)
+                    )
                     // Save when the user presses Return
                     .onSubmit {
                         saveDisplayNameIfChanged()
@@ -233,18 +248,11 @@ private struct AccountTabView: View {
     }
 
     private func performResetLuma() {
-        // Delete account data
         accountManager.deleteAccount()
-
-        // Delete all API profiles and their Keychain keys
         try? profileManager.deleteAllProfiles()
-
-        // Delete PIN from Keychain
-        try? pinManager.clearPIN()
-
-        // Mark onboarding as incomplete so the app re-enters onboarding flow
+        // Wipe the entire vault (PIN, API keys)
+        VaultManager.shared.deleteAll()
         UserDefaults.standard.set(false, forKey: "hasCompletedOnboarding")
-
         onResetComplete()
     }
 }
@@ -349,7 +357,7 @@ private struct APIProfilesTabView: View {
                 .background(LumaTheme.Colors.surface)
                 .cornerRadius(LumaTheme.CornerRadius.medium)
             }
-            .padding(LumaTheme.Spacing.lg)
+            .padding(LumaTheme.Spacing.xl)
         }
     }
 }
@@ -372,7 +380,7 @@ private struct ProfileRowView: View {
     var body: some View {
         VStack(spacing: 0) {
             // Row header
-            HStack(spacing: LumaTheme.Spacing.sm) {
+            HStack(spacing: LumaTheme.Spacing.md) {
 
                 // Checkmark for default profile
                 Image(systemName: profile.isDefault ? "checkmark.circle.fill" : "circle")
@@ -435,7 +443,7 @@ private struct ProfileRowView: View {
                     }
                 }
             }
-            .padding(LumaTheme.Spacing.md)
+            .padding(LumaTheme.Spacing.lg)
 
             // Inline edit form (expands below the row header)
             if isEditFormExpanded {
@@ -490,7 +498,7 @@ private struct ProfileFormView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: LumaTheme.Spacing.md) {
+        VStack(alignment: .leading, spacing: LumaTheme.Spacing.lg) {
 
             // Name field
             VStack(alignment: .leading, spacing: LumaTheme.Spacing.xs) {
@@ -498,8 +506,18 @@ private struct ProfileFormView: View {
                     .font(LumaTheme.Typography.caption)
                     .foregroundColor(LumaTheme.Colors.secondaryText)
                 TextField("e.g. Work - OpenRouter", text: $profileName)
-                    .textFieldStyle(.roundedBorder)
+                    .textFieldStyle(.plain)
                     .font(LumaTheme.Typography.body)
+                    .foregroundColor(LumaTheme.Colors.primaryText)
+                    .padding(LumaTheme.Spacing.sm)
+                    .background(
+                        RoundedRectangle(cornerRadius: LumaTheme.CornerRadius.medium)
+                            .fill(LumaTheme.Colors.surface)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: LumaTheme.CornerRadius.medium)
+                            .stroke(LumaTheme.Colors.surfaceElevated, lineWidth: 1)
+                    )
             }
 
             // Provider picker
@@ -522,8 +540,18 @@ private struct ProfileFormView: View {
                         .font(LumaTheme.Typography.caption)
                         .foregroundColor(LumaTheme.Colors.secondaryText)
                     TextField("https://your-endpoint.com/v1", text: $customBaseURL)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(.plain)
                         .font(LumaTheme.Typography.body)
+                        .foregroundColor(LumaTheme.Colors.primaryText)
+                        .padding(LumaTheme.Spacing.sm)
+                        .background(
+                            RoundedRectangle(cornerRadius: LumaTheme.CornerRadius.medium)
+                                .fill(LumaTheme.Colors.surface)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: LumaTheme.CornerRadius.medium)
+                                .stroke(LumaTheme.Colors.surfaceElevated, lineWidth: 1)
+                        )
                 }
             }
 
@@ -536,12 +564,14 @@ private struct ProfileFormView: View {
                 HStack {
                     if isAPIKeyVisible {
                         TextField("Paste API key here", text: $apiKeyInput)
-                            .textFieldStyle(.roundedBorder)
+                            .textFieldStyle(.plain)
                             .font(LumaTheme.Typography.body)
+                            .foregroundColor(LumaTheme.Colors.primaryText)
                     } else {
                         SecureField("Paste API key here", text: $apiKeyInput)
-                            .textFieldStyle(.roundedBorder)
+                            .textFieldStyle(.plain)
                             .font(LumaTheme.Typography.body)
+                            .foregroundColor(LumaTheme.Colors.primaryText)
                     }
 
                     Button {
@@ -555,6 +585,15 @@ private struct ProfileFormView: View {
                         if isHovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
                     }
                 }
+                .padding(LumaTheme.Spacing.sm)
+                .background(
+                    RoundedRectangle(cornerRadius: LumaTheme.CornerRadius.medium)
+                        .fill(LumaTheme.Colors.surface)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: LumaTheme.CornerRadius.medium)
+                        .stroke(LumaTheme.Colors.surfaceElevated, lineWidth: 1)
+                )
             }
 
             // Test Connection button + result
@@ -614,7 +653,7 @@ private struct ProfileFormView: View {
                     }
             }
         }
-        .padding(LumaTheme.Spacing.md)
+        .padding(LumaTheme.Spacing.lg)
         .onAppear {
             populateFormFromExistingProfile()
         }
@@ -638,16 +677,34 @@ private struct ProfileFormView: View {
 
         let resolvedBaseURL = selectedProvider == .custom ? customBaseURL : ""
 
+        // New profiles get a sensible default model so the first request doesn't
+        // fail with "No model configured." Edited profiles keep their existing model.
+        let resolvedModel: String
+        if mode == .add {
+            resolvedModel = defaultModelForProvider(selectedProvider)
+        } else {
+            resolvedModel = existingProfile?.selectedModel ?? ""
+        }
+
         let profileToSave = LumaAPIProfile(
             id:            existingProfile?.id ?? UUID(),
             name:          trimmedName,
             provider:      selectedProvider,
             baseURL:       resolvedBaseURL,
             isDefault:     existingProfile?.isDefault ?? false,
-            selectedModel: existingProfile?.selectedModel ?? ""
+            selectedModel: resolvedModel
         )
 
         onSave(profileToSave, apiKeyInput.trimmingCharacters(in: .whitespaces))
+    }
+
+    private func defaultModelForProvider(_ provider: LumaAPIProvider) -> String {
+        switch provider {
+        case .openRouter: return "google/gemini-2.5-flash:free"
+        case .anthropic:  return "claude-sonnet-4-6"
+        case .google:     return "gemini-2.0-flash"
+        case .custom:     return ""
+        }
     }
 
     /// GETs the provider's models list endpoint to verify the API key is valid.
@@ -754,8 +811,18 @@ private struct ModelTabView: View {
                                 .foregroundColor(LumaTheme.Colors.primaryText)
 
                             TextField("e.g. google/gemini-2.5-flash:free", text: $editedModelString)
-                                .textFieldStyle(.roundedBorder)
+                                .textFieldStyle(.plain)
                                 .font(LumaTheme.Typography.body)
+                                .foregroundColor(LumaTheme.Colors.primaryText)
+                                .padding(LumaTheme.Spacing.sm)
+                                .background(
+                                    RoundedRectangle(cornerRadius: LumaTheme.CornerRadius.medium)
+                                        .fill(LumaTheme.Colors.surface)
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: LumaTheme.CornerRadius.medium)
+                                        .stroke(LumaTheme.Colors.surfaceElevated, lineWidth: 1)
+                                )
                                 // Save on Return
                                 .onSubmit {
                                     saveModelStringToActiveProfile(activeProfile: activeProfile)
@@ -806,18 +873,11 @@ private struct ModelTabView: View {
 
 // MARK: - Tab 4: General
 
-/// Miscellaneous settings: AssemblyAI key, launch-at-login, PIN management, and About.
+/// Miscellaneous settings: launch-at-login, PIN management, and About.
 @MainActor
 private struct GeneralTabView: View {
 
     @ObservedObject var pinManager: PINManager
-
-    // MARK: AssemblyAI Key state
-    @State private var assemblyAIKeyInput:     String = ""
-    @State private var isAssemblyAIKeyVisible: Bool   = false
-    @State private var assemblyAIKeySaveStatus: AssemblyAIKeySaveStatus = .idle
-
-    enum AssemblyAIKeySaveStatus { case idle, saved, failed }
 
     // MARK: Launch at Login
     // Persisted in UserDefaults so it survives restarts.
@@ -833,8 +893,6 @@ private struct GeneralTabView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: LumaTheme.Spacing.xl) {
 
-                assemblyAIKeySection
-                Divider()
                 launchAtLoginSection
                 Divider()
                 pinManagementSection
@@ -842,9 +900,6 @@ private struct GeneralTabView: View {
                 aboutSection
             }
             .padding(LumaTheme.Spacing.xl)
-        }
-        .onAppear {
-            loadAssemblyAIKeyFromKeychain()
         }
         // PIN entry sheet (set or change)
         .sheet(isPresented: $isShowingPINEntrySheet) {
@@ -854,73 +909,6 @@ private struct GeneralTabView: View {
                 onSuccess: { isShowingPINEntrySheet = false },
                 onCancel:  { isShowingPINEntrySheet = false }
             )
-        }
-    }
-
-    // MARK: AssemblyAI Key Section
-
-    private var assemblyAIKeySection: some View {
-        VStack(alignment: .leading, spacing: LumaTheme.Spacing.md) {
-
-            Text("AssemblyAI Key")
-                .font(LumaTheme.Typography.headline)
-                .foregroundColor(LumaTheme.Colors.primaryText)
-
-            Text("Used for real-time voice transcription. Stored in the macOS Keychain.")
-                .font(LumaTheme.Typography.caption)
-                .foregroundColor(LumaTheme.Colors.secondaryText)
-
-            HStack {
-                if isAssemblyAIKeyVisible {
-                    TextField("AssemblyAI API key", text: $assemblyAIKeyInput)
-                        .textFieldStyle(.roundedBorder)
-                        .font(LumaTheme.Typography.body)
-                } else {
-                    SecureField("AssemblyAI API key", text: $assemblyAIKeyInput)
-                        .textFieldStyle(.roundedBorder)
-                        .font(LumaTheme.Typography.body)
-                }
-
-                Button {
-                    isAssemblyAIKeyVisible.toggle()
-                } label: {
-                    Image(systemName: isAssemblyAIKeyVisible ? "eye.slash" : "eye")
-                        .foregroundColor(LumaTheme.Colors.secondaryText)
-                }
-                .buttonStyle(.plain)
-                .onHover { isHovering in
-                    if isHovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                }
-            }
-
-            HStack(spacing: LumaTheme.Spacing.sm) {
-                Button("Save") {
-                    saveAssemblyAIKeyToKeychain()
-                }
-                .buttonStyle(.plain)
-                .font(LumaTheme.Typography.bodyMedium)
-                .foregroundColor(LumaTheme.Colors.accentForeground)
-                .padding(.horizontal, LumaTheme.Spacing.md)
-                .padding(.vertical, LumaTheme.Spacing.sm)
-                .background(LumaTheme.Colors.accent)
-                .cornerRadius(LumaTheme.CornerRadius.small)
-                .onHover { isHovering in
-                    if isHovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                }
-
-                switch assemblyAIKeySaveStatus {
-                case .idle:
-                    EmptyView()
-                case .saved:
-                    Text("Saved")
-                        .font(LumaTheme.Typography.caption)
-                        .foregroundColor(LumaTheme.Colors.success)
-                case .failed:
-                    Text("Save failed")
-                        .font(LumaTheme.Typography.caption)
-                        .foregroundColor(LumaTheme.Colors.error)
-                }
-            }
         }
     }
 
@@ -1011,26 +999,6 @@ private struct GeneralTabView: View {
     }
 
     // MARK: Actions
-
-    private func loadAssemblyAIKeyFromKeychain() {
-        // Load any previously saved AssemblyAI key so the field is pre-populated on open.
-        assemblyAIKeyInput = (try? KeychainManager.loadString(key: "com.nox.luma.assemblyai")) ?? ""
-    }
-
-    private func saveAssemblyAIKeyToKeychain() {
-        let trimmedKey = assemblyAIKeyInput.trimmingCharacters(in: .whitespaces)
-        do {
-            try KeychainManager.save(key: "com.nox.luma.assemblyai", string: trimmedKey)
-            assemblyAIKeySaveStatus = .saved
-        } catch {
-            assemblyAIKeySaveStatus = .failed
-        }
-
-        // Auto-clear the status indicator after 2 seconds so it doesn't linger
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-            assemblyAIKeySaveStatus = .idle
-        }
-    }
 
     /// Stub for SMLoginItem integration.
     /// Full implementation requires the com.apple.security.application-groups entitlement

@@ -254,12 +254,9 @@ final class BuddyDictationManager: NSObject, ObservableObject {
     }
 
     var needsInitialPermissionPrompt: Bool {
-        if transcriptionProvider.requiresSpeechRecognitionPermission {
-            return AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined
-                || SFSpeechRecognizer.authorizationStatus() == .notDetermined
-        }
-
+        // Apple Speech requires both microphone and speech recognition permission.
         return AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined
+            || SFSpeechRecognizer.authorizationStatus() == .notDetermined
     }
 
     private let transcriptionProvider: any BuddyTranscriptionProvider
@@ -281,11 +278,10 @@ final class BuddyDictationManager: NSObject, ObservableObject {
     private var lastPermissionRequestCompletedAt: Date?
 
     override init() {
-        let transcriptionProvider = BuddyTranscriptionProviderFactory.makeDefaultProvider()
-        self.transcriptionProvider = transcriptionProvider
-        self.transcriptionProviderDisplayName = transcriptionProvider.displayName
+        self.transcriptionProvider = AppleSpeechTranscriptionProvider()
+        self.transcriptionProviderDisplayName = "Apple Speech"
         super.init()
-        print("🎙️ BuddyDictation: initialised with provider '\(transcriptionProvider.displayName)'")
+        print("🎙️ BuddyDictation: initialised with Apple Speech")
     }
 
     func updateContextualKeyterms(_ contextualKeyterms: [String]) {
@@ -540,39 +536,12 @@ final class BuddyDictationManager: NSObject, ObservableObject {
             }
         }
 
-        // Try the configured provider first. If it fails (e.g. AssemblyAI token
-        // fetch error or network unavailable), fall back to Apple Speech so the
-        // user can always speak — they just get lower-quality transcription.
-        let resolvedSession: any BuddyStreamingTranscriptionSession
-        do {
-            resolvedSession = try await transcriptionProvider.startStreamingSession(
-                keyterms: buildTranscriptionKeyterms(),
-                onTranscriptUpdate: onTranscriptUpdate,
-                onFinalTranscriptReady: onFinalTranscriptReady,
-                onError: onError
-            )
-        } catch {
-            let isAlreadyAppleSpeech = transcriptionProvider is AppleSpeechTranscriptionProvider
-            guard !isAlreadyAppleSpeech else {
-                // Apple Speech itself failed — nothing left to try
-                throw error
-            }
-            print("⚠️ BuddyDictationManager: \(transcriptionProvider.displayName) failed, falling back to Apple Speech: \(error)")
-            // Apple Speech requires speech recognition permission — request it now
-            // since the original provider (e.g. AssemblyAI) didn't need it.
-            let hasSpeechPermission = await requestSpeechRecognitionPermissionIfNeeded()
-            guard hasSpeechPermission else {
-                throw error // Speech recognition denied — surface the original error
-            }
-            resolvedSession = try await AppleSpeechTranscriptionProvider().startStreamingSession(
-                keyterms: buildTranscriptionKeyterms(),
-                onTranscriptUpdate: onTranscriptUpdate,
-                onFinalTranscriptReady: onFinalTranscriptReady,
-                onError: onError
-            )
-        }
-
-        self.activeTranscriptionSession = resolvedSession
+        self.activeTranscriptionSession = try await transcriptionProvider.startStreamingSession(
+            keyterms: buildTranscriptionKeyterms(),
+            onTranscriptUpdate: onTranscriptUpdate,
+            onFinalTranscriptReady: onFinalTranscriptReady,
+            onError: onError
+        )
         print("🎙️ BuddyDictationManager: provider ready, starting audio engine")
 
         let inputNode = audioEngine.inputNode

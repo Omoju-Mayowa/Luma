@@ -8,37 +8,32 @@ final class PINManager: ObservableObject {
 
     static let shared = PINManager()
 
-    private let keychainKey = "com.nox.luma.pin"
-
     /// True if the user has set a PIN.
     @Published private(set) var hasPIN: Bool = false
 
     private init() {
-        hasPIN = (try? KeychainManager.load(key: keychainKey)) != nil
+        hasPIN = VaultManager.shared.hasPIN
     }
 
     // MARK: - PIN Operations
 
-    /// Saves a new 6-digit PIN to the Keychain.
+    /// Saves a new 6-digit PIN to the vault.
     func setPIN(_ pin: String) throws {
         guard pin.count == 6, pin.allSatisfy({ $0.isNumber }) else {
             throw PINError.invalidPINFormat
         }
-        try KeychainManager.save(key: keychainKey, string: pin)
+        try VaultManager.shared.setPIN(pin)
         hasPIN = true
     }
 
     /// Returns true if the provided PIN matches the stored PIN.
     func validatePIN(_ enteredPIN: String) -> Bool {
-        guard let storedPIN = try? KeychainManager.loadString(key: keychainKey) else {
-            return false
-        }
-        return enteredPIN == storedPIN
+        VaultManager.shared.validatePIN(enteredPIN)
     }
 
     /// Removes the PIN (user can access settings without PIN after this).
     func clearPIN() throws {
-        try KeychainManager.delete(key: keychainKey)
+        try VaultManager.shared.clearPIN()
         hasPIN = false
     }
 

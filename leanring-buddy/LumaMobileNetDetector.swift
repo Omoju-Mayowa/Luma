@@ -2,9 +2,9 @@
 //  LumaMobileNetDetector.swift
 //  leanring-buddy
 //
-//  Core ML visual UI element detector using MobileNetV3.
+//  Core ML visual UI element detector using MobileNetV2.
 //
-//  SETUP: Add MobileNetV3.mlmodel to the Xcode project (drag into the file tree).
+//  SETUP: Add MobileNetV2.mlmodel to the Xcode project (drag into the file tree).
 //  The model can be downloaded from Apple's Core ML model gallery or converted
 //  from torchvision.models.mobilenet_v3_small using coremltools.
 //
@@ -18,11 +18,11 @@ import AppKit
 
 // MARK: - LumaMobileNetDetector
 
-/// Detects UI element regions in a screenshot using a MobileNetV3 Core ML model.
+/// Detects UI element regions in a screenshot using a MobileNetV2 Core ML model.
 /// Returns bounding boxes and labels that LumaImageProcessingEngine cross-validates
 /// against the Accessibility API results.
 ///
-/// NOTE: The MobileNetV3.mlmodel file must be added to the Xcode project for this
+/// NOTE: The MobileNetV2.mlmodel file must be added to the Xcode project for this
 /// detector to produce results. Without the model, all calls return an empty array.
 final class LumaMobileNetDetector {
     static let shared = LumaMobileNetDetector()
@@ -42,10 +42,10 @@ final class LumaMobileNetDetector {
 
     private func loadModelIfAvailable() {
         // Look for the compiled model in the app bundle.
-        // The model file must be named "MobileNetV3.mlmodel" and added to the Xcode target.
-        guard let modelURL = Bundle.main.url(forResource: "MobileNetV3", withExtension: "mlmodelc")
-               ?? Bundle.main.url(forResource: "MobileNetV3", withExtension: "mlmodel") else {
-            print("[LumaMobileNet] Model file not found in bundle — visual detection disabled. Add MobileNetV3.mlmodel to the Xcode project.")
+        // The model file must be named "MobileNetV2.mlmodel" and added to the Xcode target.
+        guard let modelURL = Bundle.main.url(forResource: "MobileNetV2", withExtension: "mlmodelc")
+               ?? Bundle.main.url(forResource: "MobileNetV2", withExtension: "mlmodel") else {
+            print("[LumaMobileNet] Model file not found in bundle — visual detection disabled. Add MobileNetV2.mlmodel to the Xcode project.")
             return
         }
 
@@ -63,7 +63,7 @@ final class LumaMobileNetDetector {
 
     // MARK: - Detection
 
-    /// Runs the MobileNetV3 model on `image` and returns detected UI regions.
+    /// Runs the MobileNetV2 model on `image` and returns detected UI regions.
     ///
     /// - Parameter image: Full-screen CGImage (top-left origin, pixel coordinates).
     /// - Parameter screenSize: The screen's point dimensions, used to convert
@@ -107,7 +107,7 @@ final class LumaMobileNetDetector {
 
 // MARK: - VisualDetectionResult
 
-/// A single detected UI element from the MobileNetV3 model.
+/// A single detected UI element from the MobileNetV2 model.
 struct VisualDetectionResult {
     /// The label/class predicted by the model (e.g. "button", "text field").
     let label: String

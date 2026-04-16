@@ -79,13 +79,56 @@ final class OfflineGuideManager {
 
     // MARK: - Guide Matching
 
-    /// Finds the first guide whose trigger keywords appear in `query`.
-    /// Returns nil if no guide matches.
+    /// Finds the best-matching guide for `query` using word-set matching.
+    ///
+    /// Instead of requiring the trigger phrase to be a literal substring of the query,
+    /// this tokenizes both into individual words and checks whether ALL words from a
+    /// trigger appear anywhere in the query (in any order). This means:
+    ///   "Help me change my wallpaper" matches trigger "change wallpaper" ✓
+    ///   "change my wallpaper"         matches trigger "change wallpaper" ✓
+    ///   "change wallpaper"            matches trigger "change wallpaper" ✓
+    ///
+    /// When multiple guides match, the one whose matching trigger has the most words
+    /// is preferred — longer trigger = more specific match = better intent signal.
+    ///
+    /// Returns nil if no guide has a trigger whose words are all present in the query.
     func findGuide(for query: String) -> OfflineGuide? {
-        let lowercasedQuery = query.lowercased()
-        return guides.first { guide in
-            guide.triggers.contains(where: { lowercasedQuery.contains($0) })
+        // Build a set of all individual words in the query for fast O(1) lookup.
+        let queryWordSet = Set(
+            query.lowercased()
+                .components(separatedBy: .alphanumerics.inverted)
+                .filter { !$0.isEmpty }
+        )
+
+        var bestMatchedGuide: OfflineGuide? = nil
+        var bestMatchedTriggerWordCount = 0
+
+        for guide in guides {
+            for trigger in guide.triggers {
+                let triggerWords = trigger.lowercased()
+                    .components(separatedBy: .alphanumerics.inverted)
+                    .filter { !$0.isEmpty }
+
+                guard !triggerWords.isEmpty else { continue }
+
+                // All words in this trigger must appear somewhere in the query.
+                let allTriggerWordsFoundInQuery = triggerWords.allSatisfy { queryWordSet.contains($0) }
+
+                // Prefer the guide whose matching trigger is most specific (most words).
+                if allTriggerWordsFoundInQuery && triggerWords.count > bestMatchedTriggerWordCount {
+                    bestMatchedGuide = guide
+                    bestMatchedTriggerWordCount = triggerWords.count
+                }
+            }
         }
+
+        if let matched = bestMatchedGuide {
+            print("[OfflineGuides] Matched guide '\(matched.title)' (trigger word count: \(bestMatchedTriggerWordCount))")
+        } else {
+            print("[OfflineGuides] No guide matched query: '\(query)'")
+        }
+
+        return bestMatchedGuide
     }
 
     // MARK: - Guide Execution

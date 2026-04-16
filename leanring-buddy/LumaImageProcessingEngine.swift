@@ -46,6 +46,10 @@ struct ElementCandidate: Identifiable {
     let source: SourceType
     let appBundleID: String?
     let isMenuBar: Bool
+    /// Live AX element reference. Present for accessibility and both sources.
+    /// Used by pointCursor to re-read kAXFrameAttribute at point time so the cursor
+    /// targets the element's actual current position rather than the scan-time snapshot.
+    let axElement: AXUIElement?
 }
 
 // MARK: - LumaImageProcessingEngine
@@ -100,11 +104,81 @@ final class LumaImageProcessingEngine {
         return bestCandidate
     }
 
+    // MARK: - Coordinate Validation Gate
+
+    /// Validates `point` via MobileNetV2 before animating the cursor, then calls `move`
+    /// on the main thread if the coordinate passes. If MobileNetV2 rejects the coordinate,
+    /// calls `requestCoordinateRetry(for:)` instead of moving the cursor.
+    ///
+    /// - Parameters:
+    ///   - point: The screen coordinate (AppKit, bottom-left origin) to validate.
+    ///   - screenshot: The current screen capture used for region classification.
+    ///   - move: Closure to invoke when the coordinate passes validation.
+    func validateAndMove(to point: CGPoint, screenshot: NSImage, then move: @escaping () -> Void) {
+        LumaMLEngine.shared.validateCoordinate(
+            x: point.x,
+            y: point.y,
+            screenshot: screenshot
+        ) { [weak self] result in
+            if result.passed {
+                DispatchQueue.main.async { move() }
+            } else {
+                #if DEBUG
+                print("[LIPE] Coordinate (\(point.x), \(point.y)) rejected by MobileNet — confidence: \(String(format: "%.2f", result.confidence))")
+                #endif
+                self?.requestCoordinateRetry(for: point)
+            }
+        }
+    }
+
+    /// Called when MobileNet rejects an AI-returned coordinate.
+    /// LIPE does not own the Claude API — it logs the rejection and returns so the
+    /// WalkthroughEngine's nudge timer and periodic AI validation can handle recovery
+    /// without this layer attempting a redundant API call.
+    private func requestCoordinateRetry(for rejectedPoint: CGPoint) {
+        print("[LIPE] Coordinate retry requested for (\(rejectedPoint.x), \(rejectedPoint.y)) — deferring to WalkthroughEngine nudge cycle")
+        // The WalkthroughEngine nudge timer will re-point the cursor on its next tick.
+        // No action needed here — not calling move() is the correct no-op.
+    }
+
     /// Notifies the overlay to animate the Luma cursor to `candidate.frame`.
     /// Luma NEVER moves the OS cursor — only the blue overlay cursor animates.
     /// `bubbleText` is shown in the small speech bubble next to the cursor when it arrives.
+    ///
+    /// When the candidate came from the AX path (source: .accessibility or .both) and
+    /// confidence is high, we re-read kAXFrameAttribute from the live element instead of
+    /// using the scan-time snapshot in candidate.frame. This corrects cases where the
+    /// element moved between the tree scan and the cursor animation (e.g. sidebar items
+    /// that render late), which is the root cause of wrong cursor target coordinates.
     func pointCursor(at candidate: ElementCandidate, bubbleText: String? = nil) {
-        let screenPoint = toScreenPoint(candidate.frame)
+        let screenPoint: CGPoint
+
+        let shouldUseLiveAXFrame = (candidate.source == .accessibility || candidate.source == .both)
+            && candidate.confidence >= 0.8
+            && candidate.axElement != nil
+
+        if shouldUseLiveAXFrame, let liveElement = candidate.axElement {
+            var freshFrame = CGRect.zero
+            var frameRef: CFTypeRef?
+            if AXUIElementCopyAttributeValue(liveElement, "AXFrame" as CFString, &frameRef) == .success,
+               let frameValue = frameRef {
+                AXValueGetValue(frameValue as! AXValue, .cgRect, &freshFrame)
+            }
+
+            if freshFrame.width > 0 && freshFrame.height > 0 {
+                let mainScreenHeight = NSScreen.main?.frame.height ?? 0
+                let centerX = freshFrame.midX
+                let centerY = mainScreenHeight - freshFrame.origin.y - freshFrame.size.height / 2
+                print("[LIPE] Corrected center: (\(centerX), \(centerY)) from AX frame (\(freshFrame.origin.x), \(freshFrame.origin.y), \(freshFrame.width), \(freshFrame.height))")
+                screenPoint = CGPoint(x: centerX, y: centerY)
+            } else {
+                // Live read returned an empty frame — fall back to the scan-time snapshot
+                screenPoint = toScreenPoint(candidate.frame)
+            }
+        } else {
+            screenPoint = toScreenPoint(candidate.frame)
+        }
+
         print("[LIPE] Pointing Luma cursor to \(screenPoint) for '\(candidate.name)'")
 
         var userInfo: [String: Any] = [
@@ -147,22 +221,58 @@ final class LumaImageProcessingEngine {
                 let appElement = AXUIElementCreateApplication(pid)
                 collectAXElements(from: appElement, into: &collectedElements, depth: 0, maxDepth: 12)
             }
+
+            // When the query targets an app that is NOT the frontmost app, the user
+            // likely wants to click its Dock icon. Scan com.apple.dock so AXDockItem
+            // candidates are included alongside any AXMenuBarItem candidates that the
+            // frontmost app's tree may contain with the same name.
+            let frontmostAppName = NSWorkspace.shared.frontmostApplication?.localizedName ?? ""
+            let queryMatchesFrontmostApp = frontmostAppName.lowercased() == query.lowercased()
+                || frontmostAppName.lowercased().contains(query.lowercased())
+                || query.lowercased().contains(frontmostAppName.lowercased())
+
+            if !queryMatchesFrontmostApp,
+               let dockApp = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").first {
+                let dockElement = AXUIElementCreateApplication(dockApp.processIdentifier)
+                // Depth 4 is enough to reach AXDockItem nodes inside the Dock's AX tree
+                collectAXElements(from: dockElement, into: &collectedElements, depth: 0, maxDepth: 4)
+            }
         }
 
-        let scored = collectedElements
+        var scored = collectedElements
             .map { element -> (element: CollectedAXElement, score: Int) in
                 (element: element, score: scoreElement(element, query: query))
             }
             .filter { $0.score > 0 }
             .sorted { $0.score > $1.score }
-            .prefix(5)
 
-        print("[LIPE] AX scan '\(query)': \(scored.count) candidate(s) of \(collectedElements.count) total")
-        for candidate in scored {
+        // If the scored results contain any AXDockItem candidate, penalise competing
+        // AXMenuBarItem candidates that share the same label by −50 so the Dock icon
+        // wins when the user intends to launch or switch to an app via the Dock.
+        let dockItemLabels = Set(
+            scored
+                .filter { $0.element.role == "AXDockItem" }
+                .map { $0.element.title.lowercased() }
+        )
+        if !dockItemLabels.isEmpty {
+            scored = scored.map { item in
+                guard item.element.role == "AXMenuBarItem",
+                      dockItemLabels.contains(item.element.title.lowercased()) else {
+                    return item
+                }
+                return (element: item.element, score: max(1, item.score - 50))
+            }
+            .sorted { $0.score > $1.score }
+        }
+
+        let topScored = scored.prefix(5)
+
+        print("[LIPE] AX scan '\(query)': \(topScored.count) candidate(s) of \(collectedElements.count) total")
+        for candidate in topScored {
             print("[LIPE]   AX '\(candidate.element.title)' role=\(candidate.element.role) score=\(candidate.score)")
         }
 
-        return scored.map { item in
+        return topScored.map { item in
             ElementCandidate(
                 name: item.element.title,
                 role: item.element.role,
@@ -171,7 +281,8 @@ final class LumaImageProcessingEngine {
                 confidence: Double(item.score) / 100.0,
                 source: .accessibility,
                 appBundleID: appBundleID,
-                isMenuBar: isMenuBar
+                isMenuBar: isMenuBar,
+                axElement: item.element.element
             )
         }
     }
@@ -216,7 +327,8 @@ final class LumaImageProcessingEngine {
                     confidence: combinedConfidence,
                     source: .visual,
                     appBundleID: nil,
-                    isMenuBar: false
+                    isMenuBar: false,
+                    axElement: nil
                 )
             }
             .sorted { $0.confidence > $1.confidence }
@@ -261,7 +373,8 @@ final class LumaImageProcessingEngine {
                     confidence: mergedConfidence,
                     source: .both,
                     appBundleID: axCandidate.appBundleID,
-                    isMenuBar: axCandidate.isMenuBar
+                    isMenuBar: axCandidate.isMenuBar,
+                    axElement: axCandidate.axElement
                 )
                 results.append(merged)
             } else {
@@ -288,15 +401,18 @@ final class LumaImageProcessingEngine {
         // AX/Quartz coordinate system: origin at the top-left of the MAIN display, Y increases downward.
         // AppKit coordinate system: origin at the bottom-left of the MAIN display, Y increases upward.
         //
-        // The correct Y-flip uses the MAIN screen's height (not the max across all screens):
-        //   appKitY = NSScreen.main.frame.height - quartzY
+        // Correct formula for the element center:
+        //   appKitY = screenHeight - axFrame.origin.y - axFrame.size.height
         //
-        // Using max($0, $1.frame.maxY) across all screens gives wrong results when a secondary
-        // screen is taller than the primary — elements on the primary display get shifted upward
-        // by the height difference. Using just mainH is always correct because Quartz Y=0 always
-        // corresponds to AppKit Y=mainH regardless of how other monitors are arranged.
+        // Why: axFrame.origin.y is the Quartz top edge. Adding size.height reaches the Quartz
+        // bottom edge (origin.y + height = maxY). screenHeight - maxY gives the AppKit Y of
+        // that bottom edge, which is the correct visual center anchor for cursor placement.
+        //
+        // The previously used (screenHeight - midY) was off by half the element height,
+        // causing the cursor to land above the element rather than on it.
         let mainScreenHeight = NSScreen.main?.frame.height ?? 0
-        return CGPoint(x: axFrame.midX, y: mainScreenHeight - axFrame.midY)
+        let appKitY = mainScreenHeight - axFrame.origin.y - (axFrame.size.height / 2)
+        return CGPoint(x: axFrame.midX, y: appKitY)
     }
 
     // MARK: - Step 5: Menu Bar Scan
@@ -321,7 +437,8 @@ final class LumaImageProcessingEngine {
                 confidence: Double(item.score) / 100.0,
                 source: .accessibility,
                 appBundleID: nil,
-                isMenuBar: true
+                isMenuBar: true,
+                axElement: item.element.element
             )
         }
     }

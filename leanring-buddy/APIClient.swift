@@ -34,6 +34,60 @@ final class APIClient {
     /// URL cache and cookie storage are disabled to keep nothing on disk.
     private let urlSession: URLSession
 
+    // MARK: - Request Queue
+    //
+    // Anthropic's free tier allows 5 requests/minute (~12s apart). We enforce 15s between
+    // requests and allow at most one concurrent request so walkthrough validation calls
+    // can never stack up and hit the limit. All callers await acquireRequestSlot() before
+    // touching the network and call releaseRequestSlot() in a defer block after.
+
+    private var isRequestActive: Bool = false
+    private var lastRequestFinishedDate: Date = .distantPast
+    private let minimumSecondsBetweenRequests: TimeInterval = 15.0
+    /// Continuations for callers waiting for the request slot to open.
+    private var queuedRequestContinuations: [CheckedContinuation<Void, Never>] = []
+
+    /// Waits until no other request is running and the 15-second cooldown has elapsed,
+    /// then atomically marks the slot as taken.
+    ///
+    /// The slot is marked active BEFORE the cooldown sleep so no concurrent caller can
+    /// slip in between the check and the sleep.
+    private func acquireRequestSlot() async {
+        if isRequestActive {
+            // Another request is running — join the queue
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                queuedRequestContinuations.append(continuation)
+            }
+            // When resumed, we inherit the slot — releaseRequestSlot did NOT clear isRequestActive
+        } else {
+            isRequestActive = true
+        }
+
+        // Enforce minimum gap from the end of the previous request.
+        // isRequestActive == true here, so new callers cannot race past this await.
+        let elapsed = Date().timeIntervalSince(lastRequestFinishedDate)
+        if elapsed < minimumSecondsBetweenRequests {
+            let remainingCooldownSeconds = minimumSecondsBetweenRequests - elapsed
+            try? await Task.sleep(nanoseconds: UInt64(remainingCooldownSeconds * 1_000_000_000))
+        }
+    }
+
+    /// Releases the slot and wakes the next queued caller, if any.
+    ///
+    /// When there is a waiting caller, isRequestActive is left true so the woken caller
+    /// inherits the slot directly — no gap where a third caller could slip through.
+    private func releaseRequestSlot() {
+        lastRequestFinishedDate = Date()
+
+        if let nextContinuation = queuedRequestContinuations.first {
+            queuedRequestContinuations.removeFirst()
+            // Caller inherits the active slot; do NOT set isRequestActive = false here
+            nextContinuation.resume()
+        } else {
+            isRequestActive = false
+        }
+    }
+
     private init() {
         let sessionConfig = URLSessionConfiguration.default
         sessionConfig.timeoutIntervalForRequest = 120   // requestTimeoutSeconds — can't use self yet
@@ -360,6 +414,9 @@ final class APIClient {
         maxOutputTokens: Int = 1024,
         onTextChunk: @MainActor @Sendable (String) -> Void
     ) async throws -> (text: String, duration: TimeInterval) {
+        await acquireRequestSlot()
+        defer { releaseRequestSlot() }
+
         let startTime = Date()
 
         // Resolve the profile and key fresh on each request so profile changes are instant
@@ -419,15 +476,37 @@ final class APIClient {
         let payloadSizeMB = Double(requestBodyData.count) / 1_048_576.0
         print("APIClient: streaming request to \(activeProfile.provider.displayName) — \(String(format: "%.1f", payloadSizeMB))MB, \(images.count) image(s), max_tokens=\(maxOutputTokens)")
 
-        // Use bytes streaming to read the SSE response line by line
-        let (byteStream, httpResponse) = try await urlSession.bytes(for: urlRequest)
+        // Use bytes streaming to read the SSE response line by line.
+        // On a 429 rate-limit response, wait 60 seconds and retry exactly once.
+        // If the retry also fails, throw — no further retries.
+        var byteStream: URLSession.AsyncBytes
+        var httpURLResponse: HTTPURLResponse
 
-        guard let httpURLResponse = httpResponse as? HTTPURLResponse else {
+        let (firstByteStream, firstHTTPResponse) = try await urlSession.bytes(for: urlRequest)
+        guard let firstHTTPURLResponse = firstHTTPResponse as? HTTPURLResponse else {
             throw NSError(
                 domain: "APIClient",
                 code: -1,
                 userInfo: [NSLocalizedDescriptionKey: "Invalid HTTP response from \(activeProfile.provider.displayName)"]
             )
+        }
+
+        if firstHTTPURLResponse.statusCode == 429 {
+            print("[APIClient] Rate limit (429) on streaming — waiting 60 seconds before single retry")
+            try await Task.sleep(nanoseconds: 60_000_000_000)
+            let (retryByteStream, retryHTTPResponse) = try await urlSession.bytes(for: urlRequest)
+            guard let retryHTTPURLResponse = retryHTTPResponse as? HTTPURLResponse else {
+                throw NSError(
+                    domain: "APIClient",
+                    code: -1,
+                    userInfo: [NSLocalizedDescriptionKey: "Invalid HTTP response on retry from \(activeProfile.provider.displayName)"]
+                )
+            }
+            byteStream = retryByteStream
+            httpURLResponse = retryHTTPURLResponse
+        } else {
+            byteStream = firstByteStream
+            httpURLResponse = firstHTTPURLResponse
         }
 
         // Non-2xx responses carry the error detail in the body — read it and surface it
@@ -491,6 +570,9 @@ final class APIClient {
         userPrompt: String,
         maxOutputTokens: Int = 2048
     ) async throws -> (text: String, duration: TimeInterval) {
+        await acquireRequestSlot()
+        defer { releaseRequestSlot() }
+
         let startTime = Date()
 
         // Resolve the profile and key fresh on each request so profile changes are instant
@@ -545,16 +627,44 @@ final class APIClient {
         let payloadSizeMB = Double(requestBodyData.count) / 1_048_576.0
         print("APIClient: non-streaming request to \(activeProfile.provider.displayName) — \(String(format: "%.1f", payloadSizeMB))MB, \(images.count) image(s), max_tokens=\(maxOutputTokens)")
 
-        let (responseData, httpResponse) = try await urlSession.data(for: urlRequest)
+        // On a 429 rate-limit response, wait 60 seconds and retry exactly once.
+        // If the retry also fails, throw — no further retries.
+        let responseData: Data
+        let httpURLResponse: HTTPURLResponse
 
-        guard let httpURLResponse = httpResponse as? HTTPURLResponse,
-              (200...299).contains(httpURLResponse.statusCode) else {
-            let errorBody = String(data: responseData, encoding: .utf8) ?? "Unknown error"
-            let statusCode = (httpResponse as? HTTPURLResponse)?.statusCode ?? -1
+        let (firstResponseData, firstHTTPResponse) = try await urlSession.data(for: urlRequest)
+        guard let firstHTTPURLResponse = firstHTTPResponse as? HTTPURLResponse else {
             throw NSError(
                 domain: "APIClient",
-                code: statusCode,
-                userInfo: [NSLocalizedDescriptionKey: "\(activeProfile.provider.displayName) API Error (\(statusCode)): \(errorBody)"]
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "Invalid HTTP response from \(activeProfile.provider.displayName)"]
+            )
+        }
+
+        if firstHTTPURLResponse.statusCode == 429 {
+            print("[APIClient] Rate limit (429) — waiting 60 seconds before single retry")
+            try await Task.sleep(nanoseconds: 60_000_000_000)
+            let (retryResponseData, retryHTTPResponse) = try await urlSession.data(for: urlRequest)
+            guard let retryHTTPURLResponse = retryHTTPResponse as? HTTPURLResponse else {
+                throw NSError(
+                    domain: "APIClient",
+                    code: -1,
+                    userInfo: [NSLocalizedDescriptionKey: "Invalid HTTP response on retry from \(activeProfile.provider.displayName)"]
+                )
+            }
+            responseData = retryResponseData
+            httpURLResponse = retryHTTPURLResponse
+        } else {
+            responseData = firstResponseData
+            httpURLResponse = firstHTTPURLResponse
+        }
+
+        guard (200...299).contains(httpURLResponse.statusCode) else {
+            let errorBody = String(data: responseData, encoding: .utf8) ?? "Unknown error"
+            throw NSError(
+                domain: "APIClient",
+                code: httpURLResponse.statusCode,
+                userInfo: [NSLocalizedDescriptionKey: "\(activeProfile.provider.displayName) API Error (\(httpURLResponse.statusCode)): \(errorBody)"]
             )
         }
 

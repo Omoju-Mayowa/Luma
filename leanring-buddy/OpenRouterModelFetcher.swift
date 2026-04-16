@@ -54,10 +54,12 @@ final class OpenRouterModelFetcher: ObservableObject {
     @Published var modelFetchError: String?
 
     private let modelsURL: URL
+    private let apiKey: String
     private let session: URLSession
 
-    init(proxyBaseURL: String) {
-        self.modelsURL = URL(string: "\(proxyBaseURL)/models")!
+    init(apiKey: String, baseURL: String = "https://openrouter.ai/api/v1") {
+        self.apiKey = apiKey
+        self.modelsURL = URL(string: "\(baseURL)/models")!
 
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = 15
@@ -97,6 +99,7 @@ final class OpenRouterModelFetcher: ObservableObject {
     private func fetchModelsFromAPI() async throws -> [OpenRouterModel] {
         var request = URLRequest(url: modelsURL)
         request.httpMethod = "GET"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
 
         let (data, response) = try await session.data(for: request)
 

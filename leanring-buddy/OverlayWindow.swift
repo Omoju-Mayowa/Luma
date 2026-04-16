@@ -31,7 +31,7 @@ class OverlayWindow: NSWindow {
         self.hasShadow = false
         // Exclude from screen capture so Luma's overlay doesn't appear in
         // Cmd+Shift+3/4 screenshots or other apps capturing the screen.
-        self.sharingType = .none
+        self.sharingType = .readWrite
 
         // Important: Allow the window to appear even when app is not active
         self.hidesOnDeactivate = false
@@ -55,23 +55,8 @@ class OverlayWindow: NSWindow {
     }
 }
 
-// Cursor-like triangle shape (equilateral)
-struct Triangle: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        let size = min(rect.width, rect.height)
-        let height = size * sqrt(3.0) / 2.0
-
-        // Top vertex
-        path.move(to: CGPoint(x: rect.midX, y: rect.midY - height / 1.5))
-        // Bottom left vertex
-        path.addLine(to: CGPoint(x: rect.midX - size / 2, y: rect.midY + height / 3))
-        // Bottom right vertex
-        path.addLine(to: CGPoint(x: rect.midX + size / 2, y: rect.midY + height / 3))
-        path.closeSubpath()
-        return path
-    }
-}
+// Triangle shape moved to LumaTheme.swift as CompanionTriangle.
+// Change LumaTheme.companionShape to switch between triangle, circle, and capsule.
 
 // PreferenceKey for tracking bubble size
 struct SizePreferenceKey: PreferenceKey {
@@ -167,6 +152,10 @@ struct BlueCursorView: View {
     /// True when the buddy is flying BACK to the cursor after pointing.
     /// Only during the return flight can cursor movement cancel the animation.
     @State private var isReturningToCursor: Bool = false
+
+    /// Morph progress: 0 = LumaTheme.companionShape (idle), 1 = triangle (navigating/pointing).
+    /// Animated with a spring defined in LumaTheme whenever buddyNavigationMode changes.
+    @State private var companionMorphProgress: Double = 0.0
 
     // MARK: - Onboarding Video Layout
 
@@ -305,9 +294,30 @@ struct BlueCursorView: View {
             // During cursor following: fast spring animation for snappy tracking.
             // During navigation: NO implicit animation — the frame-by-frame bezier
             // timer controls position directly at 60fps for a smooth arc flight.
-            Triangle()
-                .fill(LumaTheme.Colors.overlayCursorBlue)
-                .frame(width: 16, height: 16)
+            MorphingCompanionShape(progress: companionMorphProgress)
+                .fill(LumaTheme.companionColor)
+                // Morph target fill — fades in, cross-fading to companionMorphTargetColor
+                .overlay(
+                    MorphingCompanionShape(progress: companionMorphProgress)
+                        .fill(LumaTheme.companionMorphTargetColor)
+                        .opacity(companionMorphProgress)
+                )
+                // Idle border — fades out as the companion morphs toward the target shape
+                .overlay(
+                    MorphingCompanionShape(progress: companionMorphProgress)
+                        .stroke(LumaTheme.companionBorderColor, lineWidth: LumaTheme.companionBorderWidth)
+                        .opacity(1.0 - companionMorphProgress)
+                )
+                // Target border — fades in as the companion morphs into the target shape
+                .overlay(
+                    MorphingCompanionShape(progress: companionMorphProgress)
+                        .stroke(LumaTheme.companionMorphTargetBorderColor, lineWidth: LumaTheme.companionMorphTargetBorderWidth)
+                        .opacity(companionMorphProgress)
+                )
+                .frame(
+                    width:  LumaTheme.companionWidth  + (LumaTheme.companionMorphTargetWidth  - LumaTheme.companionWidth)  * companionMorphProgress,
+                    height: LumaTheme.companionHeight + (LumaTheme.companionMorphTargetHeight - LumaTheme.companionHeight) * companionMorphProgress
+                )
                 .rotationEffect(.degrees(triangleRotationDegrees))
                 .shadow(color: LumaTheme.Colors.overlayCursorBlue, radius: 8 + (buddyFlightScale - 1.0) * 20, x: 0, y: 0)
                 .scaleEffect(buddyFlightScale)
@@ -370,6 +380,20 @@ struct BlueCursorView: View {
             timer?.invalidate()
             navigationAnimationTimer?.invalidate()
             companionManager.tearDownOnboardingVideo()
+        }
+        .onChange(of: buddyNavigationMode) { newMode in
+            // Morph to triangle when flying to or pointing at a target.
+            // Morph back to companionShape when returning to cursor-follow mode.
+            let targetProgress: Double = (newMode == .navigatingToTarget || newMode == .pointingAtTarget) ? 1.0 : 0.0
+            withAnimation(
+                .spring(
+                    response: LumaTheme.companionMorphSpringResponse,
+                    dampingFraction: LumaTheme.companionMorphSpringDamping,
+                    blendDuration: 0
+                )
+            ) {
+                companionMorphProgress = targetProgress
+            }
         }
         .onChange(of: companionManager.detectedElementScreenLocation) { newLocation in
             // When a UI element location is detected, navigate the buddy to

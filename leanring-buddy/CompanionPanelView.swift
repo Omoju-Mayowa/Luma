@@ -113,6 +113,7 @@ struct CompanionPanelView: View {
         }
         .frame(width: 320)
         .background(panelBackground)
+        .focusEffectDisabled()
         .overlay(alignment: .top) {
             if tutorialManager.isActive {
                 tutorialOverlayCard

@@ -35,10 +35,12 @@ struct OnboardingWizardView: View {
 
                 // Bottom navigation: back button + progress dots
                 bottomNavigationRow
+                    .padding(.top, LumaTheme.Spacing.xl)
                     .padding(.bottom, LumaTheme.Spacing.xl)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .focusEffectDisabled()
     }
 
     // MARK: - Step Content Router
@@ -132,10 +134,14 @@ struct OnboardingWizardView: View {
         }
     }
 
-    /// Called on the final step. Persists the completion flag and dismisses the wizard.
+    /// Called on the final step. Persists the completion flag, requests accessibility
+    /// permission (deferred from launch so it doesn't clash with onboarding), then dismisses.
     private func completeOnboarding() {
         UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
         hasCompletedOnboarding = true
+        // Now that setup is complete, ask for accessibility. Doing this here instead of
+        // at app launch prevents the permission dialog from appearing over the onboarding wizard.
+        AccessibilityWatcher.shared.checkAndRequestPermission()
     }
 }
 
@@ -399,7 +405,7 @@ private struct OnboardingPINSetupStep: View {
 
 // MARK: - Step 3: API Profile Setup
 
-/// Collects AI provider, API key, optional base URL (for Custom), and an optional AssemblyAI key.
+/// Collects AI provider, API key, and optional base URL (for Custom).
 /// Validates the key with a lightweight test request before allowing the user to continue.
 @MainActor
 private struct OnboardingAPIProfileStep: View {
@@ -410,7 +416,6 @@ private struct OnboardingAPIProfileStep: View {
     @State private var enteredAPIKey: String = ""
     @State private var isAPIKeyVisible: Bool = false
     @State private var enteredCustomBaseURL: String = ""
-    @State private var enteredAssemblyAIKey: String = ""
 
     /// Tracks the result of the test connection attempt
     enum ConnectionTestStatus: Equatable {
@@ -438,7 +443,8 @@ private struct OnboardingAPIProfileStep: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: LumaTheme.Spacing.xl) {
+            VStack(spacing: 0) {
+                // Header
                 VStack(spacing: LumaTheme.Spacing.md) {
                     Text(LumaStrings.Onboarding.apiTitle)
                         .font(LumaTheme.Typography.largeTitle)
@@ -450,24 +456,26 @@ private struct OnboardingAPIProfileStep: View {
                         .foregroundColor(LumaTheme.Colors.secondaryText)
                         .multilineTextAlignment(.center)
                 }
-                .padding(.top, LumaTheme.Spacing.xxl)
+                .padding(.top, 48)
+                .padding(.bottom, LumaTheme.Spacing.xxl)
 
                 // Provider Picker (segmented control style)
                 providerPickerView
+                    .padding(.bottom, LumaTheme.Spacing.xxl)
 
                 // API key field with eye toggle
                 apiKeyFieldView
+                    .padding(.bottom, LumaTheme.Spacing.xl)
 
                 // Base URL field — only shown for Custom provider
                 if selectedProvider == .custom {
                     customBaseURLFieldView
+                        .padding(.bottom, LumaTheme.Spacing.xl)
                 }
-
-                // Optional AssemblyAI key for voice transcription
-                assemblyAIKeyFieldView
 
                 // Test connection button + status indicator
                 testConnectionSection
+                    .padding(.bottom, LumaTheme.Spacing.xl)
 
                 // Continue button — disabled until an API key has been entered
                 OnboardingPrimaryButton(
@@ -476,7 +484,7 @@ private struct OnboardingAPIProfileStep: View {
                     isLoading: isSavingProfile,
                     action: handleContinueTapped
                 )
-                .padding(.bottom, LumaTheme.Spacing.xxl)
+                .padding(.bottom, 48)
             }
             .padding(.horizontal, LumaTheme.Spacing.xxl)
             .frame(maxWidth: 480)
@@ -568,28 +576,6 @@ private struct OnboardingAPIProfileStep: View {
         }
     }
 
-    private var assemblyAIKeyFieldView: some View {
-        VStack(alignment: .leading, spacing: LumaTheme.Spacing.xs) {
-            Text("AssemblyAI Key (optional)")
-                .font(LumaTheme.Typography.bodyMedium)
-                .foregroundColor(LumaTheme.Colors.primaryText)
-
-            SecureField("For voice transcription", text: $enteredAssemblyAIKey)
-                .textFieldStyle(.plain)
-                .font(LumaTheme.Typography.body)
-                .foregroundColor(LumaTheme.Colors.primaryText)
-                .padding(LumaTheme.Spacing.md)
-                .background(
-                    RoundedRectangle(cornerRadius: LumaTheme.CornerRadius.medium)
-                        .fill(LumaTheme.Colors.surface)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: LumaTheme.CornerRadius.medium)
-                        .stroke(LumaTheme.Colors.surfaceElevated, lineWidth: 1)
-                )
-        }
-    }
-
     private var testConnectionSection: some View {
         VStack(spacing: LumaTheme.Spacing.sm) {
             OnboardingSecondaryButton(
@@ -661,12 +647,6 @@ private struct OnboardingAPIProfileStep: View {
 
         // Save the API key to Keychain under this profile's identifier
         try? ProfileManager.shared.saveAPIKey(trimmedAPIKey, forProfileID: newProfile.id)
-
-        // Save the optional AssemblyAI key if provided
-        let trimmedAssemblyAIKey = enteredAssemblyAIKey.trimmingCharacters(in: .whitespaces)
-        if !trimmedAssemblyAIKey.isEmpty {
-            try? KeychainManager.save(key: "com.nox.luma.assemblyai", string: trimmedAssemblyAIKey)
-        }
 
         isSavingProfile = false
         onProfileSaved()

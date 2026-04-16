@@ -95,16 +95,67 @@ final class WalkthroughEngine: ObservableObject {
     /// Minimum seconds between consecutive AI screenshot validation calls.
     private let minimumSecondsBetweenAIValidations: TimeInterval = 1.5
 
-    /// Tracks the last time the user visibly interacted (mouse click or AX event).
-    /// The periodic validation timer only fires AI validation when this is recent —
-    /// prevents the AI from marking a step complete just because 3 seconds passed
-    /// with nothing happening (idle screen → permissive prompt → false COMPLETED).
-    private var lastUserInteractionDate: Date = .distantPast
+    // MARK: - Typing Step State
+    //
+    // When a step instruction contains a typing keyword ("type", "write", "enter") followed
+    // by quoted text, the normal AX label-match / dwell path is bypassed entirely. Instead:
+    //   1. The focused AXUIElement is captured at step start as the polling target.
+    //   2. A 0.5s polling timer reads kAXValueAttribute from that element every tick.
+    //   3. The step completes only when the value contains the expected text AND at least
+    //      minimumTypingStepElapsedSeconds have passed since the step started.
+    //
+    // Polling (not kAXValueChangedNotification) is used because value-changed events fire on
+    // every keystroke, making it impossible to know when the user has finished typing.
 
-    /// Seconds of inactivity after which the periodic timer skips AI validation.
-    /// If the user hasn't clicked or triggered an AX event in this window, there's
-    /// no visual state change to validate and we'd risk a false positive.
-    private let maximumSecondsToValidateAfterLastInteraction: TimeInterval = 6.0
+    /// True while a typing step is active. Set to true when a typing step starts (in executeStep),
+    /// cleared to false only by the polling timer once the expected text is found or the step times out.
+    /// All methods that advance steps or fire timers guard on this flag — when it is true they drop
+    /// themselves immediately so the polling timer is the sole owner of step completion.
+    private var isTypingStepActive: Bool = false
+
+    /// The text the user must type for the current step to complete.
+    /// Extracted from quoted strings in the step instruction (e.g. "type \"Hello\" in…" → "Hello").
+    /// Nil for non-typing steps — the normal AX label-match / dwell path is used instead.
+    private var currentStepExpectedTypingText: String? = nil
+
+    /// The AXUIElement captured by the polling timer on its first tick after the 1.5s delay.
+    /// Left nil at step start intentionally — the delay ensures the user has switched to the
+    /// correct field before we lock onto an element. Set to nil by stopActiveStepAndCleanUp.
+    private var currentStepTypingTargetElement: AXUIElement? = nil
+
+    /// The timestamp when the current typing step began executing.
+    /// Enforces minimumTypingStepElapsedSeconds before the step can complete.
+    private var currentStepTypingStartDate: Date? = nil
+
+    /// Minimum seconds that must have passed since step start before a typing step can complete.
+    /// Prevents completing on pre-existing text that was already in the field before the step ran.
+    private let minimumTypingStepElapsedSeconds: TimeInterval = 1.0
+
+    /// Computes the timeout for a typing step based on the length of the expected text.
+    /// Minimum is 30 seconds; each character adds 1.5 seconds to accommodate longer sentences.
+    /// e.g. "claude is the best ai" = 22 chars → max(30, 22 * 1.5) = 33 seconds.
+    private func typingStepTimeoutSeconds(for expectedText: String) -> TimeInterval {
+        max(30.0, Double(expectedText.count) * 1.5)
+    }
+
+    // MARK: - AX Match Dwell State
+    //
+    // Completing a step the instant keyboard focus lands on the target element causes
+    // false positives when the user is tabbing past it or the focus briefly settles there
+    // before they move on. Requiring the match to hold continuously for minimumAXMatchDwellSeconds
+    // before completing prevents premature advancement.
+    //
+    // The AX polling timer (running every 0.5s) drives dwell progression: on each tick it
+    // either extends the dwell or resets it if the match disappeared.
+    // The AX observer fast path starts the dwell clock; the polling timer finishes it.
+
+    /// The date when we first saw a continuous AX match for the current step.
+    /// Nil when there is no in-progress dwell. Set to non-nil on the first matching
+    /// AX event or poll tick, and reset to nil whenever the match disappears.
+    private var axMatchDwellStartDate: Date? = nil
+
+    /// How long a continuous AX match must hold before the step is marked complete.
+    private let minimumAXMatchDwellSeconds: TimeInterval = 2.0
 
     // MARK: - AX Observer State
 
@@ -141,14 +192,6 @@ final class WalkthroughEngine: ObservableObject {
     /// selections) that don't reliably emit AXObserver notifications in every app.
     private var axPollingTimer: Timer?
 
-    // MARK: - Periodic AI Validation State
-
-    /// 3-second repeating timer that triggers AI screenshot validation independently of AX events.
-    /// Many interactions (context menu picks, drag-and-drop, keyboard shortcuts) don't emit any
-    /// AX focus notification. Without this timer, validateStepCompletionViaAIScreenshot would
-    /// only fire when the AXObserver happens to deliver an event — which is unreliable for those cases.
-    private var periodicValidationTimer: Timer?
-
     // MARK: - Nudge Timer State
 
     private var nudgeTimer: Timer?
@@ -157,6 +200,19 @@ final class WalkthroughEngine: ObservableObject {
     /// After this many nudges, Luma disengages rather than continuing to repeat.
     /// Nudge-count-based (not time-based) so it scales correctly with any timeoutSeconds value.
     private let maximumTotalNudgesBeforeDisengaging: Int = 5
+
+    // MARK: - Periodic Claude Verification State
+    //
+    // Claude is expensive — we only call it every claudeVerificationInterval successful steps
+    // to confirm overall progress, rather than after every single step. NudgeEngine handles
+    // all per-step corrections offline. Claude is also called once when the user is stuck
+    // after three consecutive nudges (escalation).
+
+    /// Number of successfully completed steps since the last Claude verification call.
+    private var stepsSinceLastClaudeVerification: Int = 0
+
+    /// Claude verifies overall walkthrough progress every this many completed steps.
+    private let claudeVerificationInterval: Int = 5
 
     // MARK: - Correction Debounce
 
@@ -261,6 +317,7 @@ final class WalkthroughEngine: ObservableObject {
     func cancelWalkthrough() {
         stopActiveStepAndCleanUp()
         cursorGuide.clearGuidance()
+        stepsSinceLastClaudeVerification = 0
         state = .idle
         print("[Luma] WalkthroughEngine: cancelled")
     }
@@ -304,10 +361,6 @@ final class WalkthroughEngine: ObservableObject {
         axPollingTimer?.invalidate()
         axPollingTimer = nil
 
-        // Cancel the periodic AI validation timer
-        periodicValidationTimer?.invalidate()
-        periodicValidationTimer = nil
-
         // Cancel the nudge timer
         nudgeTimer?.invalidate()
         nudgeTimer = nil
@@ -315,9 +368,13 @@ final class WalkthroughEngine: ObservableObject {
         // Reset all per-step mutable state
         nudgeCount = 0
         isAIValidationInProgress = false
+        isTypingStepActive = false
         lastCorrectionDate = .distantPast
         lastAIValidationDate = .distantPast
-        lastUserInteractionDate = .distantPast
+        axMatchDwellStartDate = nil
+        currentStepExpectedTypingText = nil
+        currentStepTypingTargetElement = nil
+        currentStepTypingStartDate = nil
     }
 
     // MARK: - Element Pointing
@@ -361,6 +418,31 @@ final class WalkthroughEngine: ObservableObject {
         stopActiveStepAndCleanUp()
         let stepGeneration = currentStepGeneration
 
+        // Detect typing steps before any watchers are installed.
+        // stopActiveStepAndCleanUp already reset all typing state to nil,
+        // so these assignments are the authoritative set for this step.
+        currentStepExpectedTypingText = extractExpectedTypingText(from: step.instruction)
+        if let expectedTypingText = currentStepExpectedTypingText {
+            // Record when this step started. The polling timer uses this to enforce the
+            // 1.5s delay before the first poll tick and the minimum elapsed time before
+            // completing. currentStepTypingTargetElement is intentionally NOT captured here —
+            // capturing immediately risks locking onto the wrong field (e.g. Spotlight or the
+            // previously focused element). The poller captures it lazily on the first tick
+            // after the 1.5s delay, by which time the user has landed in the correct field.
+            currentStepTypingStartDate = Date()
+
+            // Lock out all other step-advancement paths for the duration of this typing step.
+            // The nudge and AI validation timers are killed here — the polling timer is the
+            // sole authority on when a typing step completes. They would race and advance the
+            // step before the user has finished typing if left running.
+            isTypingStepActive = true
+            nudgeTimer?.invalidate()
+            nudgeTimer = nil
+            isAIValidationInProgress = false
+
+            print("[Luma] WalkthroughEngine: typing step detected — waiting for '\(expectedTypingText)' (element capture deferred 1.5s)")
+        }
+
         let humanReadableStepNumber = step.index + 1
         print("[Luma] WalkthroughEngine: step \(humanReadableStepNumber)/\(allSteps.count) — '\(step.instruction)' (gen \(stepGeneration))")
 
@@ -392,12 +474,7 @@ final class WalkthroughEngine: ObservableObject {
         // 5. Start the nudge timer in case the user doesn't act within timeoutSeconds
         startNudgeTimer(for: step, allSteps: allSteps, generation: stepGeneration)
 
-        // 6. Start periodic AI validation to catch completions the AX observer misses.
-        //    Context menu picks, keyboard shortcuts, and drag-and-drop don't emit AX focus
-        //    events, so the AXObserver slow path never fires for those interactions.
-        startPeriodicValidationTimer()
-
-        // 7. Start global mouse event monitoring.
+        // 6. Start global mouse event monitoring.
         //    Sidebar clicks, right-clicks, and direct mouse interactions don't change
         //    AX keyboard focus, so the AXObserver and polling timer miss them entirely.
         //    This monitor fires immediately on any click and triggers fast AI validation.
@@ -410,11 +487,24 @@ final class WalkthroughEngine: ObservableObject {
     /// Passes `generation` as context so stale callbacks from a previous step's observer
     /// are silently ignored even if they arrive after the step has ended.
     private func startWatching(for step: WalkthroughStep, allSteps: [WalkthroughStep], generation: Int) {
-        // Determine which process to watch
+        // Determine which process to watch.
+        // NSRunningApplication.runningApplications(withBundleIdentifier:) is case-sensitive,
+        // so "com.apple.Notes" and "com.apple.notes" would not match each other. Instead we
+        // do a case-insensitive linear scan of all running apps so AI-generated bundle IDs
+        // with wrong capitalization still resolve to the correct process.
         let targetPID: pid_t
-        if let bundleID = step.appBundleID,
-           let targetApp = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first {
-            targetPID = targetApp.processIdentifier
+        if let stepBundleID = step.appBundleID {
+            let normalizedStepBundleID = stepBundleID.lowercased()
+            if let targetApp = NSWorkspace.shared.runningApplications.first(where: {
+                $0.bundleIdentifier?.lowercased() == normalizedStepBundleID
+            }) {
+                targetPID = targetApp.processIdentifier
+            } else if let frontmostApp = NSWorkspace.shared.frontmostApplication {
+                targetPID = frontmostApp.processIdentifier
+            } else {
+                print("[Luma] WalkthroughEngine: cannot start watching — no target app found")
+                return
+            }
         } else if let frontmostApp = NSWorkspace.shared.frontmostApplication {
             targetPID = frontmostApp.processIdentifier
         } else {
@@ -531,21 +621,38 @@ final class WalkthroughEngine: ObservableObject {
 
                     if isCorrectElement {
                         // Exact match — complete the step without any AI call.
-                        self.lastUserInteractionDate = Date()
                         if case .executing(let currentSteps, let currentIndex) = self.state {
                             self.completeCurrentStep(steps: currentSteps, currentIndex: currentIndex)
                         }
                     }
-                    // Wrong element — silently ignore. No interaction stamp, no AI validation.
+                    // Wrong element — silently ignore. No AI validation needed.
                     return
                 }
 
-                // No AX label available (some elements don't expose one, e.g. canvas areas).
-                // Fall back to timed AI screenshot validation as a last resort.
-                self.lastUserInteractionDate = Date()
+                // No AX label available (some elements don't expose one, e.g. canvas areas,
+                // custom controls). Wait 0.6s for the UI to settle after the click, then fire
+                // AI screenshot validation as a last resort.
                 try? await Task.sleep(nanoseconds: 600_000_000)
                 guard generation == self.currentStepGeneration else { return }
-                self.triggerPeriodicAIValidationIfNeeded()
+
+                guard !self.isTypingStepActive,
+                      !self.isAIValidationInProgress,
+                      Date().timeIntervalSince(self.lastAIValidationDate) >= self.minimumSecondsBetweenAIValidations,
+                      case .executing(let currentSteps, let currentIndex) = self.state,
+                      currentIndex < currentSteps.count else { return }
+
+                let currentStep = currentSteps[currentIndex]
+                self.isAIValidationInProgress = true
+                self.lastAIValidationDate = Date()
+
+                Task {
+                    await self.validateStepCompletionViaAIScreenshot(
+                        step: currentStep,
+                        steps: currentSteps,
+                        currentIndex: currentIndex,
+                        generation: generation
+                    )
+                }
             }
         }
     }
@@ -612,11 +719,10 @@ final class WalkthroughEngine: ObservableObject {
               currentIndex < steps.count else { return }
 
         let currentStep = steps[currentIndex]
-        guard !currentStep.elementName.isEmpty else { return }
 
         // Read the currently focused element from the system-wide AX tree.
-        // kAXFocusedUIElementAttribute on the system-wide element returns whatever
-        // element currently has keyboard focus across all running apps.
+        // Done before any per-path guards so both the typing path and the label-match
+        // path can share this single AX call.
         let systemWideElement = AXUIElementCreateSystemWide()
         var focusedElementRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(
@@ -626,7 +732,64 @@ final class WalkthroughEngine: ObservableObject {
         ) == .success,
               let focusedElement = focusedElementRef else { return }
 
-        let axElement = focusedElement as! AXUIElement
+        let currentlyFocusedElement = focusedElement as! AXUIElement
+
+        // --- Typing step path ---
+        // Runs before the elementName guard so typing steps complete even when
+        // elementName is empty (some typing steps have no specific target element).
+        if let expectedTypingText = currentStepExpectedTypingText {
+            let secondsSinceStepStart = Date().timeIntervalSince(currentStepTypingStartDate ?? .distantPast)
+
+            // Wait 1.5s after step start before reading or polling anything.
+            // This gives the user time to dismiss Spotlight, click into the correct field,
+            // and start typing. Capturing the element immediately at step start would lock
+            // onto the wrong element (e.g. Spotlight search or the previous field).
+            let typingPollerStartDelaySeconds: TimeInterval = 1.5
+            guard secondsSinceStepStart >= typingPollerStartDelaySeconds else { return }
+
+            // First tick after the delay: capture whichever element now has keyboard focus.
+            // By this point the user has had time to navigate to the intended field.
+            // currentStepTypingTargetElement was intentionally left nil at step start.
+            if currentStepTypingTargetElement == nil {
+                currentStepTypingTargetElement = currentlyFocusedElement
+                print("[Luma] Typing poller: capturing focused element after delay")
+            }
+
+            // Collect typed text from all available AX sources. Rich text editors like
+            // Notes expose their content via AXTextArea descendants of the window rather
+            // than through the focused element's AXValue, so a single-source read misses them.
+            let currentValue = readTypedTextFromAllSources(currentlyFocusedElement: currentlyFocusedElement)
+            let isMatch = !currentValue.isEmpty
+                && currentValue.lowercased().contains(expectedTypingText.lowercased())
+
+            // Log every tick as required — truncate long values (e.g. full Notes documents)
+            print("[Luma] Typing poll: current='\(String(currentValue.prefix(80)))' expected='\(expectedTypingText)' match=\(isMatch)")
+
+            if isMatch && secondsSinceStepStart >= minimumTypingStepElapsedSeconds {
+                print("[Luma] WalkthroughEngine: typing step complete — '\(expectedTypingText)' found after \(String(format: "%.1f", secondsSinceStepStart))s")
+                // Clear the flag before advancing — advanceToNextStep guards on it,
+                // so we must clear it here (as the exclusive owner) before calling complete.
+                isTypingStepActive = false
+                completeCurrentStep(steps: steps, currentIndex: currentIndex)
+                return
+            }
+
+            // Safety timeout: give up and advance so the walkthrough never stalls.
+            // Timeout scales with expected text length — longer sentences get more time.
+            if secondsSinceStepStart >= typingStepTimeoutSeconds(for: expectedTypingText) {
+                print("[Luma] WalkthroughEngine: typing step timed out after \(String(format: "%.0f", secondsSinceStepStart))s — advancing anyway")
+                isTypingStepActive = false
+                completeCurrentStep(steps: steps, currentIndex: currentIndex)
+                return
+            }
+
+            return
+        }
+
+        // Non-typing path: guard on elementName then do label match + dwell.
+        guard !currentStep.elementName.isEmpty else { return }
+
+        let axElement = currentlyFocusedElement
 
         var titleRef: CFTypeRef?
         AXUIElementCopyAttributeValue(axElement, kAXTitleAttribute as CFString, &titleRef)
@@ -637,7 +800,16 @@ final class WalkthroughEngine: ObservableObject {
         let elementDescription = (descriptionRef as? String) ?? ""
 
         let elementLabel = elementTitle.isEmpty ? elementDescription : elementTitle
-        guard !elementLabel.isEmpty else { return }
+
+        guard !elementLabel.isEmpty else {
+            // No label on the focused element — treat as no match and reset any active dwell
+            // so we don't complete from a previous match that can no longer be verified.
+            if axMatchDwellStartDate != nil {
+                axMatchDwellStartDate = nil
+                print("[Luma] WalkthroughEngine: AX poll dwell reset — focused element has no label")
+            }
+            return
+        }
 
         let labelLower = elementLabel.lowercased()
         let expectedLower = currentStep.elementName.lowercased()
@@ -647,8 +819,26 @@ final class WalkthroughEngine: ObservableObject {
             || (expectedLower.contains(labelLower) && labelLower.count > 3)
 
         if isMatch {
-            print("[Luma] WalkthroughEngine: AX poll match on '\(elementLabel)' — step complete")
-            completeCurrentStep(steps: steps, currentIndex: currentIndex)
+            // Safety: the typing path above should have returned already, but if
+            // isTypingStepActive is true here the polling timer must not fire a completion.
+            guard !isTypingStepActive else { return }
+
+            if axMatchDwellStartDate == nil {
+                // First time we see this match — start the dwell clock
+                axMatchDwellStartDate = Date()
+                print("[Luma] WalkthroughEngine: AX poll dwell started on '\(elementLabel)'")
+            } else if Date().timeIntervalSince(axMatchDwellStartDate!) >= minimumAXMatchDwellSeconds {
+                // Match held continuously for the required dwell — safe to complete
+                print("[Luma] WalkthroughEngine: AX poll dwell complete on '\(elementLabel)' — step complete")
+                completeCurrentStep(steps: steps, currentIndex: currentIndex)
+            }
+        } else {
+            // Focused element no longer matches — reset dwell so the next match
+            // must hold for a full minimumAXMatchDwellSeconds before completing.
+            if axMatchDwellStartDate != nil {
+                axMatchDwellStartDate = nil
+                print("[Luma] WalkthroughEngine: AX poll dwell reset — '\(elementLabel)' doesn't match '\(currentStep.elementName)'")
+            }
         }
     }
 
@@ -670,10 +860,6 @@ final class WalkthroughEngine: ObservableObject {
 
         let currentStep = steps[currentIndex]
 
-        // Any AX notification means the user did something — stamp interaction time so the
-        // periodic validation timer knows real activity occurred and is allowed to validate.
-        lastUserInteractionDate = Date()
-
         // If the step has no specific element requirement, any action in the right app counts
         if currentStep.elementName.isEmpty {
             completeCurrentStep(steps: steps, currentIndex: currentIndex)
@@ -694,6 +880,16 @@ final class WalkthroughEngine: ObservableObject {
 
         print("[Luma] AX event: \(notification) on '\(elementLabel)'")
 
+        // --- Typing step: delegate all completion to the polling timer ---
+        // For typing steps, kAXValueChangedNotification fires on every individual keystroke,
+        // making it impossible to know when the user has finished. Completion is handled
+        // exclusively by the 0.5s polling timer in checkFocusedElementForStepCompletion,
+        // which also enforces a minimum elapsed time. Returning here suppresses both the
+        // label-match path and AI screenshot validation during active typing.
+        if currentStepExpectedTypingText != nil {
+            return
+        }
+
         // --- Fast path: AX label matches ---
         // Three conditions (in order of precision):
         //   1. Exact match
@@ -709,8 +905,14 @@ final class WalkthroughEngine: ObservableObject {
                 || (expectedLower.contains(labelLower) && labelLower.count > 3)
 
             if isMatch {
-                print("[Luma] WalkthroughEngine: fast-path match on '\(elementLabel)'")
-                completeCurrentStep(steps: steps, currentIndex: currentIndex)
+                // Start the dwell clock rather than completing immediately.
+                // Completing on the first focus event causes false positives when the user
+                // is tabbing past the target element. The AX polling timer will complete
+                // the step once minimumAXMatchDwellSeconds of continuous match have elapsed.
+                if axMatchDwellStartDate == nil {
+                    axMatchDwellStartDate = Date()
+                    print("[Luma] WalkthroughEngine: fast-path dwell started on '\(elementLabel)'")
+                }
                 return
             }
 
@@ -776,12 +978,33 @@ final class WalkthroughEngine: ObservableObject {
             isAIValidationInProgress = false
         }
 
+        // Typing steps own their own completion path — AI validation must not race with
+        // the polling timer. The flag is cleared by the poller before it calls complete.
+        guard !isTypingStepActive else {
+            print("[Luma] WalkthroughEngine: AI validation blocked — typing step is active")
+            return
+        }
+
         // Pre-check before expensive work
         guard generation == currentStepGeneration,
               case .executing(_, let activeIndex) = state,
               activeIndex == currentIndex else { return }
 
         do {
+            // Guard: only validate when the target app is frontmost.
+            // AI validation takes a full screenshot. If another app (e.g. Xcode) is frontmost,
+            // the screenshot shows that app's content instead of the target app, causing the
+            // model to read incorrect UI and produce false COMPLETED or INCOMPLETE verdicts.
+            // Skipping here lets the AX polling and observer paths continue watching for the
+            // correct interaction without burning an API call on a useless screenshot.
+            if let targetBundleID = step.appBundleID {
+                let frontmostBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+                if frontmostBundleID?.lowercased() != targetBundleID.lowercased() {
+                    print("[Luma] WalkthroughEngine: skipping AI validation — frontmost '\(frontmostBundleID ?? "nil")' ≠ target '\(targetBundleID)'")
+                    return
+                }
+            }
+
             let screenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
 
             // Post-capture check — the user may have skipped or cancelled during the async await
@@ -839,6 +1062,15 @@ final class WalkthroughEngine: ObservableObject {
                   case .executing(_, let activeIndex) = state,
                   activeIndex == currentIndex else { return }
 
+            // Re-check here because isTypingStepActive may have become true AFTER the
+            // guard at the top of this function passed but BEFORE the async API call returned.
+            // Without this site-of-action check, a COMPLETED verdict from a slow API response
+            // can advance the step while the polling timer is still waiting for typed text.
+            guard !isTypingStepActive else {
+                print("[Luma] Ignoring AI validation result — typing step active")
+                return
+            }
+
             if trimmedResponse.hasPrefix("COMPLETED") {
                 completeCurrentStep(steps: steps, currentIndex: currentIndex)
             }
@@ -851,6 +1083,15 @@ final class WalkthroughEngine: ObservableObject {
 
     /// Marks the current step as done, speaks the confirmation, then advances after a short pause.
     private func completeCurrentStep(steps: [WalkthroughStep], currentIndex: Int) {
+        // Capture isTypingStepActive NOW — before stopActiveStepAndCleanUp resets it to false.
+        // stopActiveStepAndCleanUp runs synchronously below and clears the flag, so checking
+        // self.isTypingStepActive inside the Task (0.4s later) would always see false, making
+        // the guard there meaningless. Capturing here lets the Task know whether completion
+        // was triggered erroneously while a typing step was still active.
+        //
+        // Added at: completeCurrentStep(), Task block before advanceToNextStep() call
+        let wasTypingStepActiveAtCompletionTime = isTypingStepActive
+
         stopActiveStepAndCleanUp()
         ttsClient.speak("Got it.")
 
@@ -862,6 +1103,12 @@ final class WalkthroughEngine: ObservableObject {
 
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 400_000_000) // 0.4 seconds — halved from 0.8s
+            // Guard on the flag value captured before cleanup — isTypingStepActive is already
+            // false by now because stopActiveStepAndCleanUp ran synchronously above.
+            guard !wasTypingStepActiveAtCompletionTime else {
+                print("[Luma] Nudge timer blocked — typing step active")
+                return
+            }
             self.advanceToNextStep(steps: capturedSteps, completedIndex: capturedIndex)
         }
     }
@@ -874,6 +1121,13 @@ final class WalkthroughEngine: ObservableObject {
     /// Without the index guard, a stale Task from a previous completion can call advanceToNextStep
     /// on a step that's already been advanced (e.g., after a quick skip), skipping an extra step.
     private func advanceToNextStep(steps: [WalkthroughStep], completedIndex: Int) {
+        // While a typing step is active, the polling timer is the exclusive owner of step
+        // completion. Any advance call from a stale timer or notification must be dropped.
+        guard !isTypingStepActive else {
+            print("[Luma] WalkthroughEngine: advanceToNextStep blocked — typing step is active")
+            return
+        }
+
         // Only advance if the engine is still executing the step we think it is.
         // This guard catches races where completeCurrentStep fires twice or where
         // skipCurrentStep was called during the 0.8s sleep.
@@ -899,6 +1153,7 @@ final class WalkthroughEngine: ObservableObject {
     private func finishWalkthrough() {
         stopActiveStepAndCleanUp()
         cursorGuide.clearGuidance()
+        stepsSinceLastClaudeVerification = 0
         state = .complete
         ttsClient.speak("You did it! Task complete.")
 
@@ -907,56 +1162,6 @@ final class WalkthroughEngine: ObservableObject {
             if case .complete = self.state {
                 self.state = .idle
             }
-        }
-    }
-
-    // MARK: - Periodic AI Validation
-
-    /// Starts a 3-second repeating timer that calls `triggerPeriodicAIValidationIfNeeded`.
-    /// The generation is NOT captured at timer creation — it is read fresh on each fire
-    /// so the check always compares against whichever step is currently live.
-    private func startPeriodicValidationTimer() {
-        periodicValidationTimer?.invalidate()
-        periodicValidationTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.triggerPeriodicAIValidationIfNeeded()
-            }
-        }
-    }
-
-    /// Reads the current engine state and fires an AI screenshot validation if the debounce
-    /// guards allow it. Called every 3 seconds by the periodic validation timer.
-    private func triggerPeriodicAIValidationIfNeeded() {
-        // Read the live generation at fire time — never captured at timer creation.
-        // This guarantees we validate the step that is actually running right now.
-        let generationAtFireTime = currentStepGeneration
-
-        guard case .executing(let steps, let currentIndex) = state,
-              currentIndex < steps.count else { return }
-
-        let currentStep = steps[currentIndex]
-
-        // Only validate if the user has recently interacted (clicked or triggered an AX event).
-        // Without this gate, the timer fires every 3s on an idle screen and the AI marks the
-        // step complete despite no visible state change — causing false positive completions.
-        let timeSinceLastInteraction = Date().timeIntervalSince(lastUserInteractionDate)
-        guard timeSinceLastInteraction <= maximumSecondsToValidateAfterLastInteraction else { return }
-
-        // Respect the same debounce guards as the AX-triggered validation path
-        let timeSinceLastValidation = Date().timeIntervalSince(lastAIValidationDate)
-        guard !isAIValidationInProgress,
-              timeSinceLastValidation >= minimumSecondsBetweenAIValidations else { return }
-
-        isAIValidationInProgress = true
-        lastAIValidationDate = Date()
-
-        Task {
-            await self.validateStepCompletionViaAIScreenshot(
-                step: currentStep,
-                steps: steps,
-                currentIndex: currentIndex,
-                generation: generationAtFireTime
-            )
         }
     }
 
@@ -979,7 +1184,17 @@ final class WalkthroughEngine: ObservableObject {
 
     /// Speaks a reminder and re-points the cursor, then reschedules the nudge timer.
     /// After maximumTotalNudgesBeforeDisengaging nudges, disengages so the user isn't pestered.
+    ///
+    /// Function name: fireNudge(for:allSteps:generation:)
     private func fireNudge(for step: WalkthroughStep, allSteps: [WalkthroughStep], generation: Int) {
+        // FIRST guard — typing steps kill the nudge timer when they start (executeStep),
+        // but a Task already dispatched from the timer callback may still be in-flight.
+        // Check isTypingStepActive before anything else so no nudge logic runs at all.
+        guard !isTypingStepActive else {
+            print("[Luma] Nudge timer blocked — typing step active")
+            return
+        }
+
         // Drop nudges from previous steps using the generation counter
         guard generation == currentStepGeneration,
               case .executing = state else { return }
@@ -1016,5 +1231,238 @@ final class WalkthroughEngine: ObservableObject {
 
         // Reschedule — nudges keep firing until the step ends
         startNudgeTimer(for: step, allSteps: allSteps, generation: generation)
+    }
+
+    // MARK: - Typing Step Detection
+
+    /// Inspects `instruction` for a typing keyword ("type", "write", or "enter") followed
+    /// by a quoted string, and returns the quoted text if found.
+    ///
+    /// Examples that match:
+    ///   "Type \"Hello World\" in the search field"  →  "Hello World"
+    ///   "Enter 'John Smith' in the name box"        →  "John Smith"
+    ///   "Write \"notes here\" and save"             →  "notes here"
+    ///
+    /// Returns nil when the instruction is not a typing step or contains no quoted text,
+    /// so the normal AX label-match / dwell path handles completion instead.
+    private func extractExpectedTypingText(from instruction: String) -> String? {
+        let lowercased = instruction.lowercased()
+
+        // Navigation steps that contain typing keywords but are NOT typing steps.
+        // "Open Spotlight and type..." or "Press Cmd+Space" steps use the keyboard
+        // to launch a launcher, not to enter text into a document or field.
+        let isNavigationStep = lowercased.contains("spotlight")
+            || lowercased.contains("command + space")
+            || lowercased.contains("cmd + space")
+
+        guard !isNavigationStep else { return nil }
+
+        // Check for at least one typing keyword anywhere in the instruction.
+        // Using " " suffix and prefix checks avoids false matches on substrings
+        // like "reenter" or "typeface".
+        let hasTypingKeyword = lowercased.contains("type ")
+            || lowercased.contains("write ")
+            || lowercased.contains("enter ")
+            || lowercased.hasPrefix("type")
+            || lowercased.hasPrefix("write")
+            || lowercased.hasPrefix("enter")
+
+        guard hasTypingKeyword else { return nil }
+
+        // Extract the first double-quoted string (e.g. "Hello World")
+        if let doubleQuoteRange = instruction.range(of: #""[^"]+""#, options: .regularExpression) {
+            var quoted = String(instruction[doubleQuoteRange])
+            quoted.removeFirst() // opening "
+            quoted.removeLast()  // closing "
+            if !quoted.isEmpty { return quoted }
+        }
+
+        // Fall back to single-quoted string (e.g. 'Hello World')
+        if let singleQuoteRange = instruction.range(of: #"'[^']+'"#, options: .regularExpression) {
+            var quoted = String(instruction[singleQuoteRange])
+            quoted.removeFirst() // opening '
+            quoted.removeLast()  // closing '
+            if !quoted.isEmpty { return quoted }
+        }
+
+        // Keyword present but no quoted text — not a typing step we can validate precisely
+        return nil
+    }
+
+    // MARK: - Typing Text Discovery
+
+    /// Reads typed text from every available AX source and returns the longest non-empty string.
+    ///
+    /// Why multiple sources: rich text editors like Notes use an AXTextArea element that is a
+    /// descendant of the window, not the focused element. A single kAXValueAttribute read on the
+    /// focused element returns nothing (or the label of a container). Checking all sources ensures
+    /// text is found regardless of how the app exposes its editor.
+    ///
+    /// Sources checked in order:
+    ///   1. kAXValue of the element captured at step start
+    ///   2. kAXValue of the current system-wide focused element
+    ///   3. kAXSelectedText of the current focused element (fallback for apps that don't expose full value)
+    ///   4. kAXValue of the first AXTextArea found in the frontmost window's subtree
+    private func readTypedTextFromAllSources(currentlyFocusedElement: AXUIElement) -> String {
+        var candidates: [String] = []
+
+        // Source 1: value of the element captured after the 1.5s delay
+        if let capturedElement = currentStepTypingTargetElement {
+            var valueRef: CFTypeRef?
+            AXUIElementCopyAttributeValue(capturedElement, kAXValueAttribute as CFString, &valueRef)
+            if let value = valueRef as? String, !value.isEmpty {
+                candidates.append(value)
+            }
+        }
+
+        // Source 2: value of the current system-wide focused element
+        var focusedValueRef: CFTypeRef?
+        AXUIElementCopyAttributeValue(currentlyFocusedElement, kAXValueAttribute as CFString, &focusedValueRef)
+        if let value = focusedValueRef as? String, !value.isEmpty {
+            candidates.append(value)
+        }
+
+        // Source 3: selected text of the focused element — some editors expose only the
+        // active selection via kAXSelectedText rather than the full document via kAXValue
+        var selectedTextRef: CFTypeRef?
+        AXUIElementCopyAttributeValue(currentlyFocusedElement, kAXSelectedTextAttribute as CFString, &selectedTextRef)
+        if let value = selectedTextRef as? String, !value.isEmpty {
+            candidates.append(value)
+        }
+
+        // Source 4: AXTextArea descendant of the frontmost window
+        // Notes wraps its rich text canvas in an AXTextArea several levels below the window.
+        if let textAreaValue = findAXTextAreaValueInFrontmostWindow() {
+            candidates.append(textAreaValue)
+        }
+
+        // Return the longest candidate — a full document is more likely to contain
+        // the target substring than a short selection or a field label.
+        return candidates.max(by: { $0.count < $1.count }) ?? ""
+    }
+
+    /// Searches the frontmost application's focused window for an AXTextArea element
+    /// and returns its kAXValue. Notes and other rich-text editors use AXTextArea for
+    /// the editing canvas, which is a descendant of the window rather than the focused element.
+    private func findAXTextAreaValueInFrontmostWindow() -> String? {
+        guard let frontmostApp = NSWorkspace.shared.frontmostApplication else { return nil }
+        let appElement = AXUIElementCreateApplication(frontmostApp.processIdentifier)
+
+        var focusedWindowRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            appElement,
+            kAXFocusedWindowAttribute as CFString,
+            &focusedWindowRef
+        ) == .success, let focusedWindow = focusedWindowRef else { return nil }
+
+        return findAXTextAreaValueRecursively(in: focusedWindow as! AXUIElement, depth: 0)
+    }
+
+    /// Recursively walks `element`'s AX children looking for an AXTextArea with a non-empty
+    /// kAXValue. Returns the first match found (depth-first). Capped at depth 15 to prevent
+    /// runaway traversal on apps with deeply nested AX trees.
+    private func findAXTextAreaValueRecursively(in element: AXUIElement, depth: Int) -> String? {
+        guard depth < 15 else { return nil }
+
+        var roleRef: CFTypeRef?
+        AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef)
+        if let role = roleRef as? String, role == kAXTextAreaRole as String {
+            var valueRef: CFTypeRef?
+            AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &valueRef)
+            if let value = valueRef as? String, !value.isEmpty {
+                return value
+            }
+        }
+
+        var childrenRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            element,
+            kAXChildrenAttribute as CFString,
+            &childrenRef
+        ) == .success, let children = childrenRef as? [AXUIElement] else { return nil }
+
+        for child in children {
+            if let found = findAXTextAreaValueRecursively(in: child, depth: depth + 1) {
+                return found
+            }
+        }
+        return nil
+    }
+
+    // MARK: - NudgeEngine Integration
+
+    /// Called by step-completion paths to record success and trigger periodic Claude verification.
+    /// Uses NudgeEngine for the spoken "step complete" message — no API call for routine advances.
+    func handleStepSuccess() {
+        guard !isTypingStepActive else {
+            print("[Luma] WalkthroughEngine: handleStepSuccess blocked — typing step is active")
+            return
+        }
+
+        nudgeCount = 0
+        stepsSinceLastClaudeVerification += 1
+        NudgeEngine.speak(.stepComplete)
+
+        if stepsSinceLastClaudeVerification >= claudeVerificationInterval {
+            stepsSinceLastClaudeVerification = 0
+            verifyProgressWithClaude()
+        }
+    }
+
+    /// Called when a step fails or the user takes an incorrect action.
+    /// After three consecutive nudges, escalates to Claude once instead of continuing to repeat.
+    func handleStepFailure(situation: NudgeSituation) {
+        nudgeCount += 1
+
+        if nudgeCount >= 3 {
+            // Stuck — speak the escalation message, reset the nudge counter, and call Claude once.
+            nudgeCount = 0
+            NudgeEngine.speak(.stuckAfterThreeNudges)
+            escalateToClaude()
+            return
+        }
+
+        // Offline nudge — no API call
+        NudgeEngine.speak(situation)
+    }
+
+    /// Triggers a one-off AI screenshot validation to check whether the user has made
+    /// any progress. Used when the user is stuck and the normal nudge cycle has stalled.
+    /// Reuses the existing validateStepCompletionViaAIScreenshot path — no new AI call logic.
+    private func escalateToClaude() {
+        guard case .executing(let steps, let currentIndex) = state else { return }
+        let capturedGeneration = currentStepGeneration
+        let currentStep = steps[currentIndex]
+
+        print("[Luma] WalkthroughEngine: escalating to Claude after 3 nudges — step \(currentIndex + 1)")
+
+        Task {
+            await validateStepCompletionViaAIScreenshot(
+                step: currentStep,
+                steps: steps,
+                currentIndex: currentIndex,
+                generation: capturedGeneration
+            )
+        }
+    }
+
+    /// Periodic Claude check called every claudeVerificationInterval successful steps.
+    /// Takes a screenshot and validates the current step to confirm overall walkthrough health.
+    /// If the current step is already complete, the existing advance logic handles it normally.
+    private func verifyProgressWithClaude() {
+        guard case .executing(let steps, let currentIndex) = state else { return }
+        let capturedGeneration = currentStepGeneration
+        let currentStep = steps[currentIndex]
+
+        print("[Luma] WalkthroughEngine: periodic Claude verification at step \(currentIndex + 1) (every \(claudeVerificationInterval) steps)")
+
+        Task {
+            await validateStepCompletionViaAIScreenshot(
+                step: currentStep,
+                steps: steps,
+                currentIndex: currentIndex,
+                generation: capturedGeneration
+            )
+        }
     }
 }

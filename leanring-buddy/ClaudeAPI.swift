@@ -13,11 +13,13 @@ class ClaudeAPI {
 
     private let apiURL: URL
     var model: String
+    private let apiKey: String
     private let session: URLSession
 
-    init(proxyURL: String, model: String = "google/gemini-2.5-flash:free") {
+    init(proxyURL: String, model: String = "google/gemini-2.5-flash:free", apiKey: String = "") {
         self.apiURL = URL(string: proxyURL)!
         self.model = model
+        self.apiKey = apiKey
 
         // Use .default instead of .ephemeral so TLS session tickets are cached.
         // Ephemeral sessions do a full TLS handshake on every request, which causes
@@ -42,6 +44,9 @@ class ClaudeAPI {
         request.httpMethod = "POST"
         request.timeoutInterval = 120
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if !apiKey.isEmpty {
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        }
         return request
     }
 

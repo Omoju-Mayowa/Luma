@@ -1,5 +1,5 @@
 {
-  "version": "1.0",
+  "version": "1.1",
   "guides": [
     {
       "id": "compress-folder",
@@ -183,6 +183,3202 @@
           "instruction": "Select the frozen app and click Force Quit",
           "elementName": "Force Quit",
           "elementRole": "AXButton",
+          "isMenuBar": false
+        }
+      ]
+    },
+
+    {
+      "id": "change-wallpaper",
+      "triggers": ["wallpaper", "change wallpaper", "desktop background", "background image"],
+      "title": "Change Wallpaper",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Wallpaper in the sidebar",
+          "elementName": "Wallpaper",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click the wallpaper you want to use",
+          "elementName": null,
+          "elementRole": "AXImage",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "night-shift",
+      "triggers": ["night shift", "night mode", "reduce blue light", "warmer screen"],
+      "title": "Enable Night Shift",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Displays in the sidebar",
+          "elementName": "Displays",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Night Shift",
+          "elementName": "Night Shift",
+          "elementRole": "AXButton",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Set the Schedule to Sunset to Sunrise or turn on Manually",
+          "elementName": "Schedule",
+          "elementRole": "AXPopUpButton",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "enable-bluetooth",
+      "triggers": ["bluetooth on", "enable bluetooth", "turn on bluetooth", "turn bluetooth on"],
+      "title": "Enable Bluetooth",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Bluetooth in the sidebar",
+          "elementName": "Bluetooth",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click the toggle to turn Bluetooth on",
+          "elementName": "Bluetooth",
+          "elementRole": "AXSwitch",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "disable-bluetooth",
+      "triggers": ["bluetooth off", "disable bluetooth", "turn off bluetooth", "turn bluetooth off"],
+      "title": "Disable Bluetooth",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Bluetooth in the sidebar",
+          "elementName": "Bluetooth",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click the toggle to turn Bluetooth off",
+          "elementName": "Bluetooth",
+          "elementRole": "AXSwitch",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "enable-firewall",
+      "triggers": ["firewall", "enable firewall", "turn on firewall", "network security"],
+      "title": "Enable Firewall",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Network in the sidebar",
+          "elementName": "Network",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Firewall",
+          "elementName": "Firewall",
+          "elementRole": "AXButton",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click the toggle to enable the Firewall",
+          "elementName": "Firewall",
+          "elementRole": "AXSwitch",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "check-storage",
+      "triggers": ["check storage", "storage space", "disk space", "how much storage", "storage used"],
+      "title": "Check Storage Space",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click General in the sidebar",
+          "elementName": "General",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Storage",
+          "elementName": "Storage",
+          "elementRole": "AXButton",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "screen-saver",
+      "triggers": ["screen saver", "screensaver", "set screensaver", "change screen saver"],
+      "title": "Change Screen Saver",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Screen Saver in the sidebar",
+          "elementName": "Screen Saver",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click the screen saver you want to use",
+          "elementName": null,
+          "elementRole": "AXImage",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "change-timezone",
+      "triggers": ["timezone", "change timezone", "time zone", "set timezone", "change time zone"],
+      "title": "Change Timezone",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click General in the sidebar",
+          "elementName": "General",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Date & Time",
+          "elementName": "Date & Time",
+          "elementRole": "AXButton",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click the Time Zone field and type your city or timezone",
+          "elementName": "Closest City",
+          "elementRole": "AXTextField",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "add-printer",
+      "triggers": ["add printer", "install printer", "connect printer", "printer setup", "set up printer"],
+      "title": "Add a Printer",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Printers & Scanners in the sidebar",
+          "elementName": "Printers & Scanners",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Add Printer, Scanner or Fax",
+          "elementName": "Add Printer, Scanner or Fax",
+          "elementRole": "AXButton",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "change-language",
+      "triggers": ["change language", "language settings", "set language", "system language"],
+      "title": "Change System Language",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click General in the sidebar",
+          "elementName": "General",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Language & Region",
+          "elementName": "Language & Region",
+          "elementRole": "AXButton",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Add Language to add a new language",
+          "elementName": "Add Language",
+          "elementRole": "AXButton",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "enable-dictation",
+      "triggers": ["dictation", "enable dictation", "voice dictation", "speech to text", "voice typing"],
+      "title": "Enable Dictation",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Keyboard in the sidebar",
+          "elementName": "Keyboard",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Toggle Dictation on",
+          "elementName": "Dictation",
+          "elementRole": "AXSwitch",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "mouse-speed",
+      "triggers": ["mouse speed", "mouse sensitivity", "cursor speed", "pointer speed", "tracking speed"],
+      "title": "Change Mouse Tracking Speed",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Mouse in the sidebar",
+          "elementName": "Mouse",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Drag the Tracking Speed slider to adjust how fast the cursor moves",
+          "elementName": "Tracking speed",
+          "elementRole": "AXSlider",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "trackpad-speed",
+      "triggers": ["trackpad speed", "trackpad sensitivity", "touchpad speed", "trackpad tracking"],
+      "title": "Change Trackpad Speed",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Trackpad in the sidebar",
+          "elementName": "Trackpad",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Drag the Tracking Speed slider to your preference",
+          "elementName": "Tracking speed",
+          "elementRole": "AXSlider",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "auto-hide-dock",
+      "triggers": ["auto hide dock", "hide dock", "dock auto hide", "automatically hide dock"],
+      "title": "Auto-Hide the Dock",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Desktop & Dock in the sidebar",
+          "elementName": "Desktop & Dock",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Toggle Automatically hide and show the Dock on",
+          "elementName": "Automatically hide and show the Dock",
+          "elementRole": "AXSwitch",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "dock-magnification",
+      "triggers": ["dock magnification", "magnify dock", "dock zoom", "dock enlarge"],
+      "title": "Enable Dock Magnification",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Desktop & Dock in the sidebar",
+          "elementName": "Desktop & Dock",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Toggle Magnification on",
+          "elementName": "Magnification",
+          "elementRole": "AXSwitch",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "dock-position",
+      "triggers": ["move dock", "dock position", "dock on side", "dock to left", "dock to right", "dock on bottom"],
+      "title": "Move Dock Position",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Desktop & Dock in the sidebar",
+          "elementName": "Desktop & Dock",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click the Position on screen popup and choose Left, Bottom, or Right",
+          "elementName": "Position on screen",
+          "elementRole": "AXPopUpButton",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "hot-corners",
+      "triggers": ["hot corners", "set hot corners", "screen corners", "mission control corner"],
+      "title": "Set Hot Corners",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Desktop & Dock in the sidebar",
+          "elementName": "Desktop & Dock",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Scroll down and click Hot Corners",
+          "elementName": "Hot Corners",
+          "elementRole": "AXButton",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click each corner popup and choose an action",
+          "elementName": null,
+          "elementRole": "AXPopUpButton",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "accessibility-zoom",
+      "triggers": ["zoom", "enable zoom", "accessibility zoom", "screen zoom", "magnify screen"],
+      "title": "Enable Accessibility Zoom",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Accessibility in the sidebar",
+          "elementName": "Accessibility",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Zoom",
+          "elementName": "Zoom",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Toggle Use keyboard shortcut to zoom on",
+          "elementName": "Use keyboard shortcut to zoom",
+          "elementRole": "AXSwitch",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "increase-contrast",
+      "triggers": ["increase contrast", "high contrast", "more contrast", "display contrast", "contrast settings"],
+      "title": "Increase Display Contrast",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Accessibility in the sidebar",
+          "elementName": "Accessibility",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Display",
+          "elementName": "Display",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Toggle Increase contrast on",
+          "elementName": "Increase contrast",
+          "elementRole": "AXSwitch",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "enable-voiceover",
+      "triggers": ["voiceover", "enable voiceover", "turn on voiceover", "screen reader"],
+      "title": "Enable VoiceOver",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Accessibility in the sidebar",
+          "elementName": "Accessibility",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click VoiceOver",
+          "elementName": "VoiceOver",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Toggle VoiceOver on",
+          "elementName": "VoiceOver",
+          "elementRole": "AXSwitch",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "lock-screen-timeout",
+      "triggers": ["lock screen timeout", "screen lock time", "require password", "screen lock delay", "auto lock"],
+      "title": "Change Lock Screen Timeout",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Lock Screen in the sidebar",
+          "elementName": "Lock Screen",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click the Require password popup and choose a time",
+          "elementName": "Require password",
+          "elementRole": "AXPopUpButton",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "notifications-settings",
+      "triggers": ["notifications", "notification settings", "turn off notifications", "turn off notification", "manage notifications", "app notifications"],
+      "title": "Manage Notifications",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Notifications in the sidebar",
+          "elementName": "Notifications",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click the app whose notifications you want to change",
+          "elementName": null,
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "focus-mode",
+      "triggers": ["focus mode", "do not disturb", "focus", "enable focus", "silence notifications", "dnd"],
+      "title": "Enable Focus Mode",
+      "app": "Control Center",
+      "appBundleID": "com.apple.controlcenter",
+      "steps": [
+        {
+          "instruction": "Click the Control Center icon in the menu bar",
+          "elementName": "Control Center",
+          "elementRole": "AXStatusItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click Focus",
+          "elementName": "Focus",
+          "elementRole": "AXButton",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Do Not Disturb or the Focus you want to enable",
+          "elementName": "Do Not Disturb",
+          "elementRole": "AXButton",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "screen-time",
+      "triggers": ["screen time", "app limits", "downtime", "usage time", "app usage"],
+      "title": "Open Screen Time",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Screen Time in the sidebar",
+          "elementName": "Screen Time",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "icloud-settings",
+      "triggers": ["icloud", "icloud settings", "icloud storage", "icloud sync", "manage icloud"],
+      "title": "Open iCloud Settings",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click your name at the top of the sidebar",
+          "elementName": "Apple ID",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click iCloud",
+          "elementName": "iCloud",
+          "elementRole": "AXButton",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "new-folder-finder",
+      "triggers": ["new folder", "create folder", "make folder", "create new folder"],
+      "title": "Create a New Folder in Finder",
+      "app": "Finder",
+      "appBundleID": "com.apple.finder",
+      "steps": [
+        {
+          "instruction": "Click on the Finder window where you want the new folder",
+          "elementName": null,
+          "elementRole": null,
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click File in the menu bar",
+          "elementName": "File",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click New Folder",
+          "elementName": "New Folder",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Type the name for your new folder and press Return",
+          "elementName": null,
+          "elementRole": "AXTextField",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "show-hidden-files",
+      "triggers": ["show hidden files", "hidden files", "show invisible files", "show dot files", "reveal hidden"],
+      "title": "Show Hidden Files in Finder",
+      "app": "Finder",
+      "appBundleID": "com.apple.finder",
+      "steps": [
+        {
+          "instruction": "Open a Finder window",
+          "elementName": "Finder",
+          "elementRole": "AXApplication",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Press Command + Shift + . (period) to toggle hidden files on",
+          "elementName": null,
+          "elementRole": null,
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "get-file-info",
+      "triggers": ["file info", "get info", "file details", "file size", "file properties"],
+      "title": "Get File Info in Finder",
+      "app": "Finder",
+      "appBundleID": "com.apple.finder",
+      "steps": [
+        {
+          "instruction": "Click the file or folder you want info on",
+          "elementName": null,
+          "elementRole": null,
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click File in the menu bar",
+          "elementName": "File",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click Get Info",
+          "elementName": "Get Info",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "show-path-bar",
+      "triggers": ["path bar", "show path bar", "finder path", "show path"],
+      "title": "Show Path Bar in Finder",
+      "app": "Finder",
+      "appBundleID": "com.apple.finder",
+      "steps": [
+        {
+          "instruction": "Click View in the Finder menu bar",
+          "elementName": "View",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click Show Path Bar",
+          "elementName": "Show Path Bar",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "go-to-downloads",
+      "triggers": ["open downloads", "go to downloads", "downloads folder", "find downloads"],
+      "title": "Go to Downloads Folder",
+      "app": "Finder",
+      "appBundleID": "com.apple.finder",
+      "steps": [
+        {
+          "instruction": "Click Go in the Finder menu bar",
+          "elementName": "Go",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click Downloads",
+          "elementName": "Downloads",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "go-to-applications",
+      "triggers": ["open applications", "go to applications", "applications folder", "find applications"],
+      "title": "Go to Applications Folder",
+      "app": "Finder",
+      "appBundleID": "com.apple.finder",
+      "steps": [
+        {
+          "instruction": "Click Go in the Finder menu bar",
+          "elementName": "Go",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click Applications",
+          "elementName": "Applications",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "go-to-desktop",
+      "triggers": ["go to desktop", "open desktop", "desktop folder", "show desktop files"],
+      "title": "Go to Desktop Folder",
+      "app": "Finder",
+      "appBundleID": "com.apple.finder",
+      "steps": [
+        {
+          "instruction": "Click Go in the Finder menu bar",
+          "elementName": "Go",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click Desktop",
+          "elementName": "Desktop",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "go-to-folder",
+      "triggers": ["go to folder", "navigate to folder", "open folder path", "folder path"],
+      "title": "Go to a Specific Folder",
+      "app": "Finder",
+      "appBundleID": "com.apple.finder",
+      "steps": [
+        {
+          "instruction": "Click Go in the Finder menu bar",
+          "elementName": "Go",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click Go to Folder",
+          "elementName": "Go to Folder…",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Type the folder path and press Go",
+          "elementName": null,
+          "elementRole": "AXTextField",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "connect-to-server",
+      "triggers": ["connect to server", "network server", "smb", "afp", "mount server", "shared drive"],
+      "title": "Connect to a Network Server",
+      "app": "Finder",
+      "appBundleID": "com.apple.finder",
+      "steps": [
+        {
+          "instruction": "Click Go in the Finder menu bar",
+          "elementName": "Go",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click Connect to Server",
+          "elementName": "Connect to Server…",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Type the server address and click Connect",
+          "elementName": "Connect",
+          "elementRole": "AXButton",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "duplicate-file",
+      "triggers": ["duplicate file", "copy file", "duplicate", "make a copy", "duplicate folder"],
+      "title": "Duplicate a File",
+      "app": "Finder",
+      "appBundleID": "com.apple.finder",
+      "steps": [
+        {
+          "instruction": "Click the file you want to duplicate",
+          "elementName": null,
+          "elementRole": null,
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click File in the menu bar",
+          "elementName": "File",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click Duplicate",
+          "elementName": "Duplicate",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "finder-list-view",
+      "triggers": ["list view", "finder list", "view as list", "switch to list view"],
+      "title": "Switch Finder to List View",
+      "app": "Finder",
+      "appBundleID": "com.apple.finder",
+      "steps": [
+        {
+          "instruction": "Click View in the Finder menu bar",
+          "elementName": "View",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click as List",
+          "elementName": "as List",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "finder-column-view",
+      "triggers": ["column view", "finder columns", "view as columns", "switch to column"],
+      "title": "Switch Finder to Column View",
+      "app": "Finder",
+      "appBundleID": "com.apple.finder",
+      "steps": [
+        {
+          "instruction": "Click View in the Finder menu bar",
+          "elementName": "View",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click as Columns",
+          "elementName": "as Columns",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "finder-icon-view",
+      "triggers": ["icon view", "finder icons", "view as icons", "switch to icon view"],
+      "title": "Switch Finder to Icon View",
+      "app": "Finder",
+      "appBundleID": "com.apple.finder",
+      "steps": [
+        {
+          "instruction": "Click View in the Finder menu bar",
+          "elementName": "View",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click as Icons",
+          "elementName": "as Icons",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "eject-drive",
+      "triggers": ["eject drive", "eject disk", "eject usb", "remove drive", "safely remove", "unmount drive"],
+      "title": "Eject an External Drive",
+      "app": "Finder",
+      "appBundleID": "com.apple.finder",
+      "steps": [
+        {
+          "instruction": "Open Finder and look for the drive in the sidebar",
+          "elementName": "Finder",
+          "elementRole": "AXApplication",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click the Eject button next to the drive name in the sidebar",
+          "elementName": "Eject",
+          "elementRole": "AXButton",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "activity-monitor",
+      "triggers": ["activity monitor", "cpu usage", "memory usage", "process monitor", "check processes", "task manager"],
+      "title": "Open Activity Monitor",
+      "app": "Activity Monitor",
+      "appBundleID": "com.apple.ActivityMonitor",
+      "steps": [
+        {
+          "instruction": "Press Command + Space to open Spotlight",
+          "elementName": null,
+          "elementRole": null,
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Type 'Activity Monitor' and press Return",
+          "elementName": null,
+          "elementRole": null,
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "open-terminal",
+      "triggers": ["open terminal", "terminal", "command line", "bash", "shell", "command prompt"],
+      "title": "Open Terminal",
+      "app": "Terminal",
+      "appBundleID": "com.apple.Terminal",
+      "steps": [
+        {
+          "instruction": "Press Command + Space to open Spotlight",
+          "elementName": null,
+          "elementRole": null,
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Type 'Terminal' and press Return",
+          "elementName": null,
+          "elementRole": null,
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "disk-utility",
+      "triggers": ["disk utility", "format disk", "erase disk", "repair disk", "first aid disk", "partition disk"],
+      "title": "Open Disk Utility",
+      "app": "Disk Utility",
+      "appBundleID": "com.apple.DiskUtility",
+      "steps": [
+        {
+          "instruction": "Press Command + Space to open Spotlight",
+          "elementName": null,
+          "elementRole": null,
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Type 'Disk Utility' and press Return",
+          "elementName": null,
+          "elementRole": null,
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "check-macos-version",
+      "triggers": ["macos version", "check version", "what version", "os version", "about this mac", "system version"],
+      "title": "Check macOS Version",
+      "app": "System",
+      "appBundleID": null,
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click About This Mac",
+          "elementName": "About This Mac",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "lock-screen",
+      "triggers": ["lock screen", "lock mac", "lock computer", "lock my mac"],
+      "title": "Lock Screen",
+      "app": "System",
+      "appBundleID": null,
+      "steps": [
+        {
+          "instruction": "Press Control + Command + Q to lock the screen immediately",
+          "elementName": null,
+          "elementRole": null,
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "sleep-mac",
+      "triggers": ["sleep", "sleep mac", "put to sleep", "sleep computer", "sleep mode"],
+      "title": "Put Mac to Sleep",
+      "app": "System",
+      "appBundleID": null,
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click Sleep",
+          "elementName": "Sleep",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "shut-down",
+      "triggers": ["shut down", "shutdown", "power off", "turn off mac", "turn off computer"],
+      "title": "Shut Down",
+      "app": "System",
+      "appBundleID": null,
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click Shut Down",
+          "elementName": "Shut Down…",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Shut Down to confirm",
+          "elementName": "Shut Down",
+          "elementRole": "AXButton",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "restart-mac",
+      "triggers": ["restart", "restart mac", "reboot", "reboot mac", "restart computer"],
+      "title": "Restart Mac",
+      "app": "System",
+      "appBundleID": null,
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click Restart",
+          "elementName": "Restart…",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Restart to confirm",
+          "elementName": "Restart",
+          "elementRole": "AXButton",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "log-out",
+      "triggers": ["log out", "logout", "sign out", "log off", "switch user"],
+      "title": "Log Out",
+      "app": "System",
+      "appBundleID": null,
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click Log Out",
+          "elementName": "Log Out",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Log Out to confirm",
+          "elementName": "Log Out",
+          "elementRole": "AXButton",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "mission-control",
+      "triggers": ["mission control", "open mission control", "show all windows", "expose"],
+      "title": "Open Mission Control",
+      "app": "System",
+      "appBundleID": null,
+      "steps": [
+        {
+          "instruction": "Swipe up with three or four fingers on the trackpad, or press the Mission Control key (F3)",
+          "elementName": null,
+          "elementRole": null,
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "new-desktop-space",
+      "triggers": ["new desktop", "add desktop", "new space", "add space", "create desktop"],
+      "title": "Create a New Desktop Space",
+      "app": "System",
+      "appBundleID": null,
+      "steps": [
+        {
+          "instruction": "Swipe up with three fingers to open Mission Control",
+          "elementName": null,
+          "elementRole": null,
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click the + button in the top-right corner to add a new Desktop",
+          "elementName": "Add Desktop",
+          "elementRole": "AXButton",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "airdrop",
+      "triggers": ["airdrop", "open airdrop", "share airdrop", "send via airdrop"],
+      "title": "Open AirDrop",
+      "app": "Finder",
+      "appBundleID": "com.apple.finder",
+      "steps": [
+        {
+          "instruction": "Click Go in the Finder menu bar",
+          "elementName": "Go",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click AirDrop",
+          "elementName": "AirDrop",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "screen-record",
+      "triggers": ["screen record", "record screen", "screen recording", "record my screen", "capture video"],
+      "title": "Start a Screen Recording",
+      "app": "System",
+      "appBundleID": null,
+      "steps": [
+        {
+          "instruction": "Press Command + Shift + 5 to open the screenshot toolbar",
+          "elementName": null,
+          "elementRole": null,
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Record Entire Screen or Record Selected Portion",
+          "elementName": "Record Entire Screen",
+          "elementRole": "AXButton",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Record to start",
+          "elementName": "Record",
+          "elementRole": "AXButton",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "screenshot-toolbar",
+      "triggers": ["screenshot toolbar", "screenshot options", "annotate screenshot", "partial screenshot", "crop screenshot"],
+      "title": "Open Screenshot Toolbar",
+      "app": "System",
+      "appBundleID": null,
+      "steps": [
+        {
+          "instruction": "Press Command + Shift + 5 to open the screenshot and recording toolbar",
+          "elementName": null,
+          "elementRole": null,
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "clear-safari-history",
+      "triggers": ["clear safari history", "clear history", "delete browsing history", "safari history", "clear browser history"],
+      "title": "Clear Safari History",
+      "app": "Safari",
+      "appBundleID": "com.apple.Safari",
+      "steps": [
+        {
+          "instruction": "Open Safari",
+          "elementName": "Safari",
+          "elementRole": "AXApplication",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click History in the menu bar",
+          "elementName": "History",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click Clear History",
+          "elementName": "Clear History…",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Choose a time range and click Clear History",
+          "elementName": "Clear History",
+          "elementRole": "AXButton",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "safari-private-browsing",
+      "triggers": ["private browsing", "incognito", "private window", "safari private", "private mode"],
+      "title": "Open Safari Private Window",
+      "app": "Safari",
+      "appBundleID": "com.apple.Safari",
+      "steps": [
+        {
+          "instruction": "Open Safari",
+          "elementName": "Safari",
+          "elementRole": "AXApplication",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click File in the menu bar",
+          "elementName": "File",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click New Private Window",
+          "elementName": "New Private Window",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "safari-new-tab",
+      "triggers": ["new tab", "open tab", "safari new tab", "create tab"],
+      "title": "Open New Tab in Safari",
+      "app": "Safari",
+      "appBundleID": "com.apple.Safari",
+      "steps": [
+        {
+          "instruction": "Open Safari",
+          "elementName": "Safari",
+          "elementRole": "AXApplication",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Press Command + T to open a new tab",
+          "elementName": null,
+          "elementRole": null,
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "safari-bookmark",
+      "triggers": ["add bookmark", "bookmark page", "save bookmark", "bookmark this", "save page safari"],
+      "title": "Add a Bookmark in Safari",
+      "app": "Safari",
+      "appBundleID": "com.apple.Safari",
+      "steps": [
+        {
+          "instruction": "Navigate to the page you want to bookmark in Safari",
+          "elementName": null,
+          "elementRole": null,
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Bookmarks in the menu bar",
+          "elementName": "Bookmarks",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click Add Bookmark",
+          "elementName": "Add Bookmark…",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Add to save the bookmark",
+          "elementName": "Add",
+          "elementRole": "AXButton",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "safari-reader-view",
+      "triggers": ["reader view", "reading mode", "safari reader", "reading view", "article view"],
+      "title": "Enable Safari Reader View",
+      "app": "Safari",
+      "appBundleID": "com.apple.Safari",
+      "steps": [
+        {
+          "instruction": "Open an article or web page in Safari",
+          "elementName": null,
+          "elementRole": null,
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click the Reader button (lines icon) on the left of the address bar",
+          "elementName": "Reader",
+          "elementRole": "AXButton",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "new-note",
+      "triggers": ["new note", "create note", "add note", "open notes", "write note"],
+      "title": "Create a New Note",
+      "app": "Notes",
+      "appBundleID": "com.apple.Notes",
+      "steps": [
+        {
+          "instruction": "Open Notes",
+          "elementName": "Notes",
+          "elementRole": "AXApplication",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click New Note in the toolbar",
+          "elementName": "New Note",
+          "elementRole": "AXButton",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Start typing your note",
+          "elementName": null,
+          "elementRole": "AXTextArea",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "pin-note",
+      "triggers": ["pin note", "pin a note", "keep note on top", "pinned note"],
+      "title": "Pin a Note",
+      "app": "Notes",
+      "appBundleID": "com.apple.Notes",
+      "steps": [
+        {
+          "instruction": "Open Notes",
+          "elementName": "Notes",
+          "elementRole": "AXApplication",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Right-click the note you want to pin in the notes list",
+          "elementName": null,
+          "elementRole": null,
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Pin Note",
+          "elementName": "Pin Note",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "delete-note",
+      "triggers": ["delete note", "remove note", "trash note"],
+      "title": "Delete a Note",
+      "app": "Notes",
+      "appBundleID": "com.apple.Notes",
+      "steps": [
+        {
+          "instruction": "Open Notes",
+          "elementName": "Notes",
+          "elementRole": "AXApplication",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Right-click the note you want to delete",
+          "elementName": null,
+          "elementRole": null,
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Delete Note",
+          "elementName": "Delete Note",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "new-reminder",
+      "triggers": ["new reminder", "create reminder", "add reminder", "set reminder", "remind me"],
+      "title": "Create a Reminder",
+      "app": "Reminders",
+      "appBundleID": "com.apple.reminders",
+      "steps": [
+        {
+          "instruction": "Open Reminders",
+          "elementName": "Reminders",
+          "elementRole": "AXApplication",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click New Reminder or press Command + N",
+          "elementName": "New Reminder",
+          "elementRole": "AXButton",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Type your reminder and press Return",
+          "elementName": null,
+          "elementRole": "AXTextField",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "new-reminder-list",
+      "triggers": ["new reminder list", "create reminder list", "add reminder list", "new list reminders"],
+      "title": "Create a New Reminder List",
+      "app": "Reminders",
+      "appBundleID": "com.apple.reminders",
+      "steps": [
+        {
+          "instruction": "Open Reminders",
+          "elementName": "Reminders",
+          "elementRole": "AXApplication",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Add List at the bottom of the sidebar",
+          "elementName": "Add List",
+          "elementRole": "AXButton",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Type the name for your new list and press Return",
+          "elementName": null,
+          "elementRole": "AXTextField",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "new-calendar-event",
+      "triggers": ["new event", "calendar event", "add event", "create event", "schedule event", "new appointment"],
+      "title": "Add a Calendar Event",
+      "app": "Calendar",
+      "appBundleID": "com.apple.iCal",
+      "steps": [
+        {
+          "instruction": "Open Calendar",
+          "elementName": "Calendar",
+          "elementRole": "AXApplication",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click the + button or press Command + N to create a new event",
+          "elementName": "New Event",
+          "elementRole": "AXButton",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Type the event name and press Return",
+          "elementName": null,
+          "elementRole": "AXTextField",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "new-email",
+      "triggers": ["new email", "compose email", "write email", "send email", "new message mail"],
+      "title": "Compose a New Email",
+      "app": "Mail",
+      "appBundleID": "com.apple.mail",
+      "steps": [
+        {
+          "instruction": "Open Mail",
+          "elementName": "Mail",
+          "elementRole": "AXApplication",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click the Compose button (pencil icon) in the toolbar",
+          "elementName": "Compose",
+          "elementRole": "AXButton",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Type the recipient's email address in the To field",
+          "elementName": "To:",
+          "elementRole": "AXTextField",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "search-mail",
+      "triggers": ["search email", "search mail", "find email", "look up email", "mail search"],
+      "title": "Search Email in Mail",
+      "app": "Mail",
+      "appBundleID": "com.apple.mail",
+      "steps": [
+        {
+          "instruction": "Open Mail",
+          "elementName": "Mail",
+          "elementRole": "AXApplication",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click the Search field in the top-right and type your search",
+          "elementName": "Search",
+          "elementRole": "AXTextField",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "flag-email",
+      "triggers": ["flag email", "flag message", "mark email", "star email"],
+      "title": "Flag an Email",
+      "app": "Mail",
+      "appBundleID": "com.apple.mail",
+      "steps": [
+        {
+          "instruction": "Open Mail and click the email you want to flag",
+          "elementName": "Mail",
+          "elementRole": "AXApplication",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Message in the menu bar",
+          "elementName": "Message",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click Flag and choose a color",
+          "elementName": "Flag",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "open-launchpad",
+      "triggers": ["launchpad", "open launchpad", "show apps", "app launcher"],
+      "title": "Open Launchpad",
+      "app": "System",
+      "appBundleID": null,
+      "steps": [
+        {
+          "instruction": "Click the Launchpad icon in the Dock (the rocket icon), or pinch with thumb and three fingers on the trackpad",
+          "elementName": "Launchpad",
+          "elementRole": "AXDockItem",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "open-app-store",
+      "triggers": ["app store", "open app store", "mac app store", "download app"],
+      "title": "Open the App Store",
+      "app": "App Store",
+      "appBundleID": "com.apple.AppStore",
+      "steps": [
+        {
+          "instruction": "Click the App Store icon in the Dock or Launchpad",
+          "elementName": "App Store",
+          "elementRole": "AXDockItem",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "check-updates",
+      "triggers": ["check updates", "software update", "update macos", "system update", "install updates", "check for updates"],
+      "title": "Check for Software Updates",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click General in the sidebar",
+          "elementName": "General",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Software Update",
+          "elementName": "Software Update",
+          "elementRole": "AXButton",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "adjust-brightness",
+      "triggers": ["brightness", "adjust brightness", "screen brightness", "dim screen", "brighter screen"],
+      "title": "Adjust Screen Brightness",
+      "app": "Control Center",
+      "appBundleID": "com.apple.controlcenter",
+      "steps": [
+        {
+          "instruction": "Click the Control Center icon in the menu bar",
+          "elementName": "Control Center",
+          "elementRole": "AXStatusItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Drag the Display brightness slider up or down",
+          "elementName": "Display",
+          "elementRole": "AXSlider",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "wifi-on",
+      "triggers": ["wifi on", "turn on wifi", "enable wifi", "connect to internet", "turn on wi-fi"],
+      "title": "Turn On Wi-Fi",
+      "app": "Control Center",
+      "appBundleID": "com.apple.controlcenter",
+      "steps": [
+        {
+          "instruction": "Click the Wi-Fi icon in the menu bar",
+          "elementName": "Wi-Fi",
+          "elementRole": "AXStatusItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click the Wi-Fi toggle to turn it on",
+          "elementName": "Wi-Fi",
+          "elementRole": "AXSwitch",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "wifi-off",
+      "triggers": ["wifi off", "turn off wifi", "disable wifi", "disconnect wifi", "turn off wi-fi"],
+      "title": "Turn Off Wi-Fi",
+      "app": "Control Center",
+      "appBundleID": "com.apple.controlcenter",
+      "steps": [
+        {
+          "instruction": "Click the Wi-Fi icon in the menu bar",
+          "elementName": "Wi-Fi",
+          "elementRole": "AXStatusItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click the Wi-Fi toggle to turn it off",
+          "elementName": "Wi-Fi",
+          "elementRole": "AXSwitch",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "minimize-window",
+      "triggers": ["minimize window", "minimise window", "hide window", "minimize app"],
+      "title": "Minimize a Window",
+      "app": "System",
+      "appBundleID": null,
+      "steps": [
+        {
+          "instruction": "Press Command + M to minimize the current window, or click the yellow minimize button in the top-left of the window",
+          "elementName": null,
+          "elementRole": null,
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "fullscreen-window",
+      "triggers": ["fullscreen", "full screen", "make fullscreen", "expand window", "maximize window"],
+      "title": "Make a Window Full Screen",
+      "app": "System",
+      "appBundleID": null,
+      "steps": [
+        {
+          "instruction": "Press Control + Command + F to toggle full screen, or click and hold the green full-screen button in the top-left of the window",
+          "elementName": null,
+          "elementRole": null,
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "quit-app",
+      "triggers": ["quit app", "close app", "exit app", "quit application"],
+      "title": "Quit an App",
+      "app": "System",
+      "appBundleID": null,
+      "steps": [
+        {
+          "instruction": "Click on the app you want to quit to make it active",
+          "elementName": null,
+          "elementRole": null,
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Press Command + Q to quit, or click the app name in the menu bar and choose Quit",
+          "elementName": null,
+          "elementRole": null,
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "quick-look",
+      "triggers": ["quick look", "preview file", "preview document", "quick preview"],
+      "title": "Quick Look a File",
+      "app": "Finder",
+      "appBundleID": "com.apple.finder",
+      "steps": [
+        {
+          "instruction": "Click the file you want to preview in Finder",
+          "elementName": null,
+          "elementRole": null,
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Press the Space bar to open Quick Look",
+          "elementName": null,
+          "elementRole": null,
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "make-alias",
+      "triggers": ["make alias", "create alias", "create shortcut", "file shortcut", "make shortcut"],
+      "title": "Make a File Alias",
+      "app": "Finder",
+      "appBundleID": "com.apple.finder",
+      "steps": [
+        {
+          "instruction": "Right-click the file or folder in Finder",
+          "elementName": null,
+          "elementRole": null,
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Make Alias",
+          "elementName": "Make Alias",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "enable-handoff",
+      "triggers": ["handoff", "enable handoff", "continuity", "handoff feature", "continue on mac"],
+      "title": "Enable Handoff",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click General in the sidebar",
+          "elementName": "General",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click AirDrop & Handoff",
+          "elementName": "AirDrop & Handoff",
+          "elementRole": "AXButton",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Toggle Allow Handoff between this Mac and your iCloud devices on",
+          "elementName": "Allow Handoff between this Mac and your iCloud devices",
+          "elementRole": "AXSwitch",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "text-substitution",
+      "triggers": ["text substitution", "text replacement", "autocomplete text", "text shortcut", "replace text"],
+      "title": "Add a Text Substitution",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Keyboard in the sidebar",
+          "elementName": "Keyboard",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Text Replacements",
+          "elementName": "Text Replacements…",
+          "elementRole": "AXButton",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click the + button to add a new replacement",
+          "elementName": "Add",
+          "elementRole": "AXButton",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "keyboard-shortcuts",
+      "triggers": ["keyboard shortcuts", "custom shortcut", "add shortcut", "shortcut settings", "key bindings"],
+      "title": "Manage Keyboard Shortcuts",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Keyboard in the sidebar",
+          "elementName": "Keyboard",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Keyboard Shortcuts",
+          "elementName": "Keyboard Shortcuts…",
+          "elementRole": "AXButton",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "enable-siri",
+      "triggers": ["enable siri", "turn on siri", "siri settings", "siri setup", "activate siri"],
+      "title": "Enable Siri",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Siri & Spotlight in the sidebar",
+          "elementName": "Siri & Spotlight",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Toggle Ask Siri on",
+          "elementName": "Ask Siri",
+          "elementRole": "AXSwitch",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "system-information",
+      "triggers": ["system information", "system report", "hardware info", "mac specs", "hardware specs"],
+      "title": "Open System Information",
+      "app": "System",
+      "appBundleID": null,
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Hold Option and click System Information",
+          "elementName": "System Information…",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "bluetooth-pair",
+      "triggers": ["pair bluetooth", "connect bluetooth device", "pair device", "pair headphones", "connect airpods"],
+      "title": "Pair a Bluetooth Device",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Bluetooth in the sidebar",
+          "elementName": "Bluetooth",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Make sure your device is in pairing mode, then click Connect next to it in the list",
+          "elementName": "Connect",
+          "elementRole": "AXButton",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "default-browser",
+      "triggers": ["default browser", "change browser", "set default browser", "browser settings"],
+      "title": "Change Default Browser",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Desktop & Dock in the sidebar",
+          "elementName": "Desktop & Dock",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Scroll down and click the Default web browser popup to choose your browser",
+          "elementName": "Default web browser",
+          "elementRole": "AXPopUpButton",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "internet-accounts",
+      "triggers": ["add account", "internet accounts", "add google account", "add email account", "account settings"],
+      "title": "Add an Internet Account",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Internet Accounts in the sidebar",
+          "elementName": "Internet Accounts",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Add Account and choose your account type",
+          "elementName": "Add Account",
+          "elementRole": "AXButton",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "energy-saver",
+      "triggers": ["energy saver", "battery settings", "power settings", "sleep settings", "power nap"],
+      "title": "Open Energy/Battery Settings",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Battery in the sidebar",
+          "elementName": "Battery",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "passwords-settings",
+      "triggers": ["passwords", "saved passwords", "view passwords", "password manager", "keychain passwords"],
+      "title": "View Saved Passwords",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Passwords in the sidebar",
+          "elementName": "Passwords",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "privacy-location",
+      "triggers": ["location services", "privacy location", "location access", "turn off location", "location privacy"],
+      "title": "Manage Location Services",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Privacy & Security in the sidebar",
+          "elementName": "Privacy & Security",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Location Services",
+          "elementName": "Location Services",
+          "elementRole": "AXButton",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "privacy-camera",
+      "triggers": ["camera access", "camera permissions", "camera privacy", "app camera", "microphone access"],
+      "title": "Manage Camera & Microphone Access",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Privacy & Security in the sidebar",
+          "elementName": "Privacy & Security",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Camera or Microphone to manage which apps have access",
+          "elementName": "Camera",
+          "elementRole": "AXButton",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "users-groups",
+      "triggers": ["users", "user accounts", "add user", "new user", "manage users", "guest user"],
+      "title": "Manage User Accounts",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Users & Groups in the sidebar",
+          "elementName": "Users & Groups",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "touch-id",
+      "triggers": ["touch id", "fingerprint", "add fingerprint", "touch id settings", "setup touch id"],
+      "title": "Set Up Touch ID",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Touch ID & Password in the sidebar",
+          "elementName": "Touch ID & Password",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Add Fingerprint to enroll a new fingerprint",
+          "elementName": "Add Fingerprint",
+          "elementRole": "AXButton",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "display-resolution",
+      "triggers": ["screen resolution", "display resolution", "change resolution", "resolution settings", "display size"],
+      "title": "Change Display Resolution",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Displays in the sidebar",
+          "elementName": "Displays",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click the resolution you want to use under the Resolution options",
+          "elementName": "Scaled",
+          "elementRole": "AXRadioButton",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "mirror-displays",
+      "triggers": ["mirror display", "mirror screen", "duplicate screen", "extend display", "second screen"],
+      "title": "Mirror or Extend Displays",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Displays in the sidebar",
+          "elementName": "Displays",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click the Arrangement tab and drag displays to arrange, or check Mirror Displays",
+          "elementName": "Mirror Displays",
+          "elementRole": "AXCheckBox",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "sticky-keys",
+      "triggers": ["sticky keys", "enable sticky keys", "accessibility keyboard", "modifier keys"],
+      "title": "Enable Sticky Keys",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Accessibility in the sidebar",
+          "elementName": "Accessibility",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Keyboard under Motor",
+          "elementName": "Keyboard",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Toggle Sticky Keys on",
+          "elementName": "Sticky Keys",
+          "elementRole": "AXSwitch",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "reduce-motion",
+      "triggers": ["reduce motion", "less animation", "disable animations", "reduce animations", "motion settings"],
+      "title": "Reduce Motion",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Accessibility in the sidebar",
+          "elementName": "Accessibility",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Motion",
+          "elementName": "Motion",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Toggle Reduce Motion on",
+          "elementName": "Reduce Motion",
+          "elementRole": "AXSwitch",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "bold-text",
+      "triggers": ["bold text", "enable bold text", "make text bolder", "bold interface"],
+      "title": "Enable Bold Text",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Accessibility in the sidebar",
+          "elementName": "Accessibility",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Display",
+          "elementName": "Display",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Toggle Bold Text on",
+          "elementName": "Bold Text",
+          "elementRole": "AXSwitch",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "control-center-settings",
+      "triggers": ["control center settings", "customize control center", "menu bar items", "control center customize"],
+      "title": "Customize Control Center",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Control Center in the sidebar",
+          "elementName": "Control Center",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "spell-check",
+      "triggers": ["spell check", "spellcheck", "check spelling", "autocorrect", "spelling settings"],
+      "title": "Configure Spell Check",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Keyboard in the sidebar",
+          "elementName": "Keyboard",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Toggle Check Spelling or Correct Spelling Automatically as needed",
+          "elementName": "Correct spelling automatically",
+          "elementRole": "AXSwitch",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "scroll-direction",
+      "triggers": ["scroll direction", "natural scroll", "reverse scroll", "scroll settings", "trackpad scroll"],
+      "title": "Change Scroll Direction",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Trackpad in the sidebar",
+          "elementName": "Trackpad",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Scroll & Zoom and toggle Natural Scrolling on or off",
+          "elementName": "Natural Scrolling",
+          "elementRole": "AXSwitch",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "tap-to-click",
+      "triggers": ["tap to click", "trackpad click", "enable tap click", "single tap click"],
+      "title": "Enable Tap to Click",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Trackpad in the sidebar",
+          "elementName": "Trackpad",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Toggle Tap to click on",
+          "elementName": "Tap to click",
+          "elementRole": "AXSwitch",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "font-size",
+      "triggers": ["font size", "text size", "bigger text", "larger text", "increase text size"],
+      "title": "Increase Text Size System-Wide",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Accessibility in the sidebar",
+          "elementName": "Accessibility",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Display",
+          "elementName": "Display",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Drag the Display size slider to make text larger",
+          "elementName": "Display size",
+          "elementRole": "AXSlider",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "open-photos",
+      "triggers": ["open photos", "launch photos", "photo library", "picture library"],
+      "title": "Open Photos",
+      "app": "Photos",
+      "appBundleID": "com.apple.Photos",
+      "steps": [
+        {
+          "instruction": "Click the Photos icon in the Dock or Launchpad",
+          "elementName": "Photos",
+          "elementRole": "AXDockItem",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "create-album",
+      "triggers": ["create album", "new album", "photo album", "add album", "make album"],
+      "title": "Create a Photo Album",
+      "app": "Photos",
+      "appBundleID": "com.apple.Photos",
+      "steps": [
+        {
+          "instruction": "Open Photos",
+          "elementName": "Photos",
+          "elementRole": "AXApplication",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click File in the menu bar",
+          "elementName": "File",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click New Album",
+          "elementName": "New Album",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Type a name for the album and press Return",
+          "elementName": null,
+          "elementRole": "AXTextField",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "open-maps",
+      "triggers": ["open maps", "directions", "get directions", "navigate", "maps app"],
+      "title": "Get Directions in Maps",
+      "app": "Maps",
+      "appBundleID": "com.apple.Maps",
+      "steps": [
+        {
+          "instruction": "Click the Maps icon in the Dock or Launchpad",
+          "elementName": "Maps",
+          "elementRole": "AXDockItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Directions in the toolbar",
+          "elementName": "Directions",
+          "elementRole": "AXButton",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Type your destination in the search field",
+          "elementName": "End",
+          "elementRole": "AXTextField",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "new-textedit-document",
+      "triggers": ["new text file", "text editor", "textedit", "open textedit", "plain text file", "new document"],
+      "title": "Create a New TextEdit Document",
+      "app": "TextEdit",
+      "appBundleID": "com.apple.TextEdit",
+      "steps": [
+        {
+          "instruction": "Press Command + Space to open Spotlight",
+          "elementName": null,
+          "elementRole": null,
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Type 'TextEdit' and press Return",
+          "elementName": null,
+          "elementRole": null,
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click New Document",
+          "elementName": "New Document",
+          "elementRole": "AXButton",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "open-calculator",
+      "triggers": ["calculator", "open calculator", "math", "calculate"],
+      "title": "Open Calculator",
+      "app": "Calculator",
+      "appBundleID": "com.apple.calculator",
+      "steps": [
+        {
+          "instruction": "Press Command + Space to open Spotlight",
+          "elementName": null,
+          "elementRole": null,
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Type 'Calculator' and press Return",
+          "elementName": null,
+          "elementRole": null,
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "open-font-book",
+      "triggers": ["font book", "fonts", "install font", "manage fonts", "open font book"],
+      "title": "Open Font Book",
+      "app": "Font Book",
+      "appBundleID": "com.apple.FontBook",
+      "steps": [
+        {
+          "instruction": "Press Command + Space to open Spotlight",
+          "elementName": null,
+          "elementRole": null,
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Type 'Font Book' and press Return",
+          "elementName": null,
+          "elementRole": null,
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "open-keychain",
+      "triggers": ["keychain", "keychain access", "open keychain", "manage keychain", "view keychain"],
+      "title": "Open Keychain Access",
+      "app": "Keychain Access",
+      "appBundleID": "com.apple.keychainaccess",
+      "steps": [
+        {
+          "instruction": "Press Command + Space to open Spotlight",
+          "elementName": null,
+          "elementRole": null,
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Type 'Keychain Access' and press Return",
+          "elementName": null,
+          "elementRole": null,
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "airplay-receiver",
+      "triggers": ["airplay", "airplay to tv", "screen mirror airplay", "airplay display", "cast screen"],
+      "title": "AirPlay to a Display",
+      "app": "Control Center",
+      "appBundleID": "com.apple.controlcenter",
+      "steps": [
+        {
+          "instruction": "Click the Control Center icon in the menu bar",
+          "elementName": "Control Center",
+          "elementRole": "AXStatusItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click Screen Mirroring",
+          "elementName": "Screen Mirroring",
+          "elementRole": "AXButton",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click the AirPlay receiver you want to use",
+          "elementName": null,
+          "elementRole": "AXButton",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "scroll-bar-settings",
+      "triggers": ["scroll bar", "always show scroll bar", "scroll bar settings", "scrollbar always visible"],
+      "title": "Always Show Scroll Bars",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Appearance in the sidebar",
+          "elementName": "Appearance",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Always under Show scroll bars",
+          "elementName": "Always",
+          "elementRole": "AXRadioButton",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "show-status-bar",
+      "triggers": ["status bar", "show status bar", "finder status bar", "item count finder"],
+      "title": "Show Status Bar in Finder",
+      "app": "Finder",
+      "appBundleID": "com.apple.finder",
+      "steps": [
+        {
+          "instruction": "Click View in the Finder menu bar",
+          "elementName": "View",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click Show Status Bar",
+          "elementName": "Show Status Bar",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "finder-sidebar-add",
+      "triggers": ["add to sidebar", "finder sidebar", "sidebar shortcut", "pin to sidebar"],
+      "title": "Add a Folder to Finder Sidebar",
+      "app": "Finder",
+      "appBundleID": "com.apple.finder",
+      "steps": [
+        {
+          "instruction": "Navigate to the folder you want to add in Finder",
+          "elementName": null,
+          "elementRole": null,
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Drag the folder into the Finder sidebar",
+          "elementName": null,
+          "elementRole": null,
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "open-console",
+      "triggers": ["console", "open console", "system logs", "log viewer", "crash logs", "view logs"],
+      "title": "Open Console (Log Viewer)",
+      "app": "Console",
+      "appBundleID": "com.apple.Console",
+      "steps": [
+        {
+          "instruction": "Press Command + Space to open Spotlight",
+          "elementName": null,
+          "elementRole": null,
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Type 'Console' and press Return",
+          "elementName": null,
+          "elementRole": null,
+          "isMenuBar": false
+        }
+      ]
+    },
+    {
+      "id": "right-click-settings",
+      "triggers": ["right click", "secondary click", "enable right click", "two finger click", "right click settings"],
+      "title": "Enable Right-Click (Secondary Click)",
+      "app": "System Settings",
+      "appBundleID": "com.apple.systempreferences",
+      "steps": [
+        {
+          "instruction": "Click the Apple menu in the top-left corner",
+          "elementName": "Apple",
+          "elementRole": "AXMenuBarItem",
+          "isMenuBar": true
+        },
+        {
+          "instruction": "Click System Settings",
+          "elementName": "System Settings",
+          "elementRole": "AXMenuItem",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Click Trackpad in the sidebar",
+          "elementName": "Trackpad",
+          "elementRole": "AXStaticText",
+          "isMenuBar": false
+        },
+        {
+          "instruction": "Toggle Secondary click on and choose Two Finger Tap or Bottom Right Corner",
+          "elementName": "Secondary click",
+          "elementRole": "AXSwitch",
           "isMenuBar": false
         }
       ]

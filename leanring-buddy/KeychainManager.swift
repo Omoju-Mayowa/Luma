@@ -38,16 +38,26 @@ enum KeychainManager {
             kSecAttrAccount as String: key
         ]
 
-        // First try to update an existing item
-        let updateAttributes: [String: Any] = [kSecValueData as String: data]
+        // kSecAttrAccessibleAfterFirstUnlock: accessible after the device is unlocked
+        // once after a reboot, without prompting the user again. Applied on both add
+        // and update so pre-existing items written before this policy was enforced
+        // also get upgraded, preventing Keychain prompts on every launch.
+        let accessibilityPolicy = kSecAttrAccessibleAfterFirstUnlock
+
+        // First try to update an existing item (also updates its accessibility policy)
+        let updateAttributes: [String: Any] = [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: accessibilityPolicy
+        ]
         let updateStatus = SecItemUpdate(baseQuery as CFDictionary, updateAttributes as CFDictionary)
 
         if updateStatus == errSecSuccess {
             return
         } else if updateStatus == errSecItemNotFound {
-            // Item doesn't exist yet — add it
+            // Item doesn't exist yet — add it.
             var addQuery = baseQuery
             addQuery[kSecValueData as String] = data
+            addQuery[kSecAttrAccessible as String] = accessibilityPolicy
             let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
             guard addStatus == errSecSuccess else {
                 throw KeychainError.unhandledError(status: addStatus)

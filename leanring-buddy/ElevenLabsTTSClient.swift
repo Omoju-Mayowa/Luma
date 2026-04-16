@@ -37,6 +37,37 @@ final class NativeTTSClient: NSObject, AVSpeechSynthesizerDelegate {
         Task { try? await self.speakText(text) }
     }
 
+    /// Strips coordinate tokens and related technical patterns from `text` before speaking.
+    /// Prevents the synthesizer from reading out things like "point 400 comma 200" or
+    /// "x colon 150 y colon 300" that Claude occasionally includes in its responses.
+    private func sanitizeSpeech(_ text: String) -> String {
+        var cleaned = text
+
+        // Each pattern targets a different coordinate format Claude might embed in a response.
+        let coordinatePatterns: [String] = [
+            #"point\s*\(\s*\d+\s*,\s*\d+\s*\)"#,        // point(400, 200)
+            #"\(\s*\d{2,4}\s*,\s*\d{2,4}\s*\)"#,          // (400, 200)
+            #"\[\s*\d{2,4}\s*,\s*\d{2,4}\s*\]"#,          // [400, 200]
+            #"\{\s*x\s*:\s*\d+\s*,\s*y\s*:\s*\d+\s*\}"#,  // {x: 400, y: 200}
+            #"at coordinates \d+,?\s*\d+"#,                 // at coordinates 400, 200
+            #"position \d+,?\s*\d+"#,                       // position 400, 200
+            #"\bx:\s*\d+,?\s*y:\s*\d+"#,                   // x: 400, y: 200
+        ]
+
+        for pattern in coordinatePatterns {
+            if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) {
+                let fullRange = NSRange(cleaned.startIndex..., in: cleaned)
+                cleaned = regex.stringByReplacingMatches(in: cleaned, range: fullRange, withTemplate: "")
+            }
+        }
+
+        return cleaned
+            .components(separatedBy: .whitespaces)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespaces)
+    }
+
     /// Speaks `text` using a natural macOS voice. Returns once playback starts.
     /// The caller can poll `isPlaying` to wait for completion.
     func speakText(_ text: String) async throws {
@@ -44,7 +75,7 @@ final class NativeTTSClient: NSObject, AVSpeechSynthesizerDelegate {
 
         stopPlayback()
 
-        let utterance = AVSpeechUtterance(string: text)
+        let utterance = AVSpeechUtterance(string: sanitizeSpeech(text))
         // Higher pitch and slightly slower rate for a sassier, more expressive delivery
         utterance.rate = 0.52
         utterance.pitchMultiplier = 1.4

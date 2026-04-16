@@ -86,6 +86,8 @@ final class TaskPlanner {
         - For app menu items (File, Edit, View menus): set isMenuBar to true, appBundleID to that app's bundle ID
         - For Control Center: appBundleID "com.apple.controlcenter"
         - If a step has no specific element (e.g. "press a key"), use elementName ""
+        - For any step that requires typing, ALWAYS include the exact text to type inside single quotes in the instruction. Example: Type 'hello world' into the note body.
+        - Always refer to the Notes compose/new note button as 'New Note' — never use 'Compose' or other names.
         """
 
         let userMessage = "Goal: \(goal)\nCurrent frontmost app: \(frontmostAppName)\n\nReturn the JSON plan."

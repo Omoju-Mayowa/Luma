@@ -23,13 +23,13 @@ final class LumaOnDeviceAI {
 
     // MARK: - Sub-engines (lazily initialized to keep startup fast)
 
-    /// Whisper Tiny — on-device speech-to-text. Falls back to AssemblyAI/Apple Speech when unavailable.
+    /// Whisper Tiny — on-device speech-to-text. Falls back to Apple Speech when unavailable.
     private(set) lazy var whisper = LumaWhisperEngine.shared
 
     /// DistilBERT-based heuristic classifier — single vs multi-step vs question detection.
     private(set) lazy var classifier = LumaTaskClassifier.shared
 
-    /// MobileNetV3 — visual UI element detection from screenshots.
+    /// MobileNetV2 — visual UI element detection from screenshots.
     private(set) lazy var detector = LumaMobileNetDetector.shared
 
     private init() {}
@@ -64,7 +64,7 @@ final class LumaOnDeviceAI {
         )
     }
 
-    /// Detects UI element regions in a screenshot using MobileNetV3.
+    /// Detects UI element regions in a screenshot using MobileNetV2.
     /// Returns empty array when the model is not bundled.
     func detectElements(in image: CGImage, screenSize: CGSize) async -> [VisualDetectionResult] {
         await detector.detectElements(in: image, screenSize: screenSize)

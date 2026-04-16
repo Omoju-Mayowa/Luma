@@ -142,6 +142,17 @@ final class LumaTaskClassifier {
             "help me install", "help me compress", "help me set up",
             "help me configure", "help me export", "help me import",
             "help me back up", "help me transfer",
+            // Sequential connectors — two distinct actions joined by "and" or "then".
+            // These fire even when the request starts with a simple verb like "open",
+            // which would otherwise be caught by the singleStepPrefixes check below.
+            // e.g. "open Safari and go to google.com", "click File then choose Save As"
+            "and go to", "and navigate to", "and navigate",
+            "and open", "and click", "and type", "and search",
+            "and select", "and download", "and log in", "and sign in",
+            "and then go", "and then open", "and then click", "and then navigate",
+            "then go to", "then navigate to", "then navigate",
+            "then open", "then click", "then type", "then search",
+            "then select", "then download", "then log in", "then sign in",
         ]
         // Require at least one strong phrase AND at least 3 words to be a real task request
         let multiStepMatchCount = strongMultiStepPhrases.filter { lowercased.contains($0) }.count
@@ -150,6 +161,23 @@ final class LumaTaskClassifier {
                 taskType: .multiStep,
                 confidence: min(0.6 + Double(multiStepMatchCount) * 0.1, 0.9),
                 reason: "Multi-step phrase detected (\(multiStepMatchCount) match(es))"
+            )
+        }
+
+        // Sequential multi-step fallback: two or more recognisable action verbs present
+        // in a single request, even when they aren't joined by the explicit connector
+        // phrases above. Covers patterns like "open X, navigate to Y" (comma instead of
+        // "and") and cases where compressPrompt removed the connector word.
+        let actionVerbs: [String] = [
+            "open", "go to", "navigate", "click", "find", "type",
+            "search", "select", "download", "save", "close", "quit", "launch",
+        ]
+        let distinctActionVerbCount = actionVerbs.filter { lowercased.contains($0) }.count
+        if distinctActionVerbCount >= 2 && wordCount >= 4 {
+            return TaskClassification(
+                taskType: .multiStep,
+                confidence: 0.80,
+                reason: "Multiple action verbs detected (\(distinctActionVerbCount) verb(s))"
             )
         }
 
@@ -169,12 +197,18 @@ final class LumaTaskClassifier {
             return TaskClassification(taskType: .question, confidence: 0.8, reason: "Question pattern detected")
         }
 
-        // Single-step patterns — short direct commands that refer to one UI action
+        // Single-step patterns — short direct commands that refer to one UI action.
+        // Guard: "and"/"then" signals a second action is present, so even a request
+        // that starts with "open" or "click" is multi-step in that case and must not
+        // short-circuit here (e.g. "open Safari and go to google.com").
+        let hasSequentialConnector = lowercased.contains(" and ") || lowercased.contains(" then ")
         let singleStepPrefixes = [
             "click", "open", "find", "show", "where is", "locate", "go to",
             "navigate to", "point to", "look at"
         ]
-        if singleStepPrefixes.contains(where: { lowercased.hasPrefix($0) }) && wordCount <= 8 {
+        if singleStepPrefixes.contains(where: { lowercased.hasPrefix($0) })
+            && wordCount <= 8
+            && !hasSequentialConnector {
             return TaskClassification(taskType: .singleStep, confidence: 0.75, reason: "Short direct command")
         }
 
