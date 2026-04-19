@@ -289,13 +289,14 @@ final class LumaImageProcessingEngine {
 
     // MARK: - Step 2: Visual / Screenshot Scan
 
-    /// Captures the screen and attempts visual element detection.
-    /// When MobileNetDetector has no model, falls back to returning empty (the AI screenshot
-    /// path in CursorGuide handles actual visual pointing separately).
+    /// Captures the screen and runs the on-device detection pipeline (Layers 1+2).
+    /// Falls back to Layer 3 (Claude Vision via APIClient) when no on-device result
+    /// has confidence ≥ 0.5. When MobileNetDetector has no model, Layer 2 is skipped
+    /// but Layer 1 Vision requests still run and Layer 3 still fires if needed.
     func scanVisual(query: String) async -> [ElementCandidate] {
         // Capture via ScreenCaptureKit (replaces the deprecated CGWindowListCreateImage).
         // CompanionScreenCaptureUtility returns JPEG data; we convert it to a CGImage
-        // for the MobileNet detector. If capture fails we return empty — the AX path
+        // for the on-device detector. If capture fails we return empty — the AX path
         // still runs in parallel and is unaffected.
         guard let screenCapture = try? await CompanionScreenCaptureUtility.captureAllScreensAsJPEG().first,
               let imageSource = CGImageSourceCreateWithData(screenCapture.imageData as CFData, nil),
@@ -307,18 +308,23 @@ final class LumaImageProcessingEngine {
             width: screenCapture.displayWidthInPoints,
             height: screenCapture.displayHeightInPoints
         )
+
+        // Layers 1+2: on-device Vision text detection + MobileNet crop validation.
+        // searchQuery is threaded through so Layer 1 text matching is query-aware.
         let detectionResults = await LumaOnDeviceAI.shared.detectElements(
             in: cgImage,
-            screenSize: screenSize
+            screenSize: screenSize,
+            searchQuery: query
         )
 
-        // Score detection results against the query
-        let scored = detectionResults
+        // Score and cap visual-only candidates at 0.4 confidence (visual results without AX
+        // confirmation are less precise — the cap prevents them dominating over AX results
+        // but still lets cross-validation boost them when AX agrees).
+        let scoredVisualCandidates: [ElementCandidate] = detectionResults
             .filter { $0.confidence > 0.3 }
             .map { result -> ElementCandidate in
                 let labelMatchScore = scoreLabel(result.label, against: query)
                 let combinedConfidence = min((Double(labelMatchScore) / 100.0) * result.confidence, 0.4)
-                // Visual-only results are capped at 0.4 — they're less precise without AX confirmation
                 return ElementCandidate(
                     name: result.label,
                     role: "AXUnknown",
@@ -334,7 +340,140 @@ final class LumaImageProcessingEngine {
             .sorted { $0.confidence > $1.confidence }
             .prefix(5)
 
-        return Array(scored)
+        // Fire Layer 3 when no on-device result has sufficient confidence.
+        // We check the raw detection confidence (before the 0.4 visual-only cap) so we do NOT
+        // fire Layer 3 when Layer 1+2 found a high-confidence match that was merely capped.
+        // Example: Layer 1 returns confidence=0.85 → capped to 0.4 in scoredVisualCandidates,
+        // but bestOnDeviceConfidence=0.85 ≥ 0.5, so Layer 3 correctly does NOT fire.
+        let bestOnDeviceConfidence = detectionResults.map { $0.confidence }.max() ?? 0.0
+        if bestOnDeviceConfidence < 0.5 {
+            if let layer3Candidate = await detectElementViaAPIClient(
+                screenshotData: screenCapture.imageData,
+                screenCapture: screenCapture,
+                searchQuery: query
+            ) {
+                // Prepend Layer 3 result so crossValidate can merge it with an overlapping AX
+                // candidate. If AX and Layer 3 agree, the merged result inherits the real AX
+                // frame (replacing the estimated adaptive box) and gets the +0.3 confidence boost.
+                return [layer3Candidate] + Array(scoredVisualCandidates)
+            }
+        }
+
+        return Array(scoredVisualCandidates)
+    }
+
+    // MARK: - Layer 3: Claude Vision API Fallback
+
+    /// Sends the screenshot to Claude via APIClient and parses a [POINT:x,y:label] coordinate tag.
+    /// Only called from scanVisual when both on-device layers (1+2) return confidence < 0.5.
+    ///
+    /// Mirrors CursorGuide.pointAtElementViaAIScreenshot but returns an ElementCandidate
+    /// for cross-validation rather than posting a notification for cursor movement.
+    private func detectElementViaAPIClient(
+        screenshotData: Data,
+        screenCapture: CompanionScreenCapture,
+        searchQuery: String
+    ) async -> ElementCandidate? {
+        let screenshotDimensionDescription = "\(screenCapture.screenshotWidthInPixels)×\(screenCapture.screenshotHeightInPixels)"
+
+        let elementLocationSystemPrompt = """
+        You are a macOS screen analyzer that locates UI elements.
+        The screenshot is \(screenshotDimensionDescription) pixels.
+
+        When asked to find a UI element, respond with ONLY a [POINT:x,y:label] tag — nothing else.
+        - x and y are integer pixel coordinates of the CENTER of the target element (top-left origin, 0,0 = top-left corner)
+        - label is a 1-3 word description of the element
+        - If the element is not visible: [POINT:none]
+        """
+
+        guard let (apiResponse, _) = try? await APIClient.shared.analyzeImage(
+            images: [(data: screenshotData, label: "user's screen")],
+            systemPrompt: elementLocationSystemPrompt,
+            conversationHistory: [],
+            userPrompt: "Find the UI element named \"\(searchQuery)\" and return its pixel coordinates.",
+            maxOutputTokens: 32
+        ) else {
+            print("[LIPE] Layer 3: APIClient call failed for '\(searchQuery)'")
+            return nil
+        }
+
+        print("[LIPE] Layer 3 response for '\(searchQuery)': \(apiResponse)")
+
+        guard let pixelCoordinate = Self.parsePointTagFromAPIResponse(apiResponse) else {
+            print("[LIPE] Layer 3: no valid [POINT:x,y] tag in response for '\(searchQuery)'")
+            return nil
+        }
+
+        // Scale from screenshot pixel coordinates (top-left origin) to Quartz screen coordinates
+        // (also top-left origin in this context — matching how AX frames are stored in LIPE).
+        let quartzX = pixelCoordinate.x * (CGFloat(screenCapture.displayWidthInPoints)  / CGFloat(screenCapture.screenshotWidthInPixels))
+        let quartzY = pixelCoordinate.y * (CGFloat(screenCapture.displayHeightInPoints) / CGFloat(screenCapture.screenshotHeightInPixels))
+
+        let estimatedBoxSize = Self.adaptiveBoundingBoxSize(forSearchQuery: searchQuery)
+        let estimatedScreenFrame = CGRect(
+            x: quartzX - estimatedBoxSize.width  / 2,
+            y: quartzY - estimatedBoxSize.height / 2,
+            width:  estimatedBoxSize.width,
+            height: estimatedBoxSize.height
+        )
+
+        print("[LIPE] Layer 3: '\(searchQuery)' at Quartz (\(Int(quartzX)), \(Int(quartzY))) — \(Int(estimatedBoxSize.width))×\(Int(estimatedBoxSize.height))pt estimated box")
+
+        // confidence=0.55: slightly above the Layer 3 trigger threshold (0.5) so this candidate
+        // participates in crossValidate. If an AX candidate overlaps the estimated box, the merged
+        // result inherits the real AX frame and receives the +0.3 confidence boost.
+        return ElementCandidate(
+            name: searchQuery,
+            role: "AXUnknown",
+            frame: estimatedScreenFrame,
+            visualFrame: estimatedScreenFrame,
+            confidence: 0.55,
+            source: .visual,
+            appBundleID: nil,
+            isMenuBar: false,
+            axElement: nil
+        )
+    }
+
+    /// Parses a `[POINT:x,y]` or `[POINT:x,y:label]` tag from an API response string.
+    /// Returns `nil` when the response is `[POINT:none]` or contains no valid coordinate tag.
+    ///
+    /// Static so unit tests can call it directly without needing the @MainActor shared instance.
+    static func parsePointTagFromAPIResponse(_ responseText: String) -> CGPoint? {
+        // Matches [POINT:x,y] with optional :label suffix. Does not match [POINT:none].
+        // Group 1 = x coordinate digits, Group 2 = y coordinate digits.
+        let pointTagPattern = #"\[POINT:(\d+)\s*,\s*(\d+)(?::[^\]]*)?\]"#
+
+        guard let regex = try? NSRegularExpression(pattern: pointTagPattern),
+              let match = regex.firstMatch(
+                  in: responseText,
+                  range: NSRange(responseText.startIndex..., in: responseText)
+              ),
+              match.numberOfRanges >= 3,
+              let xRange = Range(match.range(at: 1), in: responseText),
+              let yRange = Range(match.range(at: 2), in: responseText),
+              let parsedX = Double(responseText[xRange]),
+              let parsedY = Double(responseText[yRange])
+        else { return nil }
+
+        return CGPoint(x: parsedX, y: parsedY)
+    }
+
+    /// Returns the estimated bounding box size for a Layer 3 AI-located element.
+    ///
+    /// The AI returns a center point, not a box. Box size is estimated from query length:
+    /// - ≤ 2 chars (e.g. "R", "V"): 24×24 pt — icon or keyboard shortcut key target
+    /// - > 2 chars (word or phrase): 60×30 pt — standard button or label
+    ///
+    /// If cross-validation finds an overlapping AX candidate, the merged result's `frame`
+    /// is replaced with the real AX frame — the estimated box is only used for the overlap check.
+    ///
+    /// Static so unit tests can call it directly without needing the @MainActor shared instance.
+    static func adaptiveBoundingBoxSize(forSearchQuery searchQuery: String) -> CGSize {
+        if searchQuery.count <= 2 {
+            return CGSize(width: 24, height: 24)
+        }
+        return CGSize(width: 60, height: 30)
     }
 
     // MARK: - Step 3: Cross Validation
