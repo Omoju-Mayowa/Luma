@@ -64,10 +64,11 @@ final class LumaOnDeviceAI {
         )
     }
 
-    /// Detects UI element regions in a screenshot using MobileNetV2.
-    /// Returns empty array when the model is not bundled.
-    func detectElements(in image: CGImage, screenSize: CGSize) async -> [VisualDetectionResult] {
-        await detector.detectElements(in: image, screenSize: screenSize)
+    /// Detects UI element regions in a screenshot using the 3-layer on-device pipeline.
+    /// Returns empty array when Layer 1 finds no text matching `searchQuery` above threshold.
+    /// Callers (LumaImageProcessingEngine.scanVisual) trigger Layer 3 when the result is empty.
+    func detectElements(in image: CGImage, screenSize: CGSize, searchQuery: String) async -> [VisualDetectionResult] {
+        await detector.detectElements(in: image, screenSize: screenSize, searchQuery: searchQuery)
     }
 
     // MARK: - Model Availability Summary
@@ -76,6 +77,6 @@ final class LumaOnDeviceAI {
     func logModelAvailability() {
         print("[LumaOnDeviceAI] Whisper:     \(whisper.isModelAvailable ? "✓ available" : "✗ not bundled — using API")")
         print("[LumaOnDeviceAI] Classifier:  \(classifier.isModelAvailable ? "✓ ML model" : "✓ heuristic fallback")")
-        print("[LumaOnDeviceAI] MobileNet:   \(detector.isModelAvailable ? "✓ available" : "✗ not bundled — visual scan disabled")")
+        print("[LumaOnDeviceAI] MobileNet:   \(detector.isModelAvailable ? "✓ available (Layer 2 validation active)" : "✗ not bundled — Layer 2 validation disabled, Layer 1 Vision requests still active")")
     }
 }
