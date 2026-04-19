@@ -68,6 +68,9 @@ The app calls external APIs directly using keys stored in the macOS Keychain. Ke
 | `OpenAIAPI.swift` | ~142 | OpenAI GPT vision API client. |
 | `ElevenLabsTTSClient.swift` | ~90 | Native macOS TTS client using `AVSpeechSynthesizer`. Fully local — no API calls. Exposes `isPlaying` and `waitUntilFinished()` for transient cursor scheduling. |
 | `ElementLocationDetector.swift` | ~335 | Detects UI element locations in screenshots for cursor pointing. |
+| `LumaImageProcessingEngine.swift` | ~743 | Central element-finding authority for the walkthrough system. Runs AX scan and visual scan in parallel, cross-validates results, and returns the highest-confidence candidate. Owns the Layer 3 Claude Vision fallback (`detectElementViaAPIClient`, `parsePointTagFromAPIResponse`, `adaptiveBoundingBoxSize`). |
+| `LumaMobileNetDetector.swift` | ~354 | 3-layer on-device visual detection pipeline. Layer 1: `VNRecognizeTextRequest` + `VNDetectRectanglesRequest` returns real bounding boxes. Layer 2: MobileNetV2 crop-validates Layer 1 coordinates (downgrade if < 0.35 confidence). Layer 3 trigger lives in `LumaImageProcessingEngine.scanVisual`. |
+| `LumaOnDeviceAI.swift` | ~82 | Unified manager for all on-device AI inference (Whisper, DistilBERT classifier, MobileNetV2 detector). All sub-engines are lazily loaded. `detectElements` threads `searchQuery` through to `LumaMobileNetDetector`. |
 | `DesignSystem.swift` | ~880 | Design system tokens — colors, corner radii, shared styles. All UI references `DS.Colors`, `DS.CornerRadius`, etc. |
 | `LumaAnalytics.swift` | ~121 | PostHog analytics integration for usage tracking. |
 | `WindowPositionManager.swift` | ~262 | Window placement logic, Screen Recording permission flow, and accessibility permission helpers. |
