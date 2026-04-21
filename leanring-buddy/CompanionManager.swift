@@ -753,7 +753,7 @@ final class CompanionManager: ObservableObject {
         // This prevents the old walkthrough's timers, AX observers, and polling from
         // interfering with the new request — and resets isTypingStepActive to false.
         if WalkthroughEngine.shared.isRunning {
-            print("[Luma] New request received — cancelling active walkthrough")
+            LumaLogger.log("[Luma] New request received — cancelling active walkthrough")
             WalkthroughEngine.shared.cancelWalkthrough()
         }
 
@@ -774,7 +774,7 @@ final class CompanionManager: ObservableObject {
             if !OfflineGuideManager.shared.isOnline {
                 if let matchingOfflineGuide = OfflineGuideManager.shared.findGuide(for: transcript) {
                     // Guide found — go straight to assisting without announcing offline status.
-                    print("[Luma] Offline — executing guide '\(matchingOfflineGuide.title)' for '\(transcript)'")
+                    LumaLogger.log("[Luma] Offline — executing guide '\(matchingOfflineGuide.title)' for '\(transcript)'")
                     OfflineGuideManager.shared.executeGuide(matchingOfflineGuide)
                     voiceState = .idle
                     scheduleTransientHideIfNeeded()
@@ -802,7 +802,7 @@ final class CompanionManager: ObservableObject {
             // .singleStep / .question / .unknown → existing Claude voice response flow
             // Classification is instant (keyword heuristics) so there's no perceived delay.
             let taskClassification = await LumaOnDeviceAI.shared.classifyTask(compressedTranscript)
-            print("[Luma] Task classification: .\(taskClassification.taskType) confidence=\(String(format: "%.2f", taskClassification.confidence)) — \(taskClassification.reason)")
+            LumaLogger.log("[Luma] Task classification: .\(taskClassification.taskType) confidence=\(String(format: "%.2f", taskClassification.confidence)) — \(taskClassification.reason)")
 
             // Determine whether this is a multi-step request so we can pick the right system prompt.
             // Multi-step requests use multiStepPlanningSystemPrompt which asks the AI to embed a
@@ -860,7 +860,7 @@ final class CompanionManager: ObservableObject {
                     let extractedSteps = Self.parseStepsFromTaggedResponse(fullResponseText)
                     if !extractedSteps.isEmpty {
                         let spokenIntroText = Self.stripStepsTagFromResponse(fullResponseText)
-                        print("[Luma] Multi-step: \(extractedSteps.count) step(s) extracted — starting walkthrough")
+                        LumaLogger.log("[Luma] Multi-step: \(extractedSteps.count) step(s) extracted — starting walkthrough")
                         if !spokenIntroText.isEmpty {
                             try? await nativeTTSClient.speakText(spokenIntroText)
                             voiceState = .responding
@@ -879,7 +879,7 @@ final class CompanionManager: ObservableObject {
                     // Instead, say a brief generic intro and use TaskPlanner (dedicated JSON-only
                     // prompt) to build the step plan. This is the reliable fallback for weaker
                     // models that ignore the <STEPS> format instruction.
-                    print("[Luma] Multi-step: no valid <STEPS> block — falling back to TaskPlanner")
+                    LumaLogger.log("[Luma] Multi-step: no valid <STEPS> block — falling back to TaskPlanner")
                     try? await nativeTTSClient.speakText("Sure, let me guide you through that.")
                     voiceState = .idle
                     scheduleTransientHideIfNeeded()
@@ -891,7 +891,7 @@ final class CompanionManager: ObservableObject {
                                 WalkthroughEngine.shared.executeSteps(plan.steps)
                             }
                         } catch {
-                            print("[Luma] TaskPlanner fallback failed: \(error.localizedDescription)")
+                            LumaLogger.log("[Luma] TaskPlanner fallback failed: \(error.localizedDescription)")
                         }
                     }
                     return
@@ -1122,7 +1122,7 @@ final class CompanionManager: ObservableObject {
         guard let stepsOpenRange = responseText.range(of: "<STEPS>"),
               let stepsCloseRange = responseText.range(of: "</STEPS>"),
               stepsOpenRange.upperBound < stepsCloseRange.lowerBound else {
-            print("[Luma] parseStepsFromTaggedResponse: no <STEPS>...</STEPS> block in response")
+            LumaLogger.log("[Luma] parseStepsFromTaggedResponse: no <STEPS>...</STEPS> block in response")
             return []
         }
 
@@ -1133,23 +1133,23 @@ final class CompanionManager: ObservableObject {
         guard let stepsKeyRange = jsonContent.range(of: "\"steps\""),
               let objectStartIndex = jsonContent[..<stepsKeyRange.lowerBound].lastIndex(of: "{"),
               let objectEndIndex = jsonContent.lastIndex(of: "}") else {
-            print("[Luma] parseStepsFromTaggedResponse: could not locate JSON object. Block: \(jsonContent)")
+            LumaLogger.log("[Luma] parseStepsFromTaggedResponse: could not locate JSON object. Block: \(jsonContent)")
             return []
         }
 
         let jsonString = String(jsonContent[objectStartIndex...objectEndIndex])
 
         guard let jsonData = jsonString.data(using: .utf8) else {
-            print("[Luma] parseStepsFromTaggedResponse: could not encode JSON as UTF-8")
+            LumaLogger.log("[Luma] parseStepsFromTaggedResponse: could not encode JSON as UTF-8")
             return []
         }
 
         do {
             let plan = try JSONDecoder().decode(WalkthroughPlan.self, from: jsonData)
-            print("[Luma] parseStepsFromTaggedResponse: decoded \(plan.steps.count) step(s)")
+            LumaLogger.log("[Luma] parseStepsFromTaggedResponse: decoded \(plan.steps.count) step(s)")
             return plan.steps
         } catch {
-            print("[Luma] parseStepsFromTaggedResponse: decode failed — \(error.localizedDescription). JSON: \(jsonString)")
+            LumaLogger.log("[Luma] parseStepsFromTaggedResponse: decode failed — \(error.localizedDescription). JSON: \(jsonString)")
             return []
         }
     }

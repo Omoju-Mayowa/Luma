@@ -143,7 +143,7 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
         case .none:
             break
         case .pressed:
-            print("[Luma] Hotkey triggered")
+            LumaLogger.log("[Luma] Hotkey triggered")
             print("🎹 GlobalPTT: shortcut PRESSED — starting voice capture")
             isShortcutCurrentlyPressed = true
             shortcutTransitionPublisher.send(.pressed)

@@ -237,7 +237,7 @@ final class WalkthroughEngine: ObservableObject {
             )
             state = .confirming(walkthroughPlan.steps)
         } catch {
-            print("[Luma] WalkthroughEngine: step planning failed — \(error.localizedDescription)")
+            LumaLogger.log("[Luma] WalkthroughEngine: step planning failed — \(error.localizedDescription)")
             state = .idle
         }
     }
@@ -253,7 +253,7 @@ final class WalkthroughEngine: ObservableObject {
     /// State transitions: idle → planning → executing (skips confirming entirely)
     func startWalkthroughSilently(goal: String) async -> Bool {
         guard !isRunning else {
-            print("[Luma] WalkthroughEngine: startWalkthroughSilently ignored — engine already running")
+            LumaLogger.log("[Luma] WalkthroughEngine: startWalkthroughSilently ignored — engine already running")
             return false
         }
 
@@ -267,17 +267,17 @@ final class WalkthroughEngine: ObservableObject {
             )
 
             guard !walkthroughPlan.steps.isEmpty else {
-                print("[Luma] WalkthroughEngine: plan returned 0 steps — returning to idle")
+                LumaLogger.log("[Luma] WalkthroughEngine: plan returned 0 steps — returning to idle")
                 state = .idle
                 return false
             }
 
-            print("[Luma] WalkthroughEngine: silent start — \(walkthroughPlan.steps.count) step(s) planned")
+            LumaLogger.log("[Luma] WalkthroughEngine: silent start — \(walkthroughPlan.steps.count) step(s) planned")
             state = .executing(steps: walkthroughPlan.steps, currentIndex: 0)
             executeStep(walkthroughPlan.steps[0], allSteps: walkthroughPlan.steps)
             return true
         } catch {
-            print("[Luma] WalkthroughEngine: silent planning failed — \(error.localizedDescription)")
+            LumaLogger.log("[Luma] WalkthroughEngine: silent planning failed — \(error.localizedDescription)")
             state = .idle
             return false
         }
@@ -287,7 +287,7 @@ final class WalkthroughEngine: ObservableObject {
     /// Must be called while in the `.confirming` state.
     func confirmAndBeginWalkthrough() {
         guard case .confirming(let steps) = state, !steps.isEmpty else {
-            print("[Luma] WalkthroughEngine: confirmAndBeginWalkthrough called from wrong state")
+            LumaLogger.log("[Luma] WalkthroughEngine: confirmAndBeginWalkthrough called from wrong state")
             return
         }
 
@@ -299,7 +299,7 @@ final class WalkthroughEngine: ObservableObject {
     /// Used by OfflineGuideManager to run offline guides that don't need an API call.
     func executeSteps(_ steps: [WalkthroughStep]) {
         guard !steps.isEmpty else {
-            print("[Luma] WalkthroughEngine: executeSteps called with empty array — ignored")
+            LumaLogger.log("[Luma] WalkthroughEngine: executeSteps called with empty array — ignored")
             return
         }
         state = .executing(steps: steps, currentIndex: 0)
@@ -319,7 +319,7 @@ final class WalkthroughEngine: ObservableObject {
         cursorGuide.clearGuidance()
         stepsSinceLastClaudeVerification = 0
         state = .idle
-        print("[Luma] WalkthroughEngine: cancelled")
+        LumaLogger.log("[Luma] WalkthroughEngine: cancelled")
     }
 
     // MARK: - Step Lifecycle Cleanup
@@ -440,11 +440,11 @@ final class WalkthroughEngine: ObservableObject {
             nudgeTimer = nil
             isAIValidationInProgress = false
 
-            print("[Luma] WalkthroughEngine: typing step detected — waiting for '\(expectedTypingText)' (element capture deferred 1.5s)")
+            LumaLogger.log("[Luma] WalkthroughEngine: typing step detected — waiting for '\(expectedTypingText)' (element capture deferred 1.5s)")
         }
 
         let humanReadableStepNumber = step.index + 1
-        print("[Luma] WalkthroughEngine: step \(humanReadableStepNumber)/\(allSteps.count) — '\(step.instruction)' (gen \(stepGeneration))")
+        LumaLogger.log("[Luma] WalkthroughEngine: step \(humanReadableStepNumber)/\(allSteps.count) — '\(step.instruction)' (gen \(stepGeneration))")
 
         // 1. Speak the instruction so the user knows what to do
         ttsClient.speak("Step \(humanReadableStepNumber). \(step.instruction)")
@@ -502,13 +502,13 @@ final class WalkthroughEngine: ObservableObject {
             } else if let frontmostApp = NSWorkspace.shared.frontmostApplication {
                 targetPID = frontmostApp.processIdentifier
             } else {
-                print("[Luma] WalkthroughEngine: cannot start watching — no target app found")
+                LumaLogger.log("[Luma] WalkthroughEngine: cannot start watching — no target app found")
                 return
             }
         } else if let frontmostApp = NSWorkspace.shared.frontmostApplication {
             targetPID = frontmostApp.processIdentifier
         } else {
-            print("[Luma] WalkthroughEngine: cannot start watching — no target app found")
+            LumaLogger.log("[Luma] WalkthroughEngine: cannot start watching — no target app found")
             return
         }
 
@@ -545,7 +545,7 @@ final class WalkthroughEngine: ObservableObject {
         }, &newObserver)
 
         guard createResult == .success, let createdObserver = newObserver else {
-            print("[Luma] WalkthroughEngine: AXObserverCreate failed (error \(createResult.rawValue)) for PID \(targetPID)")
+            LumaLogger.log("[Luma] WalkthroughEngine: AXObserverCreate failed (error \(createResult.rawValue)) for PID \(targetPID)")
             return
         }
 
@@ -575,7 +575,7 @@ final class WalkthroughEngine: ObservableObject {
         CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(createdObserver), .commonModes)
         axObserver = createdObserver
 
-        print("[Luma] WalkthroughEngine: watching PID \(targetPID) for '\(step.elementName)'")
+        LumaLogger.log("[Luma] WalkthroughEngine: watching PID \(targetPID) for '\(step.elementName)'")
     }
 
     // MARK: - Mouse Event Monitoring
@@ -752,7 +752,7 @@ final class WalkthroughEngine: ObservableObject {
             // currentStepTypingTargetElement was intentionally left nil at step start.
             if currentStepTypingTargetElement == nil {
                 currentStepTypingTargetElement = currentlyFocusedElement
-                print("[Luma] Typing poller: capturing focused element after delay")
+                LumaLogger.log("[Luma] Typing poller: capturing focused element after delay")
             }
 
             // Collect typed text from all available AX sources. Rich text editors like
@@ -763,10 +763,10 @@ final class WalkthroughEngine: ObservableObject {
                 && currentValue.lowercased().contains(expectedTypingText.lowercased())
 
             // Log every tick as required — truncate long values (e.g. full Notes documents)
-            print("[Luma] Typing poll: current='\(String(currentValue.prefix(80)))' expected='\(expectedTypingText)' match=\(isMatch)")
+            LumaLogger.log("[Luma] Typing poll: current='\(String(currentValue.prefix(80)))' expected='\(expectedTypingText)' match=\(isMatch)")
 
             if isMatch && secondsSinceStepStart >= minimumTypingStepElapsedSeconds {
-                print("[Luma] WalkthroughEngine: typing step complete — '\(expectedTypingText)' found after \(String(format: "%.1f", secondsSinceStepStart))s")
+                LumaLogger.log("[Luma] WalkthroughEngine: typing step complete — '\(expectedTypingText)' found after \(String(format: "%.1f", secondsSinceStepStart))s")
                 // Clear the flag before advancing — advanceToNextStep guards on it,
                 // so we must clear it here (as the exclusive owner) before calling complete.
                 isTypingStepActive = false
@@ -777,7 +777,7 @@ final class WalkthroughEngine: ObservableObject {
             // Safety timeout: give up and advance so the walkthrough never stalls.
             // Timeout scales with expected text length — longer sentences get more time.
             if secondsSinceStepStart >= typingStepTimeoutSeconds(for: expectedTypingText) {
-                print("[Luma] WalkthroughEngine: typing step timed out after \(String(format: "%.0f", secondsSinceStepStart))s — advancing anyway")
+                LumaLogger.log("[Luma] WalkthroughEngine: typing step timed out after \(String(format: "%.0f", secondsSinceStepStart))s — advancing anyway")
                 isTypingStepActive = false
                 completeCurrentStep(steps: steps, currentIndex: currentIndex)
                 return
@@ -806,7 +806,7 @@ final class WalkthroughEngine: ObservableObject {
             // so we don't complete from a previous match that can no longer be verified.
             if axMatchDwellStartDate != nil {
                 axMatchDwellStartDate = nil
-                print("[Luma] WalkthroughEngine: AX poll dwell reset — focused element has no label")
+                LumaLogger.log("[Luma] WalkthroughEngine: AX poll dwell reset — focused element has no label")
             }
             return
         }
@@ -826,10 +826,10 @@ final class WalkthroughEngine: ObservableObject {
             if axMatchDwellStartDate == nil {
                 // First time we see this match — start the dwell clock
                 axMatchDwellStartDate = Date()
-                print("[Luma] WalkthroughEngine: AX poll dwell started on '\(elementLabel)'")
+                LumaLogger.log("[Luma] WalkthroughEngine: AX poll dwell started on '\(elementLabel)'")
             } else if Date().timeIntervalSince(axMatchDwellStartDate!) >= minimumAXMatchDwellSeconds {
                 // Match held continuously for the required dwell — safe to complete
-                print("[Luma] WalkthroughEngine: AX poll dwell complete on '\(elementLabel)' — step complete")
+                LumaLogger.log("[Luma] WalkthroughEngine: AX poll dwell complete on '\(elementLabel)' — step complete")
                 completeCurrentStep(steps: steps, currentIndex: currentIndex)
             }
         } else {
@@ -837,7 +837,7 @@ final class WalkthroughEngine: ObservableObject {
             // must hold for a full minimumAXMatchDwellSeconds before completing.
             if axMatchDwellStartDate != nil {
                 axMatchDwellStartDate = nil
-                print("[Luma] WalkthroughEngine: AX poll dwell reset — '\(elementLabel)' doesn't match '\(currentStep.elementName)'")
+                LumaLogger.log("[Luma] WalkthroughEngine: AX poll dwell reset — '\(elementLabel)' doesn't match '\(currentStep.elementName)'")
             }
         }
     }
@@ -878,7 +878,7 @@ final class WalkthroughEngine: ObservableObject {
         // Prefer title; fall back to description for elements that only have one
         let elementLabel = rawTitle.isEmpty ? rawDescription : rawTitle
 
-        print("[Luma] AX event: \(notification) on '\(elementLabel)'")
+        LumaLogger.log("[Luma] AX event: \(notification) on '\(elementLabel)'")
 
         // --- Typing step: delegate all completion to the polling timer ---
         // For typing steps, kAXValueChangedNotification fires on every individual keystroke,
@@ -911,7 +911,7 @@ final class WalkthroughEngine: ObservableObject {
                 // the step once minimumAXMatchDwellSeconds of continuous match have elapsed.
                 if axMatchDwellStartDate == nil {
                     axMatchDwellStartDate = Date()
-                    print("[Luma] WalkthroughEngine: fast-path dwell started on '\(elementLabel)'")
+                    LumaLogger.log("[Luma] WalkthroughEngine: fast-path dwell started on '\(elementLabel)'")
                 }
                 return
             }
@@ -981,7 +981,7 @@ final class WalkthroughEngine: ObservableObject {
         // Typing steps own their own completion path — AI validation must not race with
         // the polling timer. The flag is cleared by the poller before it calls complete.
         guard !isTypingStepActive else {
-            print("[Luma] WalkthroughEngine: AI validation blocked — typing step is active")
+            LumaLogger.log("[Luma] WalkthroughEngine: AI validation blocked — typing step is active")
             return
         }
 
@@ -1000,7 +1000,7 @@ final class WalkthroughEngine: ObservableObject {
             if let targetBundleID = step.appBundleID {
                 let frontmostBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
                 if frontmostBundleID?.lowercased() != targetBundleID.lowercased() {
-                    print("[Luma] WalkthroughEngine: skipping AI validation — frontmost '\(frontmostBundleID ?? "nil")' ≠ target '\(targetBundleID)'")
+                    LumaLogger.log("[Luma] WalkthroughEngine: skipping AI validation — frontmost '\(frontmostBundleID ?? "nil")' ≠ target '\(targetBundleID)'")
                     return
                 }
             }
@@ -1055,7 +1055,7 @@ final class WalkthroughEngine: ObservableObject {
             )
 
             let trimmedResponse = aiResponse.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-            print("[Luma] WalkthroughEngine AI validation: '\(trimmedResponse)'")
+            LumaLogger.log("[Luma] WalkthroughEngine AI validation: '\(trimmedResponse)'")
 
             // Post-API check — avoid acting on a result for a step that's already gone
             guard generation == currentStepGeneration,
@@ -1067,7 +1067,7 @@ final class WalkthroughEngine: ObservableObject {
             // Without this site-of-action check, a COMPLETED verdict from a slow API response
             // can advance the step while the polling timer is still waiting for typed text.
             guard !isTypingStepActive else {
-                print("[Luma] Ignoring AI validation result — typing step active")
+                LumaLogger.log("[Luma] Ignoring AI validation result — typing step active")
                 return
             }
 
@@ -1075,7 +1075,7 @@ final class WalkthroughEngine: ObservableObject {
                 completeCurrentStep(steps: steps, currentIndex: currentIndex)
             }
         } catch {
-            print("[Luma] WalkthroughEngine AI validation failed: \(error.localizedDescription)")
+            LumaLogger.log("[Luma] WalkthroughEngine AI validation failed: \(error.localizedDescription)")
         }
     }
 
@@ -1106,7 +1106,7 @@ final class WalkthroughEngine: ObservableObject {
             // Guard on the flag value captured before cleanup — isTypingStepActive is already
             // false by now because stopActiveStepAndCleanUp ran synchronously above.
             guard !wasTypingStepActiveAtCompletionTime else {
-                print("[Luma] Nudge timer blocked — typing step active")
+                LumaLogger.log("[Luma] Nudge timer blocked — typing step active")
                 return
             }
             self.advanceToNextStep(steps: capturedSteps, completedIndex: capturedIndex)
@@ -1124,7 +1124,7 @@ final class WalkthroughEngine: ObservableObject {
         // While a typing step is active, the polling timer is the exclusive owner of step
         // completion. Any advance call from a stale timer or notification must be dropped.
         guard !isTypingStepActive else {
-            print("[Luma] WalkthroughEngine: advanceToNextStep blocked — typing step is active")
+            LumaLogger.log("[Luma] WalkthroughEngine: advanceToNextStep blocked — typing step is active")
             return
         }
 
@@ -1133,7 +1133,7 @@ final class WalkthroughEngine: ObservableObject {
         // skipCurrentStep was called during the 0.8s sleep.
         guard case .executing(let currentSteps, let currentIndex) = state,
               currentIndex == completedIndex else {
-            print("[Luma] WalkthroughEngine: advanceToNextStep dropped (state changed before advancing)")
+            LumaLogger.log("[Luma] WalkthroughEngine: advanceToNextStep dropped (state changed before advancing)")
             return
         }
 
@@ -1191,7 +1191,7 @@ final class WalkthroughEngine: ObservableObject {
         // but a Task already dispatched from the timer callback may still be in-flight.
         // Check isTypingStepActive before anything else so no nudge logic runs at all.
         guard !isTypingStepActive else {
-            print("[Luma] Nudge timer blocked — typing step active")
+            LumaLogger.log("[Luma] Nudge timer blocked — typing step active")
             return
         }
 
@@ -1395,7 +1395,7 @@ final class WalkthroughEngine: ObservableObject {
     /// Uses NudgeEngine for the spoken "step complete" message — no API call for routine advances.
     func handleStepSuccess() {
         guard !isTypingStepActive else {
-            print("[Luma] WalkthroughEngine: handleStepSuccess blocked — typing step is active")
+            LumaLogger.log("[Luma] WalkthroughEngine: handleStepSuccess blocked — typing step is active")
             return
         }
 
@@ -1434,7 +1434,7 @@ final class WalkthroughEngine: ObservableObject {
         let capturedGeneration = currentStepGeneration
         let currentStep = steps[currentIndex]
 
-        print("[Luma] WalkthroughEngine: escalating to Claude after 3 nudges — step \(currentIndex + 1)")
+        LumaLogger.log("[Luma] WalkthroughEngine: escalating to Claude after 3 nudges — step \(currentIndex + 1)")
 
         Task {
             await validateStepCompletionViaAIScreenshot(
@@ -1454,7 +1454,7 @@ final class WalkthroughEngine: ObservableObject {
         let capturedGeneration = currentStepGeneration
         let currentStep = steps[currentIndex]
 
-        print("[Luma] WalkthroughEngine: periodic Claude verification at step \(currentIndex + 1) (every \(claudeVerificationInterval) steps)")
+        LumaLogger.log("[Luma] WalkthroughEngine: periodic Claude verification at step \(currentIndex + 1) (every \(claudeVerificationInterval) steps)")
 
         Task {
             await validateStepCompletionViaAIScreenshot(

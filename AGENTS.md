@@ -77,6 +77,7 @@ The app calls external APIs directly using keys stored in the macOS Keychain. Ke
 | `AppBundleConfiguration.swift` | ~28 | Runtime configuration reader for keys stored in the app bundle Info.plist. |
 | `AccountManager.swift` | ~107 | Manages local user account persistence via UserDefaults. Owns `LumaAccount` model with username, display name, and avatar initials. Provides singleton manager with create, update, and delete lifecycle methods. Includes `LumaAvatarView` for displaying user initials using LumaTheme accent colors. |
 | `PostOnboardingTutorialManager.swift` | ~80 | Drives a 5-step post-onboarding walkthrough. Runs once after onboarding completes, highlights panel UI elements with a pulse ring, and auto-advances. Completion persisted in UserDefaults. |
+| `LumaLogger.swift` | ~120 | Thread-safe file-based logger. Writes all `[Luma]`, `[LIPE]`, `[LumaMobileNet]`, and `[LumaML]` messages to `~/Library/Logs/Luma/luma.log`. Auto-rotates at 2 MB (backup: `luma.log.1`). Works in Debug and Release. Use `LumaLogger.log()` instead of `print()` for all tagged diagnostic output. |
 
 ## Build & Run
 

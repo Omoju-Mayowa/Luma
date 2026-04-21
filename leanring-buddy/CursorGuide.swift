@@ -54,10 +54,10 @@ final class CursorGuide {
     /// Tries the target app (if bundleID given) then the menu bar, then the frontmost app.
     /// Luma never moves the OS cursor — only the blue overlay cursor animates.
     func pointAtElement(withTitle elementTitle: String, inApp bundleID: String?, bubbleText: String? = nil) async {
-        print("[Luma] CursorGuide.pointAt() — target='\(elementTitle)' bundleID='\(bundleID ?? "any")'")
+        LumaLogger.log("[Luma] CursorGuide.pointAt() — target='\(elementTitle)' bundleID='\(bundleID ?? "any")'")
 
         guard AXIsProcessTrusted() else {
-            print("[Luma] CursorGuide: aborting — Accessibility permission not granted.")
+            LumaLogger.log("[Luma] CursorGuide: aborting — Accessibility permission not granted.")
             return
         }
 
@@ -81,7 +81,7 @@ final class CursorGuide {
         }
 
         guard let foundElement = bestElement else {
-            print("[Luma] CursorGuide: no element matching '\(elementTitle)' found anywhere")
+            LumaLogger.log("[Luma] CursorGuide: no element matching '\(elementTitle)' found anywhere")
             return
         }
 
@@ -126,10 +126,10 @@ final class CursorGuide {
         // Check for Task cancellation before starting expensive work
         guard !Task.isCancelled else { return }
 
-        print("[Luma] CursorGuide.pointAtElementViaAIScreenshot() — target='\(elementTitle)'")
+        LumaLogger.log("[Luma] CursorGuide.pointAtElementViaAIScreenshot() — target='\(elementTitle)'")
 
         guard AXIsProcessTrusted() else {
-            print("[Luma] CursorGuide: aborting — Accessibility permission not granted.")
+            LumaLogger.log("[Luma] CursorGuide: aborting — Accessibility permission not granted.")
             return
         }
 
@@ -182,7 +182,7 @@ final class CursorGuide {
 
             guard !Task.isCancelled else { return }
 
-            print("[Luma] CursorGuide AI pointing response: \(aiResponse)")
+            LumaLogger.log("[Luma] CursorGuide AI pointing response: \(aiResponse)")
 
             if let pointingResult = parseAIPointingResponse(aiResponse, screenCaptureCount: screenCaptures.count) {
                 let targetScreenCapture = screenCaptures[pointingResult.screenCaptureIndex]
@@ -195,12 +195,12 @@ final class CursorGuide {
             }
         } catch {
             if Task.isCancelled { return }
-            print("[Luma] CursorGuide AI screenshot pointing failed: \(error.localizedDescription)")
+            LumaLogger.log("[Luma] CursorGuide AI screenshot pointing failed: \(error.localizedDescription)")
         }
 
         // Fallback: AX tree search when AI pointing fails or the Task was cancelled before move
         guard !Task.isCancelled else { return }
-        print("[Luma] CursorGuide: falling back to AX tree search for '\(elementTitle)'")
+        LumaLogger.log("[Luma] CursorGuide: falling back to AX tree search for '\(elementTitle)'")
         await pointAtElement(withTitle: elementTitle, inApp: bundleID, bubbleText: bubbleText)
     }
 
@@ -279,7 +279,7 @@ final class CursorGuide {
     /// which triggers the Luma cursor overlay to animate to the target.
     /// Luma NEVER moves the OS cursor — only the blue overlay cursor animates.
     private func notifyOverlay(appKitPoint: CGPoint, bubbleText: String? = nil) {
-        print("[Luma] CursorGuide: notifying overlay → AppKit \(appKitPoint)")
+        LumaLogger.log("[Luma] CursorGuide: notifying overlay → AppKit \(appKitPoint)")
         var userInfo: [String: Any] = [
             CursorGuide.targetPointUserInfoKey: NSValue(point: appKitPoint)
         ]
@@ -333,9 +333,9 @@ final class CursorGuide {
             .filter { $0.score > 0 }
             .sorted { $0.score > $1.score }
 
-        print("[Luma] Element search '\(query)': \(scoredElements.count) candidate(s)")
+        LumaLogger.log("[Luma] Element search '\(query)': \(scoredElements.count) candidate(s)")
         for candidate in scoredElements.prefix(3) {
-            print("[Luma]   '\(candidate.collected.title)' role=\(candidate.collected.role) score=\(candidate.score)")
+            LumaLogger.log("[Luma]   '\(candidate.collected.title)' role=\(candidate.collected.role) score=\(candidate.score)")
         }
 
         guard let bestMatch = scoredElements.first else { return nil }
@@ -377,7 +377,7 @@ final class CursorGuide {
             .filter { $0.score > 0 }
             .sorted { $0.score > $1.score }
 
-        print("[Luma] Menu bar search '\(query)': \(scoredElements.count) candidate(s)")
+        LumaLogger.log("[Luma] Menu bar search '\(query)': \(scoredElements.count) candidate(s)")
 
         guard let bestMatch = scoredElements.first else { return nil }
         return (bestMatch.collected.element, bestMatch.collected.axFrame)

@@ -55,7 +55,7 @@ final class LumaMobileNetDetector {
     private func loadModelIfAvailable() {
         guard let modelURL = Bundle.main.url(forResource: "MobileNetV2", withExtension: "mlmodelc")
                ?? Bundle.main.url(forResource: "MobileNetV2", withExtension: "mlmodel") else {
-            print("[LumaMobileNet] MobileNetV2 not found in bundle — Layer 2 validation disabled. Layer 1 Vision requests still active.")
+            LumaLogger.log("[LumaMobileNet] MobileNetV2 not found in bundle — Layer 2 validation disabled. Layer 1 Vision requests still active.")
             return
         }
 
@@ -63,9 +63,9 @@ final class LumaMobileNetDetector {
             let mlModel = try MLModel(contentsOf: modelURL)
             vnCoreMLModel = try VNCoreMLModel(for: mlModel)
             isModelAvailable = true
-            print("[LumaMobileNet] MobileNetV2 loaded from \(modelURL.lastPathComponent) — Layer 2 active")
+            LumaLogger.log("[LumaMobileNet] MobileNetV2 loaded from \(modelURL.lastPathComponent) — Layer 2 active")
         } catch {
-            print("[LumaMobileNet] Failed to load MobileNetV2: \(error.localizedDescription)")
+            LumaLogger.log("[LumaMobileNet] Failed to load MobileNetV2: \(error.localizedDescription)")
         }
     }
 
@@ -125,7 +125,7 @@ final class LumaMobileNetDetector {
             do {
                 try imageRequestHandler.perform([textRecognitionRequest, rectangleDetectionRequest])
             } catch {
-                print("[LumaMobileNet] Layer 1 Vision requests failed: \(error.localizedDescription)")
+                LumaLogger.log("[LumaMobileNet] Layer 1 Vision requests failed: \(error.localizedDescription)")
                 continuation.resume(returning: [])
                 return
             }
@@ -181,9 +181,9 @@ final class LumaMobileNetDetector {
             }
 
             let sortedResults = detectedResults.sorted { $0.confidence > $1.confidence }
-            print("[LumaMobileNet] Layer 1: \(sortedResults.count) match(es) for '\(searchQuery)'")
+            LumaLogger.log("[LumaMobileNet] Layer 1: \(sortedResults.count) match(es) for '\(searchQuery)'")
             for result in sortedResults.prefix(3) {
-                print("[LumaMobileNet]   '\(result.label)' confidence=\(String(format: "%.2f", result.confidence))")
+                LumaLogger.log("[LumaMobileNet]   '\(result.label)' confidence=\(String(format: "%.2f", result.confidence))")
             }
             continuation.resume(returning: sortedResults)
         }
@@ -243,7 +243,7 @@ final class LumaMobileNetDetector {
                     if topClassConfidence >= 0.35 {
                         // MobileNet confirms meaningful visual content at this coordinate.
                         validatedResult = layer1Result
-                        print("[LumaMobileNet] Layer 2: '\(layer1Result.label)' validated (MobileNet \(String(format: "%.2f", topClassConfidence)))")
+                        LumaLogger.log("[LumaMobileNet] Layer 2: '\(layer1Result.label)' validated (MobileNet \(String(format: "%.2f", topClassConfidence)))")
                     } else {
                         // MobileNet found nothing meaningful — downgrade below the Layer 3 trigger
                         // threshold (0.5) so LumaImageProcessingEngine.scanVisual fires Layer 3.
@@ -253,7 +253,7 @@ final class LumaMobileNetDetector {
                             confidence: layer1Result.confidence * 0.5,
                             screenFrame: layer1Result.screenFrame
                         )
-                        print("[LumaMobileNet] Layer 2: '\(layer1Result.label)' downgraded (MobileNet \(String(format: "%.2f", topClassConfidence)))")
+                        LumaLogger.log("[LumaMobileNet] Layer 2: '\(layer1Result.label)' downgraded (MobileNet \(String(format: "%.2f", topClassConfidence)))")
                     }
 
                     resultsAccessQueue.async {
@@ -267,7 +267,7 @@ final class LumaMobileNetDetector {
                     do {
                         try cropValidationHandler.perform([cropValidationRequest])
                     } catch {
-                        print("[LumaMobileNet] Layer 2 validation error for '\(layer1Result.label)': \(error.localizedDescription)")
+                        LumaLogger.log("[LumaMobileNet] Layer 2 validation error for '\(layer1Result.label)': \(error.localizedDescription)")
                         // Validation failed — pass result through rather than silently discarding it.
                         resultsAccessQueue.async {
                             validatedResults.append(layer1Result)

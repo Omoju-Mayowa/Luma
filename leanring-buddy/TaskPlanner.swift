@@ -28,7 +28,7 @@ final class TaskPlanner {
 
         for attemptNumber in 0...maximumRetryAttempts {
             if attemptNumber > 0 {
-                print("[Luma] TaskPlanner: retrying step generation (attempt \(attemptNumber + 1))")
+                LumaLogger.log("[Luma] TaskPlanner: retrying step generation (attempt \(attemptNumber + 1))")
             }
 
             do {
@@ -40,7 +40,7 @@ final class TaskPlanner {
                 return parsedPlan
             } catch {
                 lastParseError = error
-                print("[Luma] TaskPlanner: parse failed on attempt \(attemptNumber + 1): \(error.localizedDescription)")
+                LumaLogger.log("[Luma] TaskPlanner: parse failed on attempt \(attemptNumber + 1): \(error.localizedDescription)")
             }
         }
 
@@ -107,7 +107,7 @@ final class TaskPlanner {
             onTextChunk: { _ in }
         )
 
-        print("[Luma] TaskPlanner raw AI response: \(responseText)")
+        LumaLogger.log("[Luma] TaskPlanner raw AI response: \(responseText)")
 
         return responseText
     }
@@ -153,7 +153,7 @@ final class TaskPlanner {
         do {
             let decoder = JSONDecoder()
             let decodedPlan = try decoder.decode(WalkthroughPlan.self, from: jsonData)
-            print("[Luma] TaskPlanner: parsed \(decodedPlan.steps.count) step(s) from AI response")
+            LumaLogger.log("[Luma] TaskPlanner: parsed \(decodedPlan.steps.count) step(s) from AI response")
             return decodedPlan
         } catch {
             throw NSError(

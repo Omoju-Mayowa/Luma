@@ -96,9 +96,9 @@ final class LumaImageProcessingEngine {
             .first(where: { $0.confidence >= minimumConfidenceThreshold })
 
         if let best = bestCandidate {
-            print("[LIPE] Best match: '\(best.name)' confidence: \(String(format: "%.2f", best.confidence)) source: \(best.source)")
+            LumaLogger.log("[LIPE] Best match: '\(best.name)' confidence: \(String(format: "%.2f", best.confidence)) source: \(best.source)")
         } else {
-            print("[LIPE] No candidate above threshold \(minimumConfidenceThreshold) for query '\(query)'")
+            LumaLogger.log("[LIPE] No candidate above threshold \(minimumConfidenceThreshold) for query '\(query)'")
         }
 
         return bestCandidate
@@ -124,7 +124,7 @@ final class LumaImageProcessingEngine {
                 DispatchQueue.main.async { move() }
             } else {
                 #if DEBUG
-                print("[LIPE] Coordinate (\(point.x), \(point.y)) rejected by MobileNet — confidence: \(String(format: "%.2f", result.confidence))")
+                LumaLogger.log("[LIPE] Coordinate (\(point.x), \(point.y)) rejected by MobileNet — confidence: \(String(format: "%.2f", result.confidence))")
                 #endif
                 self?.requestCoordinateRetry(for: point)
             }
@@ -136,7 +136,7 @@ final class LumaImageProcessingEngine {
     /// WalkthroughEngine's nudge timer and periodic AI validation can handle recovery
     /// without this layer attempting a redundant API call.
     private func requestCoordinateRetry(for rejectedPoint: CGPoint) {
-        print("[LIPE] Coordinate retry requested for (\(rejectedPoint.x), \(rejectedPoint.y)) — deferring to WalkthroughEngine nudge cycle")
+        LumaLogger.log("[LIPE] Coordinate retry requested for (\(rejectedPoint.x), \(rejectedPoint.y)) — deferring to WalkthroughEngine nudge cycle")
         // The WalkthroughEngine nudge timer will re-point the cursor on its next tick.
         // No action needed here — not calling move() is the correct no-op.
     }
@@ -169,7 +169,7 @@ final class LumaImageProcessingEngine {
                 let mainScreenHeight = NSScreen.main?.frame.height ?? 0
                 let centerX = freshFrame.midX
                 let centerY = mainScreenHeight - freshFrame.origin.y - freshFrame.size.height / 2
-                print("[LIPE] Corrected center: (\(centerX), \(centerY)) from AX frame (\(freshFrame.origin.x), \(freshFrame.origin.y), \(freshFrame.width), \(freshFrame.height))")
+                LumaLogger.log("[LIPE] Corrected center: (\(centerX), \(centerY)) from AX frame (\(freshFrame.origin.x), \(freshFrame.origin.y), \(freshFrame.width), \(freshFrame.height))")
                 screenPoint = CGPoint(x: centerX, y: centerY)
             } else {
                 // Live read returned an empty frame — fall back to the scan-time snapshot
@@ -179,7 +179,7 @@ final class LumaImageProcessingEngine {
             screenPoint = toScreenPoint(candidate.frame)
         }
 
-        print("[LIPE] Pointing Luma cursor to \(screenPoint) for '\(candidate.name)'")
+        LumaLogger.log("[LIPE] Pointing Luma cursor to \(screenPoint) for '\(candidate.name)'")
 
         var userInfo: [String: Any] = [
             CursorGuide.targetPointUserInfoKey: NSValue(point: screenPoint)
@@ -267,9 +267,9 @@ final class LumaImageProcessingEngine {
 
         let topScored = scored.prefix(5)
 
-        print("[LIPE] AX scan '\(query)': \(topScored.count) candidate(s) of \(collectedElements.count) total")
+        LumaLogger.log("[LIPE] AX scan '\(query)': \(topScored.count) candidate(s) of \(collectedElements.count) total")
         for candidate in topScored {
-            print("[LIPE]   AX '\(candidate.element.title)' role=\(candidate.element.role) score=\(candidate.score)")
+            LumaLogger.log("[LIPE]   AX '\(candidate.element.title)' role=\(candidate.element.role) score=\(candidate.score)")
         }
 
         return topScored.map { item in
@@ -393,14 +393,14 @@ final class LumaImageProcessingEngine {
             userPrompt: "Find the UI element named \"\(searchQuery)\" and return its pixel coordinates.",
             maxOutputTokens: 32
         ) else {
-            print("[LIPE] Layer 3: APIClient call failed for '\(searchQuery)'")
+            LumaLogger.log("[LIPE] Layer 3: APIClient call failed for '\(searchQuery)'")
             return nil
         }
 
-        print("[LIPE] Layer 3 response for '\(searchQuery)': \(apiResponse)")
+        LumaLogger.log("[LIPE] Layer 3 response for '\(searchQuery)': \(apiResponse)")
 
         guard let pixelCoordinate = Self.parsePointTagFromAPIResponse(apiResponse) else {
-            print("[LIPE] Layer 3: no valid [POINT:x,y] tag in response for '\(searchQuery)'")
+            LumaLogger.log("[LIPE] Layer 3: no valid [POINT:x,y] tag in response for '\(searchQuery)'")
             return nil
         }
 
@@ -417,7 +417,7 @@ final class LumaImageProcessingEngine {
             height: estimatedBoxSize.height
         )
 
-        print("[LIPE] Layer 3: '\(searchQuery)' at Quartz (\(Int(quartzX)), \(Int(quartzY))) — \(Int(estimatedBoxSize.width))×\(Int(estimatedBoxSize.height))pt estimated box")
+        LumaLogger.log("[LIPE] Layer 3: '\(searchQuery)' at Quartz (\(Int(quartzX)), \(Int(quartzY))) — \(Int(estimatedBoxSize.width))×\(Int(estimatedBoxSize.height))pt estimated box")
 
         // confidence=0.55: slightly above the Layer 3 trigger threshold (0.5) so this candidate
         // participates in crossValidate. If an AX candidate overlaps the estimated box, the merged

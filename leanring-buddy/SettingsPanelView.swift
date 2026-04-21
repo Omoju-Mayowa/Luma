@@ -897,6 +897,8 @@ private struct GeneralTabView: View {
                 Divider()
                 pinManagementSection
                 Divider()
+                logsSection
+                Divider()
                 aboutSection
             }
             .padding(LumaTheme.Spacing.xl)
@@ -979,6 +981,38 @@ private struct GeneralTabView: View {
                 }
             }
         }
+    }
+
+    // MARK: Logs Section
+
+    private var logsSection: some View {
+        VStack(alignment: .leading, spacing: LumaTheme.Spacing.sm) {
+
+            Text("Logs")
+                .font(LumaTheme.Typography.headline)
+                .foregroundColor(LumaTheme.Colors.primaryText)
+
+            Text("Copy the diagnostic log file to clipboard for sharing or debugging.")
+                .font(LumaTheme.Typography.body)
+                .foregroundColor(LumaTheme.Colors.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button("Copy Logs") {
+                copyLogsToClipboard()
+            }
+            .buttonStyle(.plain)
+            .font(LumaTheme.Typography.body)
+            .foregroundColor(LumaTheme.Colors.accent)
+            .onHover { isHovering in
+                if isHovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+            }
+        }
+    }
+
+    private func copyLogsToClipboard() {
+        let logContents = LumaLogger.readCurrentLogFileContents() ?? "(no logs found)"
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(logContents, forType: .string)
     }
 
     // MARK: About Section

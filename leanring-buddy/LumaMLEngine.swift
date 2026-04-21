@@ -80,9 +80,9 @@ final class LumaMLEngine {
 
         #if DEBUG
         if compressedText != rawTranscript.lowercased() {
-            print("[LumaML] Compressed prompt:")
-            print("[LumaML]   RAW:        \(rawTranscript)")
-            print("[LumaML]   COMPRESSED: \(compressedText)")
+            LumaLogger.log("[LumaML] Compressed prompt:")
+            LumaLogger.log("[LumaML]   RAW:        \(rawTranscript)")
+            LumaLogger.log("[LumaML]   COMPRESSED: \(compressedText)")
         }
         #endif
 
