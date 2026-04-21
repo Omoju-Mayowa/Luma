@@ -68,7 +68,7 @@ The entire system is built to be frugal with API calls. Most of what Luma does �
 ### Security & Privacy
 - **Keychain Storage** — All API keys are stored in macOS Keychain with `kSecAttrAccessibleAfterFirstUnlock`. After granting access once, Luma reads keys silently — no repeated permission dialogs per session.
 - **PIN Security** — Protect settings with a 6-digit PIN stored in Keychain. Numeric keypad UI with shake animation on wrong entry.
-- **Zero Telemetry** — No analytics, no crash reporting, no usage data. Nothing leaves your Mac except your API calls to your chosen provider.
+- **Analytics** — Anonymous usage events (interactions, errors) are sent to PostHog. No API keys, no transcripts, no personal identifiers. All events are anonymized at the SDK level.
 - **Permissions Recovery** — If screen recording or accessibility permission is granted after launch, Luma detects the change and re-initialises the overlay without requiring an app restart.
 
 ---
@@ -85,10 +85,11 @@ open leanring-buddy.xcodeproj
 
 Hit `⌘R` to build and run. The onboarding wizard walks you through everything:
 
-1. **Username** — Sets your display name and avatar initials
-2. **PIN** (optional) — Protects your settings panel
-3. **API Profile** — Enter your provider, API key, and select a model
-4. **Permissions** — Grant Accessibility and Screen Recording access
+1. **Welcome** — Introduction to Luma
+2. **Username** — Sets your display name and avatar initials
+3. **PIN** (optional) — Protects your settings panel
+4. **API Profile** — Enter your provider, API key, and select a model
+5. **Done** — Grant Microphone, Screen Recording, and Accessibility permissions
 
 No Cloudflare worker, no backend deployment, no terminal commands beyond the clone.
 
@@ -208,7 +209,7 @@ Luma/
 ├── UI/
 │   ├── CompanionPanelView.swift             # Main companion panel
 │   ├── CompanionBubbleWindow.swift          # Cursor-following floating bubble
-│   ├── OnboardingWizardView.swift           # 4-step first launch wizard
+│   ├── OnboardingWizardView.swift           # 5-step first launch wizard
 │   ├── SettingsPanelView.swift              # Tabbed settings (Account, Profiles, Model, General)
 │   └── PINEntryView.swift                   # Numeric PIN keypad with shake animation
 │
@@ -217,7 +218,7 @@ Luma/
 │   └── CustomCursorManager.swift            # Black teardrop cursor
 │
 ├── TTS/
-│   └── NativeTTSClient.swift                # AVSpeechSynthesizer + coordinate string sanitizer
+│   └── ElevenLabsTTSClient.swift            # AVSpeechSynthesizer wrapper (NativeTTSClient class) + coordinate string sanitizer
 │
 ├── Theme/
 │   ├── LumaTheme.swift                      # Design tokens (colors, typography, spacing, radii)
@@ -266,7 +267,7 @@ Luma is engineered to minimise API spend without sacrificing capability. Most op
 - [x] Multi-profile API config with Keychain storage
 - [x] Smart model switcher (OpenRouter free/paid)
 - [x] PIN-secured settings panel
-- [x] 4-step onboarding wizard
+- [x] 5-step onboarding wizard
 - [x] Native TTS with coordinate string sanitization
 - [x] Voice input via Apple Speech (fully on-device)
 - [x] Prompt compression — 50-60% token reduction offline
@@ -299,7 +300,7 @@ Luma is engineered to minimise API spend without sacrificing capability. Most op
 
 ## Privacy
 
-API keys live exclusively in macOS Keychain — never in UserDefaults, never in plaintext, never logged. After the first access grant, keys are read silently with `kSecAttrAccessibleAfterFirstUnlock`. Conversations go directly from your Mac to your chosen provider — Luma has no servers that touch your messages. Voice transcription runs fully on-device via Apple Speech. Screen access via the Accessibility API is only active during a walkthrough. No analytics. No telemetry. No exceptions.
+API keys live exclusively in macOS Keychain — never in UserDefaults, never in plaintext, never logged. After the first access grant, keys are read silently with `kSecAttrAccessibleAfterFirstUnlock`. Conversations go directly from your Mac to your chosen provider — Luma has no servers that touch your messages. Voice transcription runs fully on-device via Apple Speech. Screen access via the Accessibility API is only active during a walkthrough. Anonymous usage events (no API keys, no transcripts, no personal identifiers) are sent to PostHog for product analytics.
 
 ---
 
