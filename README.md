@@ -101,8 +101,9 @@ Download `MobileNetV2.mlmodel` from [Apple's Core ML model gallery](https://deve
 
 ### The Full Pipeline
 
-<img src="assets/luma_flowchart_v3.svg" alt="Luma Pipeline Flowchart" />
+<img src="assets/luma_flowchart_v7.svg" alt="Luma Pipeline Flowchart Version 7" />
 
+### Written Process
 ```
 User speaks
   ↓
