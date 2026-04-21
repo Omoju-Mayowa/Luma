@@ -320,7 +320,7 @@ final class LumaImageProcessingEngine {
         // Score and cap visual-only candidates at 0.4 confidence (visual results without AX
         // confirmation are less precise — the cap prevents them dominating over AX results
         // but still lets cross-validation boost them when AX agrees).
-        let scoredVisualCandidates: [ElementCandidate] = detectionResults
+        let scoredVisualCandidates: [ElementCandidate] = Array(detectionResults
             .filter { $0.confidence > 0.3 }
             .map { result -> ElementCandidate in
                 let labelMatchScore = scoreLabel(result.label, against: query)
@@ -338,7 +338,7 @@ final class LumaImageProcessingEngine {
                 )
             }
             .sorted { $0.confidence > $1.confidence }
-            .prefix(5)
+            .prefix(5))
 
         // Fire Layer 3 when no on-device result has sufficient confidence.
         // We check the raw detection confidence (before the 0.4 visual-only cap) so we do NOT
