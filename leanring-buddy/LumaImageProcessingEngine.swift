@@ -106,27 +106,33 @@ final class LumaImageProcessingEngine {
 
     // MARK: - Coordinate Validation Gate
 
-    /// Validates `point` via MobileNetV2 before animating the cursor, then calls `move`
-    /// on the main thread if the coordinate passes. If MobileNetV2 rejects the coordinate,
-    /// calls `requestCoordinateRetry(for:)` instead of moving the cursor.
+    /// Validates that `point` has visible visual content (via MobileNetV2 presence check)
+    /// before animating the cursor. Calls `move` when content is confirmed.
+    /// If MobileNetV2 finds a blank region at the coordinate, calls
+    /// `requestCoordinateRetry(for:)` instead of moving the cursor.
+    ///
+    /// MobileNetV2 is used as a PRESENCE CHECK ONLY — it does not match element names.
+    /// A top ImageNet confidence > 0.1 (meaning something is visually there, not blank)
+    /// is sufficient to pass. The Accessibility API owns all element name matching.
     ///
     /// - Parameters:
     ///   - point: The screen coordinate (AppKit, bottom-left origin) to validate.
-    ///   - screenshot: The current screen capture used for region classification.
-    ///   - move: Closure to invoke when the coordinate passes validation.
+    ///   - screenshot: The current screen capture used for region presence check.
+    ///   - move: Closure to invoke when visual content is confirmed at the coordinate.
     func validateAndMove(to point: CGPoint, screenshot: NSImage, then move: @escaping () -> Void) {
-        LumaMLEngine.shared.validateCoordinate(
-            x: point.x,
-            y: point.y,
-            screenshot: screenshot
-        ) { [weak self] result in
-            if result.passed {
-                DispatchQueue.main.async { move() }
+        guard let cgImage = screenshot.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            // Cannot convert screenshot — pass through rather than blocking cursor movement.
+            move()
+            return
+        }
+
+        Task {
+            let hasContent = await LumaMobileNetDetector.shared.coordinateHasContent(at: point, in: cgImage)
+            if hasContent {
+                move()
             } else {
-                #if DEBUG
-                LumaLogger.log("[LIPE] Coordinate (\(point.x), \(point.y)) rejected by MobileNet — confidence: \(String(format: "%.2f", result.confidence))")
-                #endif
-                self?.requestCoordinateRetry(for: point)
+                LumaLogger.log("[LIPE] Coordinate (\(point.x), \(point.y)) has no visible content — skipping cursor move")
+                self.requestCoordinateRetry(for: point)
             }
         }
     }

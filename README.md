@@ -12,7 +12,7 @@ Watches your screen, guides you step by step, and teaches you anything — right
 ![macOS](https://img.shields.io/badge/macOS-14.0%2B-black?style=flat-square)
 ![Swift](https://img.shields.io/badge/Swift-5.9-black?style=flat-square)
 ![Claude](https://img.shields.io/badge/Powered%20by-Claude%20AI-black?style=flat-square)
-![License](https://img.shields.io/badge/License-Proprietary-black?style=flat-square)
+![License](https://img.shields.io/badge/License-MIT-black?style=flat-square)
 ![Status](https://img.shields.io/badge/Status-v2.2.1-green?style=flat-square)
 
 <img src="assets/luma-demo.png" alt="Luma Demo" width="720" />
@@ -304,6 +304,12 @@ API keys live exclusively in macOS Keychain — never in UserDefaults, never in 
 
 ---
 
+## Contributing
+
+Contributions are welcome. Fork the repo, make your changes, and open a pull request. For major changes please open an issue first to discuss what you'd like to change.
+
+---
+
 ## Developer
 
 **Omoju Oluwamayowa** (Nox) — Full-stack developer & UI/UX designer, Lagos, Nigeria.  
@@ -313,8 +319,15 @@ Built solo in Swift for the Claude AI Hackathon at UNILAG, April 2026.
 
 ## License
 
-Copyright © 2026 Omoju Oluwamayowa (Nox). All rights reserved.  
-This software is proprietary. You may not distribute, sublicense, or use it commercially without explicit written permission from the author.
+MIT License
+
+Copyright © 2026 Omoju Oluwamayowa (Nox)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ---
 

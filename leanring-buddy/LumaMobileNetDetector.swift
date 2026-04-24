@@ -12,11 +12,15 @@
 //    causing every AX candidate to receive a spurious +0.3 cross-validation boost
 //    in LumaImageProcessingEngine.crossValidate.
 //
-//  Layer 2 (runs when Layer 1 finds a match): MobileNetV2 classification
+//  Layer 2 (runs when Layer 1 finds a match): MobileNetV2 presence check
 //    Crops a 160×160 region around the Layer 1 bounding box center and runs
-//    MobileNetV2. Results where MobileNet top-class confidence < 0.35 are
-//    downgraded (confidence ×= 0.5) so they fall below the Layer 3 trigger
-//    threshold of 0.5. Pass-through when MobileNetV2.mlmodelc is not bundled.
+//    MobileNetV2 as a PRESENCE CHECK ONLY — not for name matching.
+//    MobileNetV2 is an ImageNet classifier: it cannot match macOS UI element names.
+//    Its only role is confirming that something visually exists at the coordinate
+//    (any ImageNet class confidence > 0.1 = something is there, not a blank region).
+//    Layer 1 results where no visual content is detected are downgraded (confidence ×= 0.5)
+//    so they fall below the Layer 3 trigger threshold of 0.5.
+//    Pass-through when MobileNetV2.mlmodelc is not bundled.
 //
 //  Layer 3 (last resort): Lives in LumaImageProcessingEngine.scanVisual.
 //    Triggered when this detector returns no result above 0.5 confidence.
@@ -189,99 +193,106 @@ final class LumaMobileNetDetector {
         }
     }
 
-    // MARK: - Layer 2: MobileNetV2 Crop Validation
+    // MARK: - Coordinate Presence Check (public API)
 
-    /// For each Layer 1 result, crops a 160×160 region around the bounding box center
-    /// and runs MobileNetV2. Results where top-class confidence < 0.35 are downgraded
-    /// (confidence ×= 0.5) to fall below the Layer 3 trigger threshold of 0.5.
+    /// Checks whether a coordinate in `image` has any visible visual content.
+    ///
+    /// Crops a 160×160 region centred on `point`, runs MobileNetV2, and returns
+    /// true if the top ImageNet classification confidence exceeds 0.1 — indicating
+    /// that something visual (not a blank/empty region) exists at that location.
+    ///
+    /// This is a PRESENCE CHECK ONLY. MobileNetV2 is an ImageNet photo classifier and
+    /// cannot match macOS UI element names. The Accessibility API owns all name matching.
+    ///
+    /// Returns true when MobileNetV2 is not bundled (pass-through: assume content present).
+    func coordinateHasContent(at point: CGPoint, in image: CGImage) async -> Bool {
+        guard isModelAvailable, let coreMLModel = vnCoreMLModel else {
+            // Model not bundled — assume content is present so cursor movement is never blocked.
+            return true
+        }
+
+        let cropRadius: CGFloat = 80
+        let cropRect = CGRect(
+            x: max(0, point.x - cropRadius),
+            y: max(0, point.y - cropRadius),
+            width: cropRadius * 2,
+            height: cropRadius * 2
+        )
+
+        guard let croppedRegion = image.cropping(to: cropRect) else {
+            // Crop failed (coordinate out of image bounds) — assume content is present.
+            return true
+        }
+
+        return await withCheckedContinuation { continuation in
+            // Create a fresh VNCoreMLRequest — VNCoreMLRequest is NOT thread-safe when
+            // shared across concurrent VNImageRequestHandler calls.
+            let presenceCheckRequest = VNCoreMLRequest(model: coreMLModel) { request, _ in
+                let observations = request.results as? [VNClassificationObservation]
+                let topConfidence = observations?.first?.confidence ?? 0.0
+                // Any ImageNet class confidence > 0.1 means something is visually present.
+                // We are NOT checking which class was detected — only that something is there.
+                let hasContent = topConfidence > 0.1
+                continuation.resume(returning: hasContent)
+            }
+
+            let requestHandler = VNImageRequestHandler(cgImage: croppedRegion, options: [:])
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    try requestHandler.perform([presenceCheckRequest])
+                } catch {
+                    LumaLogger.log("[LumaMobileNet] coordinateHasContent failed: \(error.localizedDescription)")
+                    // On error, assume content is present to avoid blocking cursor movement.
+                    continuation.resume(returning: true)
+                }
+            }
+        }
+    }
+
+    // MARK: - Layer 2: MobileNetV2 Presence Validation
+
+    /// For each Layer 1 result, uses coordinateHasContent to confirm that something
+    /// visually exists at the bounding box centre. Results where no content is detected
+    /// are downgraded (confidence ×= 0.5) to fall below the Layer 3 trigger threshold.
     ///
     /// When MobileNetV2 is not bundled, all Layer 1 results pass through unchanged.
     private func applyLayer2MobileNetValidation(
         to layer1Results: [VisualDetectionResult],
         sourceImage: CGImage
     ) async -> [VisualDetectionResult] {
-        guard isModelAvailable, let coreMLModel = vnCoreMLModel else {
+        guard isModelAvailable else {
             // Model not bundled — pass all Layer 1 results through without validation.
             // Layer 3 in LumaImageProcessingEngine still guards against false positives.
             return layer1Results
         }
 
-        return await withCheckedContinuation { continuation in
-            var validatedResults: [VisualDetectionResult] = []
-            // Serial queue protects appends into validatedResults from concurrent handlers.
-            let resultsAccessQueue = DispatchQueue(label: "com.luma.mobilenet.layer2.results")
-            let completionGroup = DispatchGroup()
+        var validatedResults: [VisualDetectionResult] = []
 
-            for layer1Result in layer1Results {
-                completionGroup.enter()
+        for layer1Result in layer1Results {
+            let centerPoint = CGPoint(
+                x: layer1Result.screenFrame.midX,
+                y: layer1Result.screenFrame.midY
+            )
+            let hasContent = await coordinateHasContent(at: centerPoint, in: sourceImage)
 
-                let cropRadius: CGFloat = 80
-                let cropRect = CGRect(
-                    x: max(0, layer1Result.screenFrame.midX - cropRadius),
-                    y: max(0, layer1Result.screenFrame.midY - cropRadius),
-                    width: cropRadius * 2,
-                    height: cropRadius * 2
-                )
-
-                guard let croppedRegion = sourceImage.cropping(to: cropRect) else {
-                    // Center coordinate is out of the image bounds — pass through unchanged.
-                    resultsAccessQueue.async {
-                        validatedResults.append(layer1Result)
-                        completionGroup.leave()
-                    }
-                    continue
-                }
-
-                // Create a fresh VNCoreMLRequest per crop — VNCoreMLRequest is NOT thread-safe
-                // when shared across concurrent VNImageRequestHandler calls. Sharing a single
-                // request causes data races in Vision's internal result storage on macOS 13+.
-                let cropValidationRequest = VNCoreMLRequest(model: coreMLModel) { request, _ in
-                    let classificationObservations = request.results as? [VNClassificationObservation]
-                    let topClassConfidence = classificationObservations?.first?.confidence ?? 0.0
-
-                    let validatedResult: VisualDetectionResult
-                    if topClassConfidence >= 0.35 {
-                        // MobileNet confirms meaningful visual content at this coordinate.
-                        validatedResult = layer1Result
-                        LumaLogger.log("[LumaMobileNet] Layer 2: '\(layer1Result.label)' validated (MobileNet \(String(format: "%.2f", topClassConfidence)))")
-                    } else {
-                        // MobileNet found nothing meaningful — downgrade below the Layer 3 trigger
-                        // threshold (0.5) so LumaImageProcessingEngine.scanVisual fires Layer 3.
-                        validatedResult = VisualDetectionResult(
-                            label: layer1Result.label,
-                            normalizedBoundingBox: layer1Result.normalizedBoundingBox,
-                            confidence: layer1Result.confidence * 0.5,
-                            screenFrame: layer1Result.screenFrame
-                        )
-                        LumaLogger.log("[LumaMobileNet] Layer 2: '\(layer1Result.label)' downgraded (MobileNet \(String(format: "%.2f", topClassConfidence)))")
-                    }
-
-                    resultsAccessQueue.async {
-                        validatedResults.append(validatedResult)
-                        completionGroup.leave()
-                    }
-                }
-
-                let cropValidationHandler = VNImageRequestHandler(cgImage: croppedRegion, options: [:])
-                DispatchQueue.global(qos: .userInitiated).async {
-                    do {
-                        try cropValidationHandler.perform([cropValidationRequest])
-                    } catch {
-                        LumaLogger.log("[LumaMobileNet] Layer 2 validation error for '\(layer1Result.label)': \(error.localizedDescription)")
-                        // Validation failed — pass result through rather than silently discarding it.
-                        resultsAccessQueue.async {
-                            validatedResults.append(layer1Result)
-                            completionGroup.leave()
-                        }
-                    }
-                }
-            }
-
-            completionGroup.notify(queue: .main) {
-                let sortedValidatedResults = validatedResults.sorted { $0.confidence > $1.confidence }
-                continuation.resume(returning: sortedValidatedResults)
+            if hasContent {
+                // Visual content confirmed at this coordinate — keep the Layer 1 result.
+                validatedResults.append(layer1Result)
+                LumaLogger.log("[LumaMobileNet] Layer 2: '\(layer1Result.label)' validated — content present at coordinate")
+            } else {
+                // Blank region detected — downgrade below the Layer 3 trigger threshold (0.5)
+                // so LumaImageProcessingEngine.scanVisual fires Layer 3.
+                validatedResults.append(VisualDetectionResult(
+                    label: layer1Result.label,
+                    normalizedBoundingBox: layer1Result.normalizedBoundingBox,
+                    confidence: layer1Result.confidence * 0.5,
+                    screenFrame: layer1Result.screenFrame
+                ))
+                LumaLogger.log("[LumaMobileNet] Layer 2: '\(layer1Result.label)' downgraded — blank region at coordinate")
             }
         }
+
+        return validatedResults.sorted { $0.confidence > $1.confidence }
     }
 
     // MARK: - Coordinate Conversion

@@ -143,9 +143,10 @@ final class LumaMLEngine {
             let classificationObservations = request.results as? [VNClassificationObservation]
             let topClassificationConfidence = classificationObservations?.first?.confidence ?? 0.0
 
-            // 0.35 threshold: low enough to pass most real UI elements,
-            // high enough to reject blank/near-blank screen regions.
-            let coordinatePassed = topClassificationConfidence >= 0.35
+            // 0.1 threshold: presence check only — any ImageNet class confidence > 0.1
+            // means something is visually present (not a blank region). MobileNetV2 is NOT
+            // used to match element names; the Accessibility API owns all name matching.
+            let coordinatePassed = topClassificationConfidence > 0.1
 
             completion(CoordinateValidationResult(
                 x: x,

@@ -64,16 +64,16 @@ final class OfflineGuideManager {
     private func loadGuidesFromBundle() {
         guard let url = Bundle.main.url(forResource: "OfflineGuides", withExtension: "json"),
               let data = try? Data(contentsOf: url) else {
-            print("[OfflineGuides] OfflineGuides.json not found in bundle. Add it to the Xcode target's Copy Bundle Resources phase.")
+            LumaLogger.log("[OfflineGuides] OfflineGuides.json not found in bundle. Add it to the Xcode target's Copy Bundle Resources phase.")
             return
         }
 
         do {
             let decoded = try JSONDecoder().decode(OfflineGuidesFile.self, from: data)
             guides = decoded.guides
-            print("[OfflineGuides] Loaded \(guides.count) guide(s) (version \(decoded.version))")
+            LumaLogger.log("[OfflineGuides] Loaded \(guides.count) guide(s) (version \(decoded.version))")
         } catch {
-            print("[OfflineGuides] Failed to decode OfflineGuides.json: \(error.localizedDescription)")
+            LumaLogger.log("[OfflineGuides] Failed to decode OfflineGuides.json: \(error.localizedDescription)")
         }
     }
 
@@ -123,12 +123,62 @@ final class OfflineGuideManager {
         }
 
         if let matched = bestMatchedGuide {
-            print("[OfflineGuides] Matched guide '\(matched.title)' (trigger word count: \(bestMatchedTriggerWordCount))")
+            LumaLogger.log("[OfflineGuides] Matched guide '\(matched.title)' (trigger word count: \(bestMatchedTriggerWordCount))")
         } else {
-            print("[OfflineGuides] No guide matched query: '\(query)'")
+            LumaLogger.log("[OfflineGuides] No guide matched query: '\(query)'")
         }
 
         return bestMatchedGuide
+    }
+
+    /// Finds the best matching guide where ANY trigger word appears in the query.
+    ///
+    /// Less strict than `findGuide` (which requires ALL trigger words to be present):
+    /// a single shared word between a trigger and the query is sufficient for a match.
+    /// When multiple guides have matching triggers, the guide whose trigger has the
+    /// most words present in the query is preferred (higher word-overlap = more specific).
+    ///
+    /// Returns the matched guide and the first trigger word that was found in the query,
+    /// or nil when no trigger word from any guide appears in the query.
+    ///
+    /// Example:
+    ///   query "show me battery info" → trigger "check battery" → matched keyword "battery"
+    func findGuideByKeyword(for query: String) -> (guide: OfflineGuide, matchedKeyword: String)? {
+        let queryWordSet = Set(
+            query.lowercased()
+                .components(separatedBy: .alphanumerics.inverted)
+                .filter { !$0.isEmpty }
+        )
+
+        var bestMatchedGuide: OfflineGuide? = nil
+        var bestMatchedKeyword: String = ""
+        var bestMatchedWordCount: Int = 0
+
+        for guide in guides {
+            for trigger in guide.triggers {
+                let triggerWords = trigger.lowercased()
+                    .components(separatedBy: .alphanumerics.inverted)
+                    .filter { !$0.isEmpty }
+
+                guard !triggerWords.isEmpty else { continue }
+
+                // Count how many of this trigger's words appear in the query.
+                let matchedTriggerWords = triggerWords.filter { queryWordSet.contains($0) }
+                guard !matchedTriggerWords.isEmpty else { continue }
+
+                // Prefer the trigger+guide with the most matched words — higher word-overlap
+                // signals a more specific intent match.
+                if matchedTriggerWords.count > bestMatchedWordCount {
+                    bestMatchedGuide = guide
+                    bestMatchedKeyword = matchedTriggerWords[0]
+                    bestMatchedWordCount = matchedTriggerWords.count
+                }
+            }
+        }
+
+        guard let guide = bestMatchedGuide else { return nil }
+        LumaLogger.log("[OfflineGuides] Keyword match: '\(bestMatchedKeyword)' → guide '\(guide.title)'")
+        return (guide: guide, matchedKeyword: bestMatchedKeyword)
     }
 
     // MARK: - Guide Execution
@@ -137,7 +187,7 @@ final class OfflineGuideManager {
     /// directly into WalkthroughEngine — no API call needed.
     @MainActor
     func executeGuide(_ guide: OfflineGuide) {
-        print("[OfflineGuides] Executing guide '\(guide.title)' (\(guide.steps.count) step(s))")
+        LumaLogger.log("[OfflineGuides] Executing guide '\(guide.title)' (\(guide.steps.count) step(s))")
 
         let walkthroughSteps = guide.steps.enumerated().map { index, step in
             WalkthroughStep(
@@ -161,7 +211,7 @@ final class OfflineGuideManager {
             let nowOnline = path.status == .satisfied
             if self?.isOnline != nowOnline {
                 self?.isOnline = nowOnline
-                print("[OfflineGuides] Network status changed: \(nowOnline ? "online" : "offline")")
+                LumaLogger.log("[OfflineGuides] Network status changed: \(nowOnline ? "online" : "offline")")
             }
         }
         networkMonitor.start(queue: networkMonitorQueue)

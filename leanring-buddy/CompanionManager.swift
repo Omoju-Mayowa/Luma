@@ -766,36 +766,34 @@ final class CompanionManager: ObservableObject {
             // Clear any previous API error so the panel doesn't show stale info
             lastAPIErrorMessage = nil
 
-            // Offline detection: check network status before any API call.
-            // If offline and a pre-built guide matches the transcript, run it locally.
-            // If offline with no matching guide, tell the user and stop early.
-            // Messages are split and sequenced — "You're offline." plays first and finishes
-            // before the follow-up is spoken, so the two sentences never overlap.
-            if !OfflineGuideManager.shared.isOnline {
-                if let matchingOfflineGuide = OfflineGuideManager.shared.findGuide(for: transcript) {
-                    // Guide found — go straight to assisting without announcing offline status.
-                    LumaLogger.log("[Luma] Offline — executing guide '\(matchingOfflineGuide.title)' for '\(transcript)'")
-                    OfflineGuideManager.shared.executeGuide(matchingOfflineGuide)
-                    voiceState = .idle
-                    scheduleTransientHideIfNeeded()
-                    return
-                } else {
-                    // No guide for this task — tell the user they're offline and can't continue.
-                    lastAPIErrorMessage = LumaWriteEngine.shared.errorMessage(for: .offline)
-                    try? await nativeTTSClient.speakText("You're offline.")
-                    await nativeTTSClient.waitUntilFinished()
-                    try? await Task.sleep(nanoseconds: 400_000_000)
-                    try? await nativeTTSClient.speakText("This task is not available offline. Please connect to the internet.")
-                    voiceState = .idle
-                    scheduleTransientHideIfNeeded()
-                    return
-                }
-            }
-
-            // Compress the transcript by removing filler words before sending to Claude.
+            // Compress the transcript before guide matching and Claude routing.
             // Reduces token usage by ~50-60% on an average voice query while preserving intent.
             // The original transcript is kept for conversation history so context is human-readable.
             let compressedTranscript = LumaMLEngine.shared.compressPrompt(transcript)
+
+            // Before routing ANY request to Claude, check if any guide keyword matches.
+            // This runs regardless of network status — guides are always preferred over API calls
+            // when a trigger word is present. Only falls through to Claude when no keyword matches.
+            if let guideMatch = OfflineGuideManager.shared.findGuideByKeyword(for: compressedTranscript) {
+                OfflineGuideManager.shared.executeGuide(guideMatch.guide)
+                voiceState = .idle
+                scheduleTransientHideIfNeeded()
+                return
+            }
+
+            // Offline fallback: no guide keyword matched and we can't reach Claude.
+            // Messages are split and sequenced — "You're offline." plays first and finishes
+            // before the follow-up is spoken, so the two sentences never overlap.
+            if !OfflineGuideManager.shared.isOnline {
+                lastAPIErrorMessage = LumaWriteEngine.shared.errorMessage(for: .offline)
+                try? await nativeTTSClient.speakText("You're offline.")
+                await nativeTTSClient.waitUntilFinished()
+                try? await Task.sleep(nanoseconds: 400_000_000)
+                try? await nativeTTSClient.speakText("This task is not available offline. Please connect to the internet.")
+                voiceState = .idle
+                scheduleTransientHideIfNeeded()
+                return
+            }
 
             // Classify the transcript on-device to decide how to route it.
             // .multiStep → WalkthroughEngine (AI plans steps, executes silently)
