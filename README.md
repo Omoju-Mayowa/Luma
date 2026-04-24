@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/luma-icon.png" alt="Luma" width="96" />
+<img src="assets/1024-mac.png" alt="Luma/Click Logo" width="96" />
 
 # Luma
 
