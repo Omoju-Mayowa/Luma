@@ -15,7 +15,7 @@ Watches your screen, guides you step by step, and teaches you anything — right
 ![License](https://img.shields.io/badge/License-MIT-black?style=flat-square)
 ![Status](https://img.shields.io/badge/Status-v2.2.1-green?style=flat-square)
 
-<img src="assets/luma-demo.png" alt="Luma Demo" width="720" />
+<img src="assets/1024-mac.png" alt="Luma/Click Logo" width="480" />
 
 </div>
 
