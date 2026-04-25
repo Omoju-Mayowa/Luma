@@ -137,12 +137,9 @@ final class LumaAgentEngine: ObservableObject {
             try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
 
         case .openApp(let bundleId):
-            NSWorkspace.shared.launchApplication(
-                withBundleIdentifier: bundleId,
-                options: [],
-                additionalEventParamDescriptor: nil,
-                launchIdentifier: nil
-            )
+            if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) {
+                try await NSWorkspace.shared.openApplication(at: appURL, configuration: NSWorkspace.OpenConfiguration())
+            }
 
         case .search(let query):
             // Open default browser with search
@@ -175,7 +172,7 @@ final class LumaAgentEngine: ObservableObject {
     // MARK: - Private: CGEvent Actions
 
     private func performClick(at coordinate: CGPoint, forAgentID agentID: UUID) async throws {
-        guard acquireCursorControl(forAgentID: agentID) else {
+        if !acquireCursorControl(forAgentID: agentID) {
             // Another agent owns the cursor — wait and retry
             try await Task.sleep(nanoseconds: 500_000_000)
             guard acquireCursorControl(forAgentID: agentID) else {
