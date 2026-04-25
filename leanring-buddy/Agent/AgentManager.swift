@@ -6,6 +6,7 @@
 //  Handles spawn, dismiss, update, and position persistence.
 //
 
+import Combine
 import Foundation
 import SwiftUI
 

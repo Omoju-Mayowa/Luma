@@ -6,6 +6,7 @@
 //  and the global agent-mode toggle. All values persist to UserDefaults.
 //
 
+import Combine
 import Foundation
 import UserNotifications
 

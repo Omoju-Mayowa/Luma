@@ -78,7 +78,7 @@ struct CursorStateAppearance: Codable, Equatable {
 
     /// Converts colorHex to a SwiftUI Color.
     var color: Color {
-        Color(hex: colorHex) ?? .blue
+        Color(hex: colorHex)
     }
 }
 
@@ -146,26 +146,9 @@ struct CursorProfile: Codable, Equatable {
     }
 }
 
-// MARK: - Color Hex Extension
+// MARK: - Color Hex String Extension
 
 extension Color {
-    /// Creates a Color from a hex string like "#FF0000" or "FF0000".
-    init?(hex: String) {
-        var hexSanitized = hex.trimmingCharacters(in: .whitespacesAndNewlines)
-        hexSanitized = hexSanitized.replacingOccurrences(of: "#", with: "")
-
-        guard hexSanitized.count == 6,
-              let intValue = UInt64(hexSanitized, radix: 16) else {
-            return nil
-        }
-
-        let red   = Double((intValue >> 16) & 0xFF) / 255.0
-        let green = Double((intValue >> 8) & 0xFF) / 255.0
-        let blue  = Double(intValue & 0xFF) / 255.0
-
-        self.init(red: red, green: green, blue: blue)
-    }
-
     /// Returns the hex string representation of a Color (best-effort).
     var hexString: String {
         guard let components = NSColor(self).usingColorSpace(.sRGB) else { return "#0A84FF" }
