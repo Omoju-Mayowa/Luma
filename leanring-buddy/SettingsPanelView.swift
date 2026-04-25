@@ -20,7 +20,7 @@ struct SettingsPanelView: View {
     @StateObject private var profileManager = ProfileManager.shared
     @StateObject private var pinManager    = PINManager.shared
 
-    /// Which tab is currently selected (0–3).
+    /// Which tab is currently selected (0–6: Account, API Profiles, Model, Voice, Cursor, Agent Mode, General).
     @State private var selectedTabIndex: Int = 0
 
     var body: some View {
@@ -29,10 +29,13 @@ struct SettingsPanelView: View {
             // glow/ring that macOS renders on the selected tab item. Active tab uses
             // surfaceElevated fill only; no shadow, no ring, no glow in either state.
             HStack(spacing: 0) {
-                settingsTabBarButton(label: "Account",      icon: "person.circle",  index: 0)
-                settingsTabBarButton(label: "API Profiles", icon: "key.horizontal", index: 1)
-                settingsTabBarButton(label: "Model",        icon: "cpu",            index: 2)
-                settingsTabBarButton(label: "General",      icon: "gearshape",      index: 3)
+                settingsTabBarButton(label: "Account",  icon: "person.circle",    index: 0)
+                settingsTabBarButton(label: "API",     icon: "key.horizontal",  index: 1)
+                settingsTabBarButton(label: "Model",   icon: "cpu",             index: 2)
+                settingsTabBarButton(label: "Voice",   icon: "waveform",        index: 3)
+                settingsTabBarButton(label: "Cursor",  icon: "cursorarrow",     index: 4)
+                settingsTabBarButton(label: "Agents",  icon: "bubble.left.and.bubble.right", index: 5)
+                settingsTabBarButton(label: "General", icon: "gearshape",       index: 6)
             }
             .padding(.top, LumaTheme.paddingXL)
 
@@ -53,13 +56,19 @@ struct SettingsPanelView: View {
                     APIProfilesTabView(profileManager: profileManager)
                 case 2:
                     ModelTabView(profileManager: profileManager)
+                case 3:
+                    VoiceSettingsTabView()
+                case 4:
+                    CursorCustomizerTabView()
+                case 5:
+                    AgentModeTabView()
                 default:
                     GeneralTabView(pinManager: pinManager)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(width: 500, height: 580)
+        .frame(width: 600, height: 580)
         .background(LumaTheme.background)
         .focusEffectDisabled()
         .toolbar {
@@ -992,19 +1001,41 @@ private struct GeneralTabView: View {
                 .font(LumaTheme.Typography.headline)
                 .foregroundColor(LumaTheme.Colors.primaryText)
 
-            Text("Copy the diagnostic log file to clipboard for sharing or debugging.")
+            Text("View real-time activity or copy the log file for debugging.")
                 .font(LumaTheme.Typography.body)
                 .foregroundColor(LumaTheme.Colors.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Button("Copy Logs") {
-                copyLogsToClipboard()
-            }
-            .buttonStyle(.plain)
-            .font(LumaTheme.Typography.body)
-            .foregroundColor(LumaTheme.Colors.accent)
-            .onHover { isHovering in
-                if isHovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+            HStack(spacing: LumaTheme.Spacing.md) {
+                Button {
+                    LumaLogWindowManager.shared.showLogWindow()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "doc.text.magnifyingglass")
+                            .font(.system(size: 12))
+                        Text("Open Log Window")
+                            .font(LumaTheme.Typography.bodyMedium)
+                    }
+                    .foregroundColor(LumaTheme.Colors.accentForeground)
+                    .padding(.horizontal, LumaTheme.Spacing.md)
+                    .padding(.vertical, LumaTheme.Spacing.sm)
+                    .background(LumaTheme.Colors.accent)
+                    .cornerRadius(LumaTheme.CornerRadius.small)
+                }
+                .buttonStyle(.plain)
+                .onHover { isHovering in
+                    if isHovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                }
+
+                Button("Copy Logs") {
+                    copyLogsToClipboard()
+                }
+                .buttonStyle(.plain)
+                .font(LumaTheme.Typography.body)
+                .foregroundColor(LumaTheme.Colors.accent)
+                .onHover { isHovering in
+                    if isHovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                }
             }
         }
     }
@@ -1040,6 +1071,608 @@ private struct GeneralTabView: View {
     private func toggleLaunchAtLogin(enabled: Bool) {
         // TODO: Replace with SMLoginItemSetEnabled("com.nox.luma.LaunchHelper", enabled)
         // once the LoginItemHelper target and entitlements are configured.
-        print("[LaunchAtLogin] TODO: SMLoginItemSetEnabled called with enabled=\(enabled)")
+        LumaLogger.log("[LaunchAtLogin] TODO: SMLoginItemSetEnabled called with enabled=\(enabled)")
+    }
+}
+
+// MARK: - Tab 5: Voice Settings
+
+/// Controls for Luma's text-to-speech voice: gender, pitch, rate, and volume.
+/// All values persist to UserDefaults and are read by NativeTTSClient before each utterance.
+@MainActor
+private struct VoiceSettingsTabView: View {
+
+    // Voice settings backed by UserDefaults via the same keys NativeTTSClient reads.
+    @AppStorage(NativeTTSClient.voiceGenderKey)  private var voiceGender: String = "female"
+    @AppStorage(NativeTTSClient.voicePitchKey)   private var voicePitch: Double  = 1.4
+    @AppStorage(NativeTTSClient.voiceRateKey)    private var voiceRate: Double    = 0.52
+    @AppStorage(NativeTTSClient.voiceVolumeKey)  private var voiceVolume: Double  = 1.0
+
+    /// Whether a preview utterance is currently playing.
+    @State private var isPreviewPlaying: Bool = false
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: LumaTheme.Spacing.xl) {
+
+                Text("Configure how Luma sounds when speaking responses.")
+                    .font(LumaTheme.Typography.body)
+                    .foregroundColor(LumaTheme.Colors.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                // Gender toggle
+                voiceGenderSection
+
+                Divider()
+
+                // Pitch slider
+                voiceSliderSection(
+                    title: "Pitch",
+                    value: $voicePitch,
+                    range: 0.5...2.0,
+                    defaultValue: 1.4,
+                    valueLabel: String(format: "%.2f", voicePitch),
+                    description: "Higher values produce a higher-pitched voice."
+                )
+
+                Divider()
+
+                // Rate / Tempo slider
+                voiceSliderSection(
+                    title: "Rate / Tempo",
+                    value: $voiceRate,
+                    range: 0.1...1.0,
+                    defaultValue: 0.52,
+                    valueLabel: String(format: "%.2f", voiceRate),
+                    description: "Lower values speak more slowly."
+                )
+
+                Divider()
+
+                // Volume slider
+                voiceSliderSection(
+                    title: "Volume",
+                    value: $voiceVolume,
+                    range: 0.0...1.0,
+                    defaultValue: 1.0,
+                    valueLabel: String(format: "%.0f%%", voiceVolume * 100),
+                    description: "Speech output volume."
+                )
+
+                Divider()
+
+                // Preview button
+                previewVoiceSection
+            }
+            .padding(LumaTheme.Spacing.xl)
+        }
+    }
+
+    // MARK: Gender Section
+
+    private var voiceGenderSection: some View {
+        VStack(alignment: .leading, spacing: LumaTheme.Spacing.sm) {
+            Text("Voice Gender")
+                .font(LumaTheme.Typography.headline)
+                .foregroundColor(LumaTheme.Colors.primaryText)
+
+            HStack(spacing: 0) {
+                voiceGenderToggleButton(label: "Female", value: "female")
+                voiceGenderToggleButton(label: "Male",   value: "male")
+            }
+            .background(LumaTheme.Colors.surface)
+            .cornerRadius(LumaTheme.CornerRadius.medium)
+        }
+    }
+
+    private func voiceGenderToggleButton(label: String, value: String) -> some View {
+        let isSelected = voiceGender == value
+        return Button {
+            voiceGender = value
+        } label: {
+            Text(label)
+                .font(LumaTheme.Typography.bodyMedium)
+                .foregroundColor(isSelected ? LumaTheme.Colors.primaryText : LumaTheme.Colors.secondaryText)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, LumaTheme.Spacing.sm)
+                .background(isSelected ? LumaTheme.Colors.surfaceElevated : Color.clear)
+                .cornerRadius(LumaTheme.CornerRadius.medium)
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering in
+            if isHovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
+    }
+
+    // MARK: Slider Section (Reusable)
+
+    private func voiceSliderSection(
+        title: String,
+        value: Binding<Double>,
+        range: ClosedRange<Double>,
+        defaultValue: Double,
+        valueLabel: String,
+        description: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: LumaTheme.Spacing.sm) {
+            HStack {
+                Text(title)
+                    .font(LumaTheme.Typography.headline)
+                    .foregroundColor(LumaTheme.Colors.primaryText)
+
+                Spacer()
+
+                Text(valueLabel)
+                    .font(LumaTheme.Typography.body)
+                    .foregroundColor(LumaTheme.Colors.secondaryText)
+                    .monospacedDigit()
+            }
+
+            Slider(value: value, in: range)
+                .tint(LumaTheme.Colors.accent)
+
+            Text(description)
+                .font(LumaTheme.Typography.caption)
+                .foregroundColor(LumaTheme.Colors.tertiaryText)
+        }
+    }
+
+    // MARK: Preview Section
+
+    private var previewVoiceSection: some View {
+        VStack(alignment: .leading, spacing: LumaTheme.Spacing.sm) {
+            Button {
+                Task { await previewCurrentVoice() }
+            } label: {
+                HStack(spacing: LumaTheme.Spacing.sm) {
+                    Image(systemName: isPreviewPlaying ? "speaker.wave.3.fill" : "play.fill")
+                        .font(.system(size: 12))
+                    Text(isPreviewPlaying ? "Playing..." : "Preview Voice")
+                        .font(LumaTheme.Typography.bodyMedium)
+                }
+                .foregroundColor(LumaTheme.Colors.accentForeground)
+                .padding(.horizontal, LumaTheme.Spacing.md)
+                .padding(.vertical, LumaTheme.Spacing.sm)
+                .background(LumaTheme.Colors.accent)
+                .cornerRadius(LumaTheme.CornerRadius.small)
+            }
+            .buttonStyle(.plain)
+            .disabled(isPreviewPlaying)
+            .onHover { isHovering in
+                if isHovering && !isPreviewPlaying { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+            }
+        }
+    }
+
+    /// Speaks a short test string using the current voice settings.
+    /// NativeTTSClient reads from UserDefaults each time, so settings changes
+    /// made via the sliders above are picked up immediately.
+    private func previewCurrentVoice() async {
+        isPreviewPlaying = true
+        do {
+            try await NativeTTSClient.shared.speakText("Hi, I'm Luma. This is how I sound with your current settings.")
+            await NativeTTSClient.shared.waitUntilFinished()
+        } catch {
+            // Preview is best-effort — swallow cancellation or other errors
+        }
+        isPreviewPlaying = false
+    }
+}
+
+// MARK: - Tab 5: Cursor Customizer
+
+/// Per-state cursor customization: shape, color, and size for Idle, Pointing,
+/// Listening, and Processing states. Includes a live preview canvas and reset button.
+@MainActor
+private struct CursorCustomizerTabView: View {
+
+    @State private var cursorProfile: CursorProfile = CursorProfile.loadFromKeychain()
+
+    /// Which state section is expanded for editing (nil = none).
+    @State private var selectedPreviewState: LumaCursorState = .idle
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: LumaTheme.Spacing.lg) {
+
+                // Live preview canvas at top
+                cursorPreviewCanvas
+
+                // One section per configurable state (hover shares idle settings)
+                cursorStateSection(state: .idle, appearance: $cursorProfile.idle)
+                Divider()
+                cursorStateSection(state: .pointing, appearance: $cursorProfile.pointing)
+                Divider()
+                cursorStateSection(state: .listening, appearance: $cursorProfile.listening)
+                Divider()
+                cursorStateSection(state: .processing, appearance: $cursorProfile.processing)
+
+                Divider()
+
+                // Reset to default
+                Button("Reset to Default") {
+                    cursorProfile = .defaultProfile
+                    cursorProfile.saveToKeychain()
+                    CustomCursorManager.shared.reloadCursorProfile()
+                }
+                .buttonStyle(.plain)
+                .font(LumaTheme.Typography.body)
+                .foregroundColor(LumaTheme.Colors.error)
+                .onHover { isHovering in
+                    if isHovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                }
+            }
+            .padding(LumaTheme.Spacing.xl)
+        }
+        .onChange(of: cursorProfile) { newProfile in
+            newProfile.saveToKeychain()
+            CustomCursorManager.shared.reloadCursorProfile()
+        }
+    }
+
+    // MARK: Preview Canvas
+
+    private var cursorPreviewCanvas: some View {
+        VStack(spacing: LumaTheme.Spacing.sm) {
+            // State picker row for preview
+            HStack(spacing: LumaTheme.Spacing.sm) {
+                ForEach([LumaCursorState.idle, .pointing, .listening, .processing], id: \.self) { state in
+                    Button {
+                        selectedPreviewState = state
+                    } label: {
+                        Text(state.displayName)
+                            .font(LumaTheme.Typography.caption)
+                            .foregroundColor(selectedPreviewState == state
+                                             ? LumaTheme.Colors.primaryText
+                                             : LumaTheme.Colors.secondaryText)
+                            .padding(.horizontal, LumaTheme.Spacing.sm)
+                            .padding(.vertical, 4)
+                            .background(selectedPreviewState == state
+                                        ? LumaTheme.Colors.surfaceElevated
+                                        : Color.clear)
+                            .cornerRadius(LumaTheme.CornerRadius.small)
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { isHovering in
+                        if isHovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                    }
+                }
+            }
+
+            // Preview canvas
+            ZStack {
+                RoundedRectangle(cornerRadius: LumaTheme.CornerRadius.large)
+                    .fill(Color(red: 0.08, green: 0.08, blue: 0.10))
+                    .frame(height: 160)
+
+                let previewAppearance = cursorProfile.appearance(for: selectedPreviewState)
+                CursorShapePreview(
+                    shape: previewAppearance.shape,
+                    color: previewAppearance.color,
+                    size: previewAppearance.size
+                )
+            }
+        }
+    }
+
+    // MARK: Per-State Section
+
+    private func cursorStateSection(state: LumaCursorState, appearance: Binding<CursorStateAppearance>) -> some View {
+        VStack(alignment: .leading, spacing: LumaTheme.Spacing.sm) {
+            Text(state.displayName)
+                .font(LumaTheme.Typography.headline)
+                .foregroundColor(LumaTheme.Colors.primaryText)
+
+            // Shape picker — grid of shape options
+            HStack(spacing: LumaTheme.Spacing.sm) {
+                Text("Shape")
+                    .font(LumaTheme.Typography.body)
+                    .foregroundColor(LumaTheme.Colors.secondaryText)
+                    .frame(width: 50, alignment: .leading)
+
+                ForEach(CursorShape.allCases) { shape in
+                    Button {
+                        appearance.wrappedValue.shape = shape
+                    } label: {
+                        Image(systemName: shape.sfSymbolName)
+                            .font(.system(size: 16))
+                            .foregroundColor(appearance.wrappedValue.shape == shape
+                                             ? LumaTheme.Colors.primaryText
+                                             : LumaTheme.Colors.tertiaryText)
+                            .frame(width: 32, height: 32)
+                            .background(appearance.wrappedValue.shape == shape
+                                        ? LumaTheme.Colors.surfaceElevated
+                                        : Color.clear)
+                            .cornerRadius(LumaTheme.CornerRadius.small)
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { isHovering in
+                        if isHovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                    }
+                }
+            }
+
+            // Color picker
+            HStack(spacing: LumaTheme.Spacing.sm) {
+                Text("Color")
+                    .font(LumaTheme.Typography.body)
+                    .foregroundColor(LumaTheme.Colors.secondaryText)
+                    .frame(width: 50, alignment: .leading)
+
+                ColorPicker(
+                    "",
+                    selection: Binding(
+                        get: { appearance.wrappedValue.color },
+                        set: { newColor in
+                            appearance.wrappedValue.colorHex = newColor.hexString
+                        }
+                    ),
+                    supportsOpacity: false
+                )
+                .labelsHidden()
+
+                Text(appearance.wrappedValue.colorHex)
+                    .font(LumaTheme.Typography.caption)
+                    .foregroundColor(LumaTheme.Colors.tertiaryText)
+                    .monospacedDigit()
+            }
+
+            // Size slider
+            HStack(spacing: LumaTheme.Spacing.sm) {
+                Text("Size")
+                    .font(LumaTheme.Typography.body)
+                    .foregroundColor(LumaTheme.Colors.secondaryText)
+                    .frame(width: 50, alignment: .leading)
+
+                Slider(value: appearance.size, in: 8...32, step: 1)
+                    .frame(maxWidth: 200)
+
+                Text("\(Int(appearance.wrappedValue.size))pt")
+                    .font(LumaTheme.Typography.body)
+                    .foregroundColor(LumaTheme.Colors.secondaryText)
+                    .monospacedDigit()
+                    .frame(width: 40, alignment: .trailing)
+            }
+        }
+    }
+}
+
+/// Small SwiftUI view that renders a preview of a cursor shape at the given size and color.
+private struct CursorShapePreview: View {
+    let shape: CursorShape
+    let color: Color
+    let size: CGFloat
+
+    var body: some View {
+        Group {
+            switch shape {
+            case .teardrop:
+                Image(systemName: "drop.fill")
+                    .font(.system(size: size))
+                    .rotationEffect(.degrees(180))
+            case .circle:
+                Circle()
+                    .frame(width: size, height: size)
+            case .roundedTriangle:
+                Image(systemName: "triangle.fill")
+                    .font(.system(size: size))
+            case .diamond:
+                Image(systemName: "diamond.fill")
+                    .font(.system(size: size))
+            case .cross:
+                Image(systemName: "plus")
+                    .font(.system(size: size, weight: .bold))
+            case .dot:
+                Circle()
+                    .frame(width: max(size * 0.5, 6), height: max(size * 0.5, 6))
+            }
+        }
+        .foregroundColor(color)
+        .shadow(color: color.opacity(0.6), radius: 8)
+    }
+}
+
+// MARK: - Tab 6: Agent Mode
+
+/// Agent mode settings: maximum agent count stepper and per-agent model selection.
+/// The max agent count is enforced by AgentSettingsManager. Per-agent model
+/// selection is stored in AgentProfile structs persisted to UserDefaults.
+@MainActor
+private struct AgentModeTabView: View {
+
+    @StateObject private var agentSettingsManager = AgentSettingsManager.shared
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: LumaTheme.Spacing.xl) {
+
+                Text("Configure agent mode behavior and per-agent model assignments.")
+                    .font(LumaTheme.Typography.body)
+                    .foregroundColor(LumaTheme.Colors.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                // Maximum Agents stepper
+                maximumAgentsSection
+
+                Divider()
+
+                // Per-agent model configuration
+                agentProfilesSection
+            }
+            .padding(LumaTheme.Spacing.xl)
+        }
+    }
+
+    // MARK: Maximum Agents
+
+    private var maximumAgentsSection: some View {
+        VStack(alignment: .leading, spacing: LumaTheme.Spacing.sm) {
+            Text("Maximum Agents")
+                .font(LumaTheme.Typography.headline)
+                .foregroundColor(LumaTheme.Colors.primaryText)
+
+            HStack(spacing: LumaTheme.Spacing.md) {
+                Stepper(
+                    value: $agentSettingsManager.maxAgentCount,
+                    in: 1...10,
+                    step: 1
+                ) {
+                    Text("\(agentSettingsManager.maxAgentCount)")
+                        .font(LumaTheme.Typography.title)
+                        .foregroundColor(LumaTheme.Colors.primaryText)
+                        .monospacedDigit()
+                        .frame(width: 30, alignment: .center)
+                }
+
+                Text("simultaneous agents allowed")
+                    .font(LumaTheme.Typography.body)
+                    .foregroundColor(LumaTheme.Colors.secondaryText)
+            }
+
+            Text("When the limit is reached, the oldest idle agent is automatically dismissed.")
+                .font(LumaTheme.Typography.caption)
+                .foregroundColor(LumaTheme.Colors.tertiaryText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    // MARK: Agent Profiles
+
+    private var agentProfilesSection: some View {
+        VStack(alignment: .leading, spacing: LumaTheme.Spacing.md) {
+            HStack {
+                Text("Agent Profiles")
+                    .font(LumaTheme.Typography.headline)
+                    .foregroundColor(LumaTheme.Colors.primaryText)
+
+                Spacer()
+
+                Button {
+                    let newProfile = AgentProfile()
+                    agentSettingsManager.addAgentProfile(newProfile)
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "plus.circle")
+                        Text("Add Agent")
+                    }
+                    .font(LumaTheme.Typography.bodyMedium)
+                    .foregroundColor(LumaTheme.Colors.accent)
+                }
+                .buttonStyle(.plain)
+                .onHover { isHovering in
+                    if isHovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                }
+            }
+
+            if agentSettingsManager.agentProfiles.isEmpty {
+                Text("No agent profiles configured. Add one to assign a model.")
+                    .font(LumaTheme.Typography.body)
+                    .foregroundColor(LumaTheme.Colors.tertiaryText)
+                    .padding(.vertical, LumaTheme.Spacing.md)
+            } else {
+                ForEach(agentSettingsManager.agentProfiles) { profile in
+                    AgentProfileRowView(
+                        profile: profile,
+                        onUpdateModel: { newModel in
+                            var updated = profile
+                            updated.model = newModel
+                            agentSettingsManager.updateAgentProfile(updated)
+                        },
+                        onUpdateName: { newName in
+                            var updated = profile
+                            updated.name = newName
+                            agentSettingsManager.updateAgentProfile(updated)
+                        },
+                        onDelete: {
+                            agentSettingsManager.removeAgentProfile(withID: profile.id)
+                        }
+                    )
+                }
+            }
+
+            Text("Default model: \(AgentModel.claudeSonnet.displayName). Each agent can use a different model for its API calls.")
+                .font(LumaTheme.Typography.caption)
+                .foregroundColor(LumaTheme.Colors.tertiaryText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+/// A single row in the agent profiles list showing name, model picker, and delete button.
+@MainActor
+private struct AgentProfileRowView: View {
+
+    let profile: AgentProfile
+    var onUpdateModel: (AgentModel) -> Void
+    var onUpdateName:  (String) -> Void
+    var onDelete:      () -> Void
+
+    @State private var editedName: String = ""
+    @State private var selectedModel: AgentModel = .claudeSonnet
+
+    var body: some View {
+        HStack(spacing: LumaTheme.Spacing.md) {
+
+            // Editable agent name
+            TextField("Agent name", text: $editedName)
+                .textFieldStyle(.plain)
+                .font(LumaTheme.Typography.bodyMedium)
+                .foregroundColor(LumaTheme.Colors.primaryText)
+                .frame(maxWidth: 120)
+                .padding(.horizontal, LumaTheme.Spacing.sm)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: LumaTheme.CornerRadius.small)
+                        .fill(LumaTheme.Colors.surface)
+                )
+                .onSubmit {
+                    let trimmed = editedName.trimmingCharacters(in: .whitespaces)
+                    if !trimmed.isEmpty { onUpdateName(trimmed) }
+                }
+
+            // Model picker — grouped by provider
+            Picker("Model", selection: $selectedModel) {
+                ForEach(AgentModel.allCases) { model in
+                    Text("\(model.displayName)")
+                        .tag(model)
+                }
+            }
+            .pickerStyle(.menu)
+            .frame(maxWidth: 180)
+            .onChange(of: selectedModel) { newModel in
+                onUpdateModel(newModel)
+            }
+
+            Spacer()
+
+            // Provider badge
+            Text(selectedModel.providerName)
+                .font(LumaTheme.Typography.caption)
+                .foregroundColor(LumaTheme.Colors.secondaryText)
+                .padding(.horizontal, LumaTheme.Spacing.xs)
+                .padding(.vertical, 2)
+                .background(LumaTheme.Colors.surfaceElevated)
+                .cornerRadius(LumaTheme.CornerRadius.small)
+
+            // Delete button
+            Button {
+                onDelete()
+            } label: {
+                Image(systemName: "trash")
+                    .font(.system(size: 12))
+                    .foregroundColor(LumaTheme.Colors.error)
+            }
+            .buttonStyle(.plain)
+            .onHover { isHovering in
+                if isHovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+            }
+        }
+        .padding(LumaTheme.Spacing.md)
+        .background(LumaTheme.Colors.surface)
+        .cornerRadius(LumaTheme.CornerRadius.medium)
+        .onAppear {
+            editedName = profile.name
+            selectedModel = profile.model
+        }
     }
 }

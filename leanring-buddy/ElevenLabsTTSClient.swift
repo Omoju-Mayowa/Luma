@@ -68,6 +68,17 @@ final class NativeTTSClient: NSObject, AVSpeechSynthesizerDelegate {
             .trimmingCharacters(in: .whitespaces)
     }
 
+    // MARK: - UserDefaults Keys for Voice Settings
+
+    /// UserDefaults key for voice gender preference ("male" or "female").
+    static let voiceGenderKey   = "luma.voice.gender"
+    /// UserDefaults key for pitch multiplier (Float, 0.5–2.0).
+    static let voicePitchKey    = "luma.voice.pitch"
+    /// UserDefaults key for speech rate (Float, 0.1–1.0).
+    static let voiceRateKey     = "luma.voice.rate"
+    /// UserDefaults key for speech volume (Float, 0.0–1.0).
+    static let voiceVolumeKey   = "luma.voice.volume"
+
     /// Speaks `text` using a natural macOS voice. Returns once playback starts.
     /// The caller can poll `isPlaying` to wait for completion.
     func speakText(_ text: String) async throws {
@@ -76,25 +87,55 @@ final class NativeTTSClient: NSObject, AVSpeechSynthesizerDelegate {
         stopPlayback()
 
         let utterance = AVSpeechUtterance(string: sanitizeSpeech(text))
-        // Higher pitch and slightly slower rate for a sassier, more expressive delivery
-        utterance.rate = 0.52
-        utterance.pitchMultiplier = 1.4
-        utterance.volume = 1.0
 
-        // Prefer Zoe (enhanced) → Zoe (compact) → Samantha → system default
-        if let zoeEnhancedVoice = AVSpeechSynthesisVoice(identifier: "com.apple.voice.enhanced.en-US.Zoe") {
-            utterance.voice = zoeEnhancedVoice
-        } else if let zoeCompactVoice = AVSpeechSynthesisVoice(identifier: "com.apple.ttsbundle.Zoe-compact") {
-            utterance.voice = zoeCompactVoice
-        } else if let samanthaVoice = AVSpeechSynthesisVoice(identifier: "com.apple.ttsbundle.Samantha-compact") {
-            utterance.voice = samanthaVoice
-        } else {
-            utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
-        }
+        // Read voice settings from UserDefaults, falling back to original defaults
+        let defaults = UserDefaults.standard
+
+        let storedRate = defaults.object(forKey: Self.voiceRateKey) as? Float
+        utterance.rate = storedRate ?? 0.52
+
+        let storedPitch = defaults.object(forKey: Self.voicePitchKey) as? Float
+        utterance.pitchMultiplier = storedPitch ?? 1.4
+
+        let storedVolume = defaults.object(forKey: Self.voiceVolumeKey) as? Float
+        utterance.volume = storedVolume ?? 1.0
+
+        // Determine voice based on gender setting
+        let gender = defaults.string(forKey: Self.voiceGenderKey) ?? "female"
+        utterance.voice = resolveVoiceForGender(gender)
 
         isPlaying = true
         synthesizer.speak(utterance)
-        print("🔊 Native TTS: speaking \(text.count) characters")
+        LumaLogger.log("Native TTS: speaking \(text.count) characters (rate=\(utterance.rate), pitch=\(utterance.pitchMultiplier), vol=\(utterance.volume), gender=\(gender))")
+    }
+
+    /// Resolves the best available AVSpeechSynthesisVoice for the given gender string.
+    /// Female prefers Zoe → Samantha → system default.
+    /// Male prefers Aaron (enhanced) → Aaron (compact) → system default male voice.
+    private func resolveVoiceForGender(_ gender: String) -> AVSpeechSynthesisVoice? {
+        if gender == "male" {
+            if let aaronEnhanced = AVSpeechSynthesisVoice(identifier: "com.apple.voice.enhanced.en-US.Aaron") {
+                return aaronEnhanced
+            } else if let aaronCompact = AVSpeechSynthesisVoice(identifier: "com.apple.ttsbundle.Aaron-compact") {
+                return aaronCompact
+            }
+            // Fall through to find any male en-US voice
+            let maleVoices = AVSpeechSynthesisVoice.speechVoices().filter {
+                $0.language.hasPrefix("en") && $0.gender == .male
+            }
+            if let firstMale = maleVoices.first { return firstMale }
+            return AVSpeechSynthesisVoice(language: "en-US")
+        } else {
+            // Female (default) — original preference order
+            if let zoeEnhanced = AVSpeechSynthesisVoice(identifier: "com.apple.voice.enhanced.en-US.Zoe") {
+                return zoeEnhanced
+            } else if let zoeCompact = AVSpeechSynthesisVoice(identifier: "com.apple.ttsbundle.Zoe-compact") {
+                return zoeCompact
+            } else if let samantha = AVSpeechSynthesisVoice(identifier: "com.apple.ttsbundle.Samantha-compact") {
+                return samantha
+            }
+            return AVSpeechSynthesisVoice(language: "en-US")
+        }
     }
 
     /// Stops any in-progress playback immediately.
