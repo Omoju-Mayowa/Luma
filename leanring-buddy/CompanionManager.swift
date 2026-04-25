@@ -97,6 +97,7 @@ final class CompanionManager: ObservableObject {
     private var voiceStateCancellable: AnyCancellable?
     private var audioPowerCancellable: AnyCancellable?
     private var permissionProblemCancellable: AnyCancellable?
+    private var cursorStateCancellable: AnyCancellable?
     private var accessibilityCheckTimer: Timer?
     private var pendingKeyboardShortcutStartTask: Task<Void, Never>?
     /// Scheduled hide for transient cursor mode — cancelled if the user
@@ -194,12 +195,13 @@ final class CompanionManager: ObservableObject {
 
     func start() {
         refreshAllPermissions()
-        print("🔑 Luma start — accessibility: \(hasAccessibilityPermission), screen: \(hasScreenRecordingPermission), mic: \(hasMicrophonePermission), screenContent: \(hasScreenContentPermission), onboarded: \(hasCompletedOnboarding)")
+        LumaLogger.log("[Luma] start — accessibility: \(hasAccessibilityPermission), screen: \(hasScreenRecordingPermission), mic: \(hasMicrophonePermission), screenContent: \(hasScreenContentPermission), onboarded: \(hasCompletedOnboarding)")
         startPermissionPolling()
         bindVoiceStateObservation()
         bindAudioPowerLevel()
         bindShortcutTransitions()
         bindPermissionProblemObservation()
+        bindCursorStateToVoiceState()
         // Sync the persisted model selection into the API client so the first
         // request doesn't send an empty model string. Without this, apiClient.model
         // stays "" until the user opens the model picker and changes it.
@@ -320,7 +322,7 @@ final class CompanionManager: ObservableObject {
     private func startOnboardingMusic() {
         stopOnboardingMusic()
         guard let musicURL = Bundle.main.url(forResource: "ff", withExtension: "mp3") else {
-            print("⚠️ Luma: ff.mp3 not found in bundle")
+            LumaLogger.log("[Luma] ff.mp3 not found in bundle")
             return
         }
 
@@ -335,7 +337,7 @@ final class CompanionManager: ObservableObject {
                 self?.fadeOutOnboardingMusic()
             }
         } catch {
-            print("⚠️ Luma: Failed to play onboarding music: \(error)")
+            LumaLogger.log("[Luma] Failed to play onboarding music: \(error)")
         }
     }
 
@@ -416,7 +418,7 @@ final class CompanionManager: ObservableObject {
         if previouslyHadAccessibility != hasAccessibilityPermission
             || previouslyHadScreenRecording != hasScreenRecordingPermission
             || previouslyHadMicrophone != hasMicrophonePermission {
-            print("🔑 Permissions — accessibility: \(hasAccessibilityPermission), screen: \(hasScreenRecordingPermission), mic: \(hasMicrophonePermission), screenContent: \(hasScreenContentPermission)")
+            LumaLogger.log("[Luma] Permissions — accessibility: \(hasAccessibilityPermission), screen: \(hasScreenRecordingPermission), mic: \(hasMicrophonePermission), screenContent: \(hasScreenContentPermission)")
         }
 
         // Track individual permission grants as they happen
@@ -472,7 +474,7 @@ final class CompanionManager: ObservableObject {
                 // Verify the capture actually returned real content — a 0x0 or
                 // fully-empty image means the user denied the prompt.
                 let didCapture = image.width > 0 && image.height > 0
-                print("🔑 Screen content capture result — width: \(image.width), height: \(image.height), didCapture: \(didCapture)")
+                LumaLogger.log("[Luma] Screen content capture result — width: \(image.width), height: \(image.height), didCapture: \(didCapture)")
                 await MainActor.run {
                     isRequestingScreenContent = false
                     guard didCapture else { return }
@@ -488,7 +490,7 @@ final class CompanionManager: ObservableObject {
                     }
                 }
             } catch {
-                print("⚠️ Screen content permission request failed: \(error)")
+                LumaLogger.log("[Luma] Screen content permission request failed: \(error)")
                 await MainActor.run { isRequestingScreenContent = false }
             }
         }
@@ -578,10 +580,33 @@ final class CompanionManager: ObservableObject {
                 guard let self else { return }
                 self.showTextInputFallback = permissionProblem != nil
                 if let permissionProblem {
-                    print("🎙️ Voice unavailable (\(permissionProblem)) — showing text input fallback")
+                    LumaLogger.log("[Luma] Voice unavailable (\(permissionProblem)) — showing text input fallback")
                 } else {
-                    print("🎙️ Voice permissions restored — hiding text input fallback")
+                    LumaLogger.log("[Luma] Voice permissions restored — hiding text input fallback")
                 }
+            }
+    }
+
+    /// Bridges CompanionVoiceState and element-pointing changes to LumaCursorState
+    /// so the cursor appearance updates automatically during voice/pointing interactions.
+    private func bindCursorStateToVoiceState() {
+        cursorStateCancellable = $voiceState
+            .combineLatest($detectedElementScreenLocation)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] newVoiceState, elementLocation in
+                guard self != nil else { return }
+                let cursorState: LumaCursorState
+                if elementLocation != nil {
+                    cursorState = .pointing
+                } else {
+                    switch newVoiceState {
+                    case .idle:       cursorState = .idle
+                    case .listening:  cursorState = .listening
+                    case .processing: cursorState = .processing
+                    case .responding: cursorState = .idle
+                    }
+                }
+                CustomCursorManager.shared.setState(cursorState)
             }
     }
 
@@ -595,7 +620,7 @@ final class CompanionManager: ObservableObject {
     func submitTextInput(_ text: String) {
         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedText.isEmpty else { return }
-        print("⌨️ Text input submitted: \"\(trimmedText)\"")
+        LumaLogger.log("[Luma] Text input submitted: \"\(trimmedText)\"")
         LumaAnalytics.trackUserMessageSent(transcript: trimmedText)
 
         // Ensure the cursor overlay is visible in transient mode so the
@@ -657,7 +682,7 @@ final class CompanionManager: ObservableObject {
                     },
                     submitDraftText: { [weak self] finalTranscript in
                         self?.lastTranscript = finalTranscript
-                        print("🗣️ Companion received transcript: \(finalTranscript)")
+                        LumaLogger.log("[Luma] Companion received transcript: \(finalTranscript)")
                         LumaAnalytics.trackUserMessageSent(transcript: finalTranscript)
                         self?.sendTranscriptToClaudeWithScreenshot(transcript: finalTranscript)
                     }
@@ -824,7 +849,7 @@ final class CompanionManager: ObservableObject {
                 } catch {
                     // Screen capture unavailable — proceed without screenshot.
                     // This happens when Screen Content permission hasn't been granted.
-                    print("⚠️ Screen capture failed, proceeding without screenshot: \(error)")
+                    LumaLogger.log("[Luma] Screen capture failed, proceeding without screenshot: \(error)")
                     labeledImages = []
                 }
 
@@ -949,15 +974,15 @@ final class CompanionManager: ObservableObject {
                     detectedElementScreenLocation = globalLocation
                     detectedElementDisplayFrame = displayFrame
                     LumaAnalytics.trackElementPointed(elementLabel: parseResult.elementLabel)
-                    print("🎯 Element pointing: (\(Int(pointCoordinate.x)), \(Int(pointCoordinate.y))) → \"\(parseResult.elementLabel ?? "element")\"")
+                    LumaLogger.log("[Luma] Element pointing: (\(Int(pointCoordinate.x)), \(Int(pointCoordinate.y))) → \"\(parseResult.elementLabel ?? "element")\"")
                 } else {
-                    print("🎯 Element pointing: \(parseResult.elementLabel ?? "no element")")
+                    LumaLogger.log("[Luma] Element pointing: \(parseResult.elementLabel ?? "no element")")
 
                     // Auto-cursor fallback: if Claude did not embed a [POINT:x,y] coordinate,
                     // scan the spoken text for action words referencing a UI element and use
                     // CursorGuide to locate and point at it via the accessibility tree.
                     if let autoTargetElementName = Self.extractElementNameFromActionPhrase(spokenText: spokenText) {
-                        print("🎯 Auto-cursor: no explicit coordinate — searching AX tree for '\(autoTargetElementName)'")
+                        LumaLogger.log("[Luma] Auto-cursor: no explicit coordinate — searching AX tree for '\(autoTargetElementName)'")
                         await CursorGuide.shared.pointAtElement(withTitle: autoTargetElementName, inApp: nil)
                     }
                 }
@@ -974,7 +999,7 @@ final class CompanionManager: ObservableObject {
                     conversationHistory.removeFirst(conversationHistory.count - 10)
                 }
 
-                print("🧠 Conversation history: \(conversationHistory.count) exchanges")
+                LumaLogger.log("[Luma] Conversation history: \(conversationHistory.count) exchanges")
 
                 LumaAnalytics.trackAIResponseReceived(response: spokenText)
 
@@ -988,7 +1013,7 @@ final class CompanionManager: ObservableObject {
                         voiceState = .responding
                     } catch {
                         LumaAnalytics.trackTTSError(error: error.localizedDescription)
-                        print("⚠️ Native TTS error: \(error)")
+                        LumaLogger.log("[Luma] Native TTS error: \(error)")
                         speakCreditsErrorFallback()
                     }
                 }
@@ -996,8 +1021,8 @@ final class CompanionManager: ObservableObject {
                 // User spoke again — response was interrupted
             } catch {
                 LumaAnalytics.trackResponseError(error: error.localizedDescription)
-                print("⚠️ Companion response error (\(type(of: error))): \(error.localizedDescription)")
-                print("⚠️ Full error: \(error)")
+                LumaLogger.log("[Luma] Companion response error (\(type(of: error))): \(error.localizedDescription)")
+                LumaLogger.log("[Luma] Full error: \(error)")
                 // Map the raw API error to a brief human-readable message via LumaWriteEngine.
                 // Raw error strings from the API (e.g. "The operation couldn't be completed") are
                 // never shown — LumaWriteEngine always produces a short, friendly alternative.
@@ -1388,7 +1413,7 @@ final class CompanionManager: ObservableObject {
                 // Only send the cursor screen so Claude can't pick something
                 // on a different monitor that we can't point at.
                 guard let cursorScreenCapture = screenCaptures.first(where: { $0.isCursorScreen }) else {
-                    print("🎯 Onboarding demo: no cursor screen found")
+                    LumaLogger.log("[Luma] Onboarding demo: no cursor screen found")
                     return
                 }
 
@@ -1405,7 +1430,7 @@ final class CompanionManager: ObservableObject {
                 let parseResult = Self.parsePointingCoordinates(from: fullResponseText)
 
                 guard let pointCoordinate = parseResult.coordinate else {
-                    print("🎯 Onboarding demo: no element to point at")
+                    LumaLogger.log("[Luma] Onboarding demo: no element to point at")
                     return
                 }
 
@@ -1430,9 +1455,9 @@ final class CompanionManager: ObservableObject {
                 detectedElementBubbleText = parseResult.spokenText
                 detectedElementScreenLocation = globalLocation
                 detectedElementDisplayFrame = displayFrame
-                print("🎯 Onboarding demo: pointing at \"\(parseResult.elementLabel ?? "element")\" — \"\(parseResult.spokenText)\"")
+                LumaLogger.log("[Luma] Onboarding demo: pointing at \"\(parseResult.elementLabel ?? "element")\" — \"\(parseResult.spokenText)\"")
             } catch {
-                print("⚠️ Onboarding demo error: \(error)")
+                LumaLogger.log("[Luma] Onboarding demo error: \(error)")
             }
         }
     }
