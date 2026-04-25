@@ -45,6 +45,10 @@ The app calls external APIs directly using keys stored in the macOS Keychain. Ke
 
 **Transient Cursor Mode**: When "Show Luma" is off, pressing the hotkey fades in the cursor overlay for the duration of the interaction (recording → response → TTS → optional pointing), then fades it out automatically after 1 second of inactivity.
 
+**Agent System (v3.0)**: Multi-agent mode allows spawning up to 10 independent agent bubbles on screen. Each agent has its own shape, color, state machine, and conversation history. Agents are managed by `AgentManager` singleton, rendered via `AgentStackView` overlay, and can execute autonomous tasks via `LumaAgentEngine` using CGEvent-based cursor control with queue-based conflict resolution. Physics-based bubble interactions (momentum, repulsion, shake impulse) run at 60fps via `AgentBubblePhysicsEngine`. Voice commands ("spawn agent and research X") detected via regex in `AgentVoiceIntegration`. Hotkeys: Ctrl+Cmd+N spawn, Ctrl+Option+Tab cycle, Ctrl+Option+1-9 switch. Memory persisted via `LumaMemoryManager` to ~/Library/Application Support/Luma/.
+
+**Companion Bubble (v3.0)**: The floating response bubble uses backdrop blur with rgba(10,10,15,0.85) overlay, animated angular gradient border (8s hue cycle), AttributedString markdown rendering, smooth spring resize animations, scroll for overflow, and walkthrough step indicators.
+
 ## Key Files
 
 | File | Lines | Purpose |
@@ -66,18 +70,33 @@ The app calls external APIs directly using keys stored in the macOS Keychain. Ke
 | `GlobalPushToTalkShortcutMonitor.swift` | ~132 | System-wide push-to-talk monitor. Owns the listen-only `CGEvent` tap and publishes press/release transitions. |
 | `ClaudeAPI.swift` | ~291 | Claude vision API client with streaming (SSE) and non-streaming modes. TLS warmup optimization, image MIME detection, conversation history support. |
 | `OpenAIAPI.swift` | ~142 | OpenAI GPT vision API client. |
-| `ElevenLabsTTSClient.swift` | ~90 | Native macOS TTS client using `AVSpeechSynthesizer`. Fully local — no API calls. Exposes `isPlaying` and `waitUntilFinished()` for transient cursor scheduling. |
+| `ElevenLabsTTSClient.swift` | ~140 | Native macOS TTS client using `AVSpeechSynthesizer`. Fully local — no API calls. Reads voice settings (gender, pitch, rate, volume) from UserDefaults before each utterance. Exposes `isPlaying` and `waitUntilFinished()` for transient cursor scheduling. |
 | `ElementLocationDetector.swift` | ~335 | Detects UI element locations in screenshots for cursor pointing. |
 | `LumaImageProcessingEngine.swift` | ~743 | Central element-finding authority for the walkthrough system. Runs AX scan and visual scan in parallel, cross-validates results, and returns the highest-confidence candidate. Owns the Layer 3 Claude Vision fallback (`detectElementViaAPIClient`, `parsePointTagFromAPIResponse`, `adaptiveBoundingBoxSize`). |
 | `LumaMobileNetDetector.swift` | ~354 | 3-layer on-device visual detection pipeline. Layer 1: `VNRecognizeTextRequest` + `VNDetectRectanglesRequest` returns real bounding boxes. Layer 2: MobileNetV2 crop-validates Layer 1 coordinates (downgrade if < 0.35 confidence). Layer 3 trigger lives in `LumaImageProcessingEngine.scanVisual`. |
 | `LumaOnDeviceAI.swift` | ~82 | Unified manager for all on-device AI inference (Whisper, DistilBERT classifier, MobileNetV2 detector). All sub-engines are lazily loaded. `detectElements` threads `searchQuery` through to `LumaMobileNetDetector`. |
-| `DesignSystem.swift` | ~880 | Design system tokens — colors, corner radii, shared styles. All UI references `DS.Colors`, `DS.CornerRadius`, etc. |
+| `LumaTheme.swift` | ~800 | Design system tokens — colors, spacing, corner radii, typography, companion shape/morph config. All UI references `LumaTheme.Colors`, `LumaTheme.CornerRadius`, etc. Includes `NoiseTextureView` (CIRandomGenerator grain), `ButtonGlowHoverModifier`, `MorphingCompanionShape`, and the `pointerCursor()` / `glowOnHover()` view extensions. |
 | `LumaAnalytics.swift` | ~121 | PostHog analytics integration for usage tracking. |
 | `WindowPositionManager.swift` | ~262 | Window placement logic, Screen Recording permission flow, and accessibility permission helpers. |
 | `AppBundleConfiguration.swift` | ~28 | Runtime configuration reader for keys stored in the app bundle Info.plist. |
 | `AccountManager.swift` | ~107 | Manages local user account persistence via UserDefaults. Owns `LumaAccount` model with username, display name, and avatar initials. Provides singleton manager with create, update, and delete lifecycle methods. Includes `LumaAvatarView` for displaying user initials using LumaTheme accent colors. |
 | `PostOnboardingTutorialManager.swift` | ~80 | Drives a 5-step post-onboarding walkthrough. Runs once after onboarding completes, highlights panel UI elements with a pulse ring, and auto-advances. Completion persisted in UserDefaults. |
-| `LumaLogger.swift` | ~120 | Thread-safe file-based logger. Writes all `[Luma]`, `[LIPE]`, `[LumaMobileNet]`, and `[LumaML]` messages to `~/Library/Logs/Luma/luma.log`. Auto-rotates at 2 MB (backup: `luma.log.1`). Works in Debug and Release. Use `LumaLogger.log()` instead of `print()` for all tagged diagnostic output. |
+| `LumaLogger.swift` | ~120 | Thread-safe file-based logger. Writes all `[Luma]`, `[LIPE]`, `[LumaMobileNet]`, and `[LumaML]` messages to `~/Library/Logs/Luma/luma.log`. Auto-rotates at 2 MB (backup: `luma.log.1`). Works in Debug and Release. Use `LumaLogger.log()` instead of `print()` for all tagged diagnostic output. Has a Combine `liveLogEntryPublisher` for real-time log streaming to the log window. |
+| `LumaLogWindowManager.swift` | ~100 | Non-modal NSWindow with monospaced NSTextView for real-time log viewing. Subscribes to LumaLogger's live publisher. Clear button, auto-scroll. |
+| `LumaCursorProfile.swift` | ~150 | Per-state cursor appearance configuration. CursorProfile stores per-LumaCursorState shape/color/size, persisted to Keychain. |
+| `CustomCursorManager.swift` | ~200 | Reads CursorProfile from Keychain, builds NSCursor cache per state, exposes `setState(_:)` for state transitions. Renders teardrop, circle, triangle, diamond, cross, dot shapes with glow. |
+| `LumaMemoryManager.swift` | ~180 | Manages memory.md and per-agent JSON history in ~/Library/Application Support/Luma/. Thread-safe via NSLock, ISO8601 date encoding, auto-rotation at 2MB. |
+| `Agent/LumaAgent.swift` | ~80 | Agent model: AgentShape, AgentState, AgentTaskStatus enums and LumaAgent struct with id, title, color, shape, position, state, model. |
+| `Agent/AgentManager.swift` | ~120 | Singleton managing [LumaAgent] array. Spawn, dismiss, update, move, expand/collapse agents. Enforces agent limit. |
+| `Agent/AgentStackView.swift` | ~430 | Overlay rendering all agent bubbles. MinimizedAgentBubbleView (56x56, drag, hover dismiss, tap-to-expand), ExpandedAgentBubbleView (500x400, header/status/input sections with stagger-reveal), IdleBounceModifier, ProcessingShakeModifier. |
+| `Agent/AgentShapeView.swift` | ~100 | Renders agent shape inside rounded rect with dark background, colored glow, tinted border. Custom Shape paths for rhombus, triangle, hexagon. |
+| `Agent/LumaAgentEngine.swift` | ~310 | Autonomous task execution engine. AgentAction enum (click, type, keyPress, screenshot, wait, openApp, search). CGEvent-based cursor control with queue-based lock for multi-agent conflict resolution. |
+| `Agent/AgentBubblePhysics.swift` | ~170 | 60fps Timer-based physics engine. Drag momentum with decay, bubble repulsion (8pt minimum separation), shake impulse propagation with wobble decay. |
+| `Agent/AgentHotkeyHandler.swift` | ~115 | Global NSEvent monitors for agent hotkeys: Ctrl+Cmd+N spawn, Ctrl+Option+Tab cycle, Ctrl+Option+1-9 switch. |
+| `Agent/AgentVoiceIntegration.swift` | ~110 | Voice command detection for agent spawning via regex. Heuristic title generation from task text. |
+| `Agent/AgentMemoryIntegration.swift` | ~80 | Bridges agent system with LumaMemoryManager. Summarizes memory for system context, records user/agent messages. |
+| `Agent/AgentProfile.swift` | ~50 | AgentModel enum (claudeSonnet, claudeOpus, gpt4o, gpt4oMini) and AgentProfile struct (Codable, UserDefaults persisted). |
+| `Agent/AgentSettingsManager.swift` | ~90 | Singleton managing maxAgentCount, isAgentModeEnabled, agentProfiles. Enforces agent limit with UNNotification on removal. |
 
 ## Build & Run
 
