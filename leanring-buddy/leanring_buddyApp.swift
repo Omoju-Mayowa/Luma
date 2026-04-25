@@ -39,8 +39,8 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         // always render with dark chrome, even when macOS is in light mode.
         NSApp.appearance = NSAppearance(named: .darkAqua)
 
-        print("🎯 Luma: Starting...")
-        print("🎯 Luma: Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown")")
+        LumaLogger.log("🎯 Luma: Starting...")
+        LumaLogger.log("🎯 Luma: Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown")")
 
         UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 0])
 
@@ -79,9 +79,9 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         if loginItemService.status != .enabled {
             do {
                 try loginItemService.register()
-                print("🎯 Luma: Registered as login item")
+                LumaLogger.log("🎯 Luma: Registered as login item")
             } catch {
-                print("⚠️ Luma: Failed to register as login item: \(error)")
+                LumaLogger.log("⚠️ Luma: Failed to register as login item: \(error)")
             }
         }
     }
@@ -97,7 +97,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         do {
             try updaterController.updater.start()
         } catch {
-            print("⚠️ Luma: Sparkle updater failed to start: \(error)")
+            LumaLogger.log("⚠️ Luma: Sparkle updater failed to start: \(error)")
         }
     }
 }

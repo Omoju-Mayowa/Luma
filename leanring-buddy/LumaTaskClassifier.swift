@@ -66,9 +66,9 @@ final class LumaTaskClassifier {
             || Bundle.main.url(forResource: "DistilBERT", withExtension: "mlpackage") != nil
         isModelAvailable = modelExists
         if modelExists {
-            print("[LumaClassifier] DistilBERT model found — ML classification available.")
+            LumaLogger.log("[LumaClassifier] DistilBERT model found — ML classification available.")
         } else {
-            print("[LumaClassifier] DistilBERT model not bundled — using keyword heuristics.")
+            LumaLogger.log("[LumaClassifier] DistilBERT model not bundled — using keyword heuristics.")
         }
     }
 

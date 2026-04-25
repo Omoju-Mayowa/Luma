@@ -58,7 +58,7 @@ final class LumaWhisperEngine {
 
     private func loadEncoderModel() {
         guard let modelURL = Bundle.main.url(forResource: "whisper-tiny", withExtension: "mlmodelc") else {
-            print("[LumaWhisper] whisper-tiny.mlmodelc not in bundle — using configured STT provider.")
+            LumaLogger.log("[LumaWhisper] whisper-tiny.mlmodelc not in bundle — using configured STT provider.")
             return
         }
         do {
@@ -67,9 +67,9 @@ final class LumaWhisperEngine {
             config.computeUnits = .cpuAndNeuralEngine
             encoderModel = try MLModel(contentsOf: modelURL, configuration: config)
             isModelAvailable = true
-            print("[LumaWhisper] Whisper Tiny encoder loaded.")
+            LumaLogger.log("[LumaWhisper] Whisper Tiny encoder loaded.")
         } catch {
-            print("[LumaWhisper] Failed to load Whisper encoder: \(error)")
+            LumaLogger.log("[LumaWhisper] Failed to load Whisper encoder: \(error)")
         }
     }
 
@@ -83,21 +83,21 @@ final class LumaWhisperEngine {
         guard !isSilent(audioBuffer) else { return nil }
 
         guard let monoSamples = resampleToWhisperFormat(audioBuffer) else {
-            print("[LumaWhisper] Audio conversion failed.")
+            LumaLogger.log("[LumaWhisper] Audio conversion failed.")
             return nil
         }
 
         guard let melInput = buildMelSpectrogramInput(monoSamples) else {
-            print("[LumaWhisper] Mel spectrogram failed.")
+            LumaLogger.log("[LumaWhisper] Mel spectrogram failed.")
             return nil
         }
 
         do {
             let embeddings = try runEncoderInference(melInput: melInput, model: model)
             // Encoder produced audio embeddings — a decoder is needed to convert to text.
-            print("[LumaWhisper] Encoder ran (\(embeddings.count) values). Decoder not bundled — falling back to STT provider.")
+            LumaLogger.log("[LumaWhisper] Encoder ran (\(embeddings.count) values). Decoder not bundled — falling back to STT provider.")
         } catch {
-            print("[LumaWhisper] Encoder inference error: \(error)")
+            LumaLogger.log("[LumaWhisper] Encoder inference error: \(error)")
         }
 
         return nil

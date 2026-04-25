@@ -8,6 +8,7 @@
 //  Works in both Debug and Release builds — no #if DEBUG guard.
 //
 
+import Combine
 import Foundation
 
 /// Thread-safe file logger that persists Luma diagnostic output to disk.
@@ -19,11 +20,20 @@ import Foundation
 /// Log location:  ~/Library/Logs/Luma/luma.log
 /// Rotation:      When luma.log reaches 2 MB it is renamed to luma.log.1
 ///                and a fresh luma.log is started. Only one backup is kept.
+///
+/// Real-time streaming: subscribe to `liveLogEntryPublisher` to receive
+/// formatted log lines as they are written (used by the Log Window).
 final class LumaLogger: @unchecked Sendable {
 
     // MARK: - Singleton
 
     static let shared = LumaLogger()
+
+    // MARK: - Real-Time Streaming
+
+    /// Publisher that emits each formatted log line (with timestamp) as it is written.
+    /// Subscribers receive lines on the main queue for UI safety.
+    let liveLogEntryPublisher = PassthroughSubject<String, Never>()
 
     // MARK: - Configuration
 
@@ -112,13 +122,18 @@ final class LumaLogger: @unchecked Sendable {
             guard let self else { return }
 
             let timestamp = self.timestampFormatter.string(from: Date())
-            let logLine   = "\(timestamp) \(message)\n"
+            let logLine   = "[\(timestamp)] \(message)"
 
-            guard let lineData = logLine.data(using: .utf8) else { return }
+            guard let lineData = "\(logLine)\n".data(using: .utf8) else { return }
 
             // Rotate first so the new line always lands in a fresh file if needed.
             self.rotateLogFileIfSizeExceedsLimit()
             self.fileHandle?.write(lineData)
+
+            // Publish to live subscribers (log window) on main queue
+            DispatchQueue.main.async {
+                self.liveLogEntryPublisher.send(logLine)
+            }
         }
     }
 

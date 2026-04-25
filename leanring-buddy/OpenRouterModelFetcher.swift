@@ -84,7 +84,7 @@ final class OpenRouterModelFetcher: ObservableObject {
                 self.allModels = models
             } catch {
                 self.modelFetchError = error.localizedDescription
-                print("Failed to fetch OpenRouter models: \(error)")
+                LumaLogger.log("Failed to fetch OpenRouter models: \(error)")
             }
             self.isLoadingModels = false
         }

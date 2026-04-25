@@ -167,7 +167,7 @@ class ClaudeAPI {
         let bodyData = try JSONSerialization.data(withJSONObject: body)
         request.httpBody = bodyData
         let payloadMB = Double(bodyData.count) / 1_048_576.0
-        print("🌐 Claude streaming request (OpenRouter): \(String(format: "%.1f", payloadMB))MB, \(images.count) image(s)")
+        LumaLogger.log("🌐 Claude streaming request (OpenRouter): \(String(format: "%.1f", payloadMB))MB, \(images.count) image(s)")
 
         // Use bytes streaming for SSE (Server-Sent Events)
         let (byteStream, response) = try await session.bytes(for: request)
@@ -257,7 +257,7 @@ class ClaudeAPI {
         let bodyData = try JSONSerialization.data(withJSONObject: body)
         request.httpBody = bodyData
         let payloadMB = Double(bodyData.count) / 1_048_576.0
-        print("🌐 Claude request (OpenRouter): \(String(format: "%.1f", payloadMB))MB, \(images.count) image(s)")
+        LumaLogger.log("🌐 Claude request (OpenRouter): \(String(format: "%.1f", payloadMB))MB, \(images.count) image(s)")
 
         let (data, response) = try await session.data(for: request)
 

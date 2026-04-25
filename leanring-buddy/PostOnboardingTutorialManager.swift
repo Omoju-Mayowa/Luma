@@ -74,7 +74,7 @@ final class PostOnboardingTutorialManager: ObservableObject {
         currentStepIndex = 0
         isActive = true
         scheduleAutoAdvance()
-        print("📖 Tutorial: started — step 1 of \(steps.count)")
+        LumaLogger.log("📖 Tutorial: started — step 1 of \(steps.count)")
     }
 
     /// Advances to the next step, or completes the tutorial if on the last step.
@@ -86,7 +86,7 @@ final class PostOnboardingTutorialManager: ObservableObject {
             complete()
         } else {
             currentStepIndex += 1
-            print("📖 Tutorial: advanced to step \(currentStepIndex + 1)")
+            LumaLogger.log("📖 Tutorial: advanced to step \(currentStepIndex + 1)")
             scheduleAutoAdvance()
         }
     }
@@ -96,7 +96,7 @@ final class PostOnboardingTutorialManager: ObservableObject {
         autoAdvanceTask?.cancel()
         isActive = false
         UserDefaults.standard.set(true, forKey: Self.userDefaultsKey)
-        print("📖 Tutorial: completed")
+        LumaLogger.log("📖 Tutorial: completed")
     }
 
     private func scheduleAutoAdvance() {

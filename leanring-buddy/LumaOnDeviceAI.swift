@@ -75,8 +75,8 @@ final class LumaOnDeviceAI {
 
     /// Prints a summary of which on-device models are available, useful for debugging.
     func logModelAvailability() {
-        print("[LumaOnDeviceAI] Whisper:     \(whisper.isModelAvailable ? "✓ available" : "✗ not bundled — using API")")
-        print("[LumaOnDeviceAI] Classifier:  \(classifier.isModelAvailable ? "✓ ML model" : "✓ heuristic fallback")")
-        print("[LumaOnDeviceAI] MobileNet:   \(detector.isModelAvailable ? "✓ available (Layer 2 validation active)" : "✗ not bundled — Layer 2 validation disabled, Layer 1 Vision requests still active")")
+        LumaLogger.log("[LumaOnDeviceAI] Whisper:     \(whisper.isModelAvailable ? "✓ available" : "✗ not bundled — using API")")
+        LumaLogger.log("[LumaOnDeviceAI] Classifier:  \(classifier.isModelAvailable ? "✓ ML model" : "✓ heuristic fallback")")
+        LumaLogger.log("[LumaOnDeviceAI] MobileNet:   \(detector.isModelAvailable ? "✓ available (Layer 2 validation active)" : "✗ not bundled — Layer 2 validation disabled, Layer 1 Vision requests still active")")
     }
 }

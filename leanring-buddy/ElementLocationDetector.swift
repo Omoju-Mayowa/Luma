@@ -73,7 +73,7 @@ class ElementLocationDetector {
             displayHeight: displayHeightInPoints
         )
 
-        print("🎯 ElementLocationDetector: display is \(displayWidthInPoints)x\(displayHeightInPoints) " +
+        LumaLogger.log("🎯 ElementLocationDetector: display is \(displayWidthInPoints)x\(displayHeightInPoints) " +
               "(ratio \(String(format: "%.3f", Double(displayWidthInPoints) / Double(displayHeightInPoints)))), " +
               "using Computer Use resolution \(computerUseResolution.width)x\(computerUseResolution.height)")
 
@@ -83,7 +83,7 @@ class ElementLocationDetector {
             targetWidth: computerUseResolution.width,
             targetHeight: computerUseResolution.height
         ) else {
-            print("⚠️ ElementLocationDetector: failed to resize screenshot")
+            LumaLogger.log("⚠️ ElementLocationDetector: failed to resize screenshot")
             return nil
         }
 
@@ -110,7 +110,7 @@ class ElementLocationDetector {
         // Convert from top-left origin (Computer Use / CoreGraphics) to bottom-left origin (AppKit)
         let scaledYBottomLeftOrigin = CGFloat(displayHeightInPoints) - scaledYTopLeftOrigin
 
-        print("🎯 ElementLocationDetector: mapped (\(Int(clampedX)), \(Int(clampedY))) in " +
+        LumaLogger.log("🎯 ElementLocationDetector: mapped (\(Int(clampedX)), \(Int(clampedY))) in " +
               "\(computerUseResolution.width)x\(computerUseResolution.height) → " +
               "(\(Int(scaledX)), \(Int(scaledYBottomLeftOrigin))) in " +
               "\(displayWidthInPoints)x\(displayHeightInPoints) display-local AppKit coords")
@@ -211,7 +211,7 @@ class ElementLocationDetector {
             request.httpBody = bodyData
 
             let payloadMB = Double(bodyData.count) / 1_048_576.0
-            print("🎯 ElementLocationDetector: sending \(String(format: "%.1f", payloadMB))MB request " +
+            LumaLogger.log("🎯 ElementLocationDetector: sending \(String(format: "%.1f", payloadMB))MB request " +
                   "(declared \(declaredDisplayWidth)x\(declaredDisplayHeight))")
 
             let (data, response) = try await session.data(for: request)
@@ -220,14 +220,14 @@ class ElementLocationDetector {
                   (200...299).contains(httpResponse.statusCode) else {
                 let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
                 let errorBody = String(data: data, encoding: .utf8) ?? "unknown"
-                print("⚠️ ElementLocationDetector: API error \(statusCode): \(errorBody.prefix(200))")
+                LumaLogger.log("⚠️ ElementLocationDetector: API error \(statusCode): \(errorBody.prefix(200))")
                 return nil
             }
 
             return parseCoordinateFromResponse(data: data)
 
         } catch {
-            print("⚠️ ElementLocationDetector: request failed: \(error.localizedDescription)")
+            LumaLogger.log("⚠️ ElementLocationDetector: request failed: \(error.localizedDescription)")
             return nil
         }
     }
@@ -238,7 +238,7 @@ class ElementLocationDetector {
     private func parseCoordinateFromResponse(data: Data) -> CGPoint? {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let contentBlocks = json["content"] as? [[String: Any]] else {
-            print("⚠️ ElementLocationDetector: could not parse response JSON")
+            LumaLogger.log("⚠️ ElementLocationDetector: could not parse response JSON")
             return nil
         }
 
@@ -254,12 +254,12 @@ class ElementLocationDetector {
 
             let x = CGFloat(coordinate[0].doubleValue)
             let y = CGFloat(coordinate[1].doubleValue)
-            print("🎯 ElementLocationDetector: raw coordinate (\(Int(x)), \(Int(y)))")
+            LumaLogger.log("🎯 ElementLocationDetector: raw coordinate (\(Int(x)), \(Int(y)))")
             return CGPoint(x: x, y: y)
         }
 
         // No tool_use block found — Claude responded with text (no element to point at)
-        print("🎯 ElementLocationDetector: no specific element detected (conceptual question)")
+        LumaLogger.log("🎯 ElementLocationDetector: no specific element detected (conceptual question)")
         return nil
     }
 

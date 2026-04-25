@@ -189,7 +189,7 @@ final class AccessibilityWatcher: ObservableObject {
             }
         }, &newObserver)
         guard createResult == .success, let createdObserver = newObserver else {
-            print("AccessibilityWatcher: AXObserverCreate failed for PID \(pid) — \(createResult.rawValue)")
+            LumaLogger.log("[AccessibilityWatcher] AXObserverCreate failed for PID \(pid) — \(createResult.rawValue)")
             return
         }
 

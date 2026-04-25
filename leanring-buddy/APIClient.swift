@@ -445,7 +445,7 @@ final class APIClient {
         let maskedAPIKey = apiKey.count > 8
             ? String(apiKey.prefix(4)) + "…" + String(apiKey.suffix(4))
             : String(repeating: "*", count: apiKey.count)
-        print("APIClient ▶ provider=\(activeProfile.provider.displayName) endpoint=\(endpointURL.absoluteString) model=\(effectiveModelID) key=\(maskedAPIKey)")
+        LumaLogger.log("APIClient ▶ provider=\(activeProfile.provider.displayName) endpoint=\(endpointURL.absoluteString) model=\(effectiveModelID) key=\(maskedAPIKey)")
 
         // Build the request body in the format expected by this provider
         let requestBodyData: Data
@@ -474,7 +474,7 @@ final class APIClient {
 
         urlRequest.httpBody = requestBodyData
         let payloadSizeMB = Double(requestBodyData.count) / 1_048_576.0
-        print("APIClient: streaming request to \(activeProfile.provider.displayName) — \(String(format: "%.1f", payloadSizeMB))MB, \(images.count) image(s), max_tokens=\(maxOutputTokens)")
+        LumaLogger.log("APIClient: streaming request to \(activeProfile.provider.displayName) — \(String(format: "%.1f", payloadSizeMB))MB, \(images.count) image(s), max_tokens=\(maxOutputTokens)")
 
         // Use bytes streaming to read the SSE response line by line.
         // On a 429 rate-limit response, wait 60 seconds and retry exactly once.
@@ -492,7 +492,7 @@ final class APIClient {
         }
 
         if firstHTTPURLResponse.statusCode == 429 {
-            print("[APIClient] Rate limit (429) on streaming — waiting 60 seconds before single retry")
+            LumaLogger.log("[APIClient] Rate limit (429) on streaming — waiting 60 seconds before single retry")
             try await Task.sleep(nanoseconds: 60_000_000_000)
             let (retryByteStream, retryHTTPResponse) = try await urlSession.bytes(for: urlRequest)
             guard let retryHTTPURLResponse = retryHTTPResponse as? HTTPURLResponse else {
@@ -596,7 +596,7 @@ final class APIClient {
         let maskedAPIKey = apiKey.count > 8
             ? String(apiKey.prefix(4)) + "…" + String(apiKey.suffix(4))
             : String(repeating: "*", count: apiKey.count)
-        print("APIClient ▶ provider=\(activeProfile.provider.displayName) endpoint=\(endpointURL.absoluteString) model=\(effectiveModelID) key=\(maskedAPIKey)")
+        LumaLogger.log("[APIClient] provider=\(activeProfile.provider.displayName) endpoint=\(endpointURL.absoluteString) model=\(effectiveModelID) key=\(maskedAPIKey)")
 
         // Build the request body in the format expected by this provider (non-streaming)
         let requestBodyData: Data
@@ -625,7 +625,7 @@ final class APIClient {
 
         urlRequest.httpBody = requestBodyData
         let payloadSizeMB = Double(requestBodyData.count) / 1_048_576.0
-        print("APIClient: non-streaming request to \(activeProfile.provider.displayName) — \(String(format: "%.1f", payloadSizeMB))MB, \(images.count) image(s), max_tokens=\(maxOutputTokens)")
+        LumaLogger.log("[APIClient] non-streaming request to \(activeProfile.provider.displayName) — \(String(format: "%.1f", payloadSizeMB))MB, \(images.count) image(s), max_tokens=\(maxOutputTokens)")
 
         // On a 429 rate-limit response, wait 60 seconds and retry exactly once.
         // If the retry also fails, throw — no further retries.
@@ -642,7 +642,7 @@ final class APIClient {
         }
 
         if firstHTTPURLResponse.statusCode == 429 {
-            print("[APIClient] Rate limit (429) — waiting 60 seconds before single retry")
+            LumaLogger.log("[APIClient] Rate limit (429) — waiting 60 seconds before single retry")
             try await Task.sleep(nanoseconds: 60_000_000_000)
             let (retryResponseData, retryHTTPResponse) = try await urlSession.data(for: urlRequest)
             guard let retryHTTPURLResponse = retryHTTPResponse as? HTTPURLResponse else {
