@@ -188,14 +188,14 @@ struct CompanionPanelView: View {
                 Image(systemName: "xmark")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundColor(LumaTheme.Colors.textTertiary)
-                    .frame(width: 20, height: 20)
+                    .frame(width: 22, height: 22)
                     .background(
                         Circle()
                             .fill(LumaTheme.textPrimary.opacity(0.08))
                     )
             }
             .buttonStyle(.plain)
-            .pointerCursor()
+            .glowOnHover()
         }
         .padding(.horizontal, LumaTheme.paddingLG)
         .padding(.vertical, 14)
@@ -1096,7 +1096,7 @@ struct CompanionPanelView: View {
                         .foregroundColor(LumaTheme.Colors.textTertiary)
                 }
                 .buttonStyle(.plain)
-                .pointerCursor()
+                .glowOnHover()
                 .help("Settings")
 
                 Button(action: { showQuitConfirmation = true }) {
@@ -1105,7 +1105,7 @@ struct CompanionPanelView: View {
                         .foregroundColor(LumaTheme.Colors.textTertiary)
                 }
                 .buttonStyle(.plain)
-                .pointerCursor()
+                .glowOnHover(color: LumaTheme.destructive)
                 .help("Quit Luma")
             }
         }
@@ -1123,10 +1123,15 @@ struct CompanionPanelView: View {
     // MARK: - Visual Helpers
 
     private var panelBackground: some View {
-        RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .fill(LumaTheme.Colors.background)
-            .shadow(color: LumaTheme.background.opacity(0.5), radius: 20, x: 0, y: 10)
-            .shadow(color: LumaTheme.background.opacity(0.3), radius: 4, x: 0, y: 2)
+        ZStack {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(LumaTheme.Colors.background)
+
+            // Subtle noise texture overlay for visual depth (PRD 7.3)
+            NoiseTextureView(opacity: 0.03)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .shadow(color: Color.black.opacity(0.3), radius: 20, x: 0, y: 10)
     }
 
     private var statusDotColor: Color {

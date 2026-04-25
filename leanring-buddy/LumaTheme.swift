@@ -41,7 +41,7 @@ struct LumaTheme {
 
     // MARK: Backgrounds
 
-    static let background      = Color(hex: "#0A0A0A")
+    static let background      = Color(hex: "#0A0A0F")
     static let surface         = Color(hex: "#141414")
     static let surfaceElevated = Color(hex: "#1C1C1C")
 
@@ -232,12 +232,14 @@ struct LumaTheme {
     // MARK: Typography
 
     enum Typography {
-        static let caption    = Font.system(size: 11, weight: .regular)
-        static let body       = Font.system(size: 13, weight: .regular)
-        static let bodyMedium = Font.system(size: 13, weight: .medium)
-        static let headline   = Font.system(size: 15, weight: .semibold)
-        static let title      = Font.system(size: 20, weight: .bold)
-        static let largeTitle = Font.system(size: 28, weight: .bold)
+        // Body text: SF Pro Text (system default design)
+        static let caption    = Font.system(size: 11, weight: .regular, design: .default)
+        static let body       = Font.system(size: 13, weight: .regular, design: .default)
+        static let bodyMedium = Font.system(size: 13, weight: .medium, design: .default)
+        // Headers: SF Pro Display (rounded design for distinction at larger sizes)
+        static let headline   = Font.system(size: 15, weight: .semibold, design: .default)
+        static let title      = Font.system(size: 20, weight: .bold, design: .default)
+        static let largeTitle = Font.system(size: 28, weight: .bold, design: .default)
     }
 
     // MARK: - Backward Compatibility Shims
@@ -694,6 +696,56 @@ struct MorphingCompanionShape: Shape {
     }
 }
 
+// MARK: - Noise Texture View
+
+/// A subtle procedural grain texture overlay generated via Core Image.
+/// Renders at low opacity to add visual depth to dark surfaces.
+struct NoiseTextureView: View {
+    var opacity: Double = 0.03
+
+    var body: some View {
+        GeometryReader { geometry in
+            if let noiseImage = Self.generateNoiseImage(
+                width: Int(geometry.size.width),
+                height: Int(geometry.size.height)
+            ) {
+                Image(nsImage: noiseImage)
+                    .resizable()
+                    .opacity(opacity)
+                    .blendMode(.screen)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    /// Generates a grain noise pattern using CIRandomGenerator + CIColorMatrix.
+    private static func generateNoiseImage(width: Int, height: Int) -> NSImage? {
+        guard width > 0, height > 0 else { return nil }
+
+        let context = CIContext()
+        guard let noiseFilter = CIFilter(name: "CIRandomGenerator") else { return nil }
+        guard let noiseOutput = noiseFilter.outputImage else { return nil }
+
+        // Reduce the noise to a subtle monochrome grain
+        guard let monoFilter = CIFilter(name: "CIColorMatrix") else { return nil }
+        monoFilter.setValue(noiseOutput, forKey: kCIInputImageKey)
+        monoFilter.setValue(CIVector(x: 0, y: 0, z: 0, w: 0), forKey: "inputRVector")
+        monoFilter.setValue(CIVector(x: 0, y: 0, z: 0, w: 0), forKey: "inputGVector")
+        monoFilter.setValue(CIVector(x: 0, y: 0, z: 0, w: 0), forKey: "inputBVector")
+        monoFilter.setValue(CIVector(x: 0, y: 0, z: 0, w: 0.1), forKey: "inputAVector")
+        monoFilter.setValue(CIVector(x: 0.5, y: 0.5, z: 0.5, w: 0), forKey: "inputBiasVector")
+
+        guard let monoOutput = monoFilter.outputImage else { return nil }
+
+        let croppedOutput = monoOutput.cropped(to: CGRect(x: 0, y: 0, width: width, height: height))
+
+        guard let cgImage = context.createCGImage(croppedOutput, from: croppedOutput.extent) else { return nil }
+
+        let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: width, height: height))
+        return nsImage
+    }
+}
+
 // MARK: - View Cursor Extension
 
 extension View {
@@ -707,5 +759,35 @@ extension View {
                 NSCursor.pop()
             }
         }
+    }
+}
+
+// MARK: - Button Glow Hover Modifier
+
+/// Adds a subtle accent-colored glow behind a button when hovered.
+struct ButtonGlowHoverModifier: ViewModifier {
+    var glowColor: Color = LumaTheme.accent
+    var glowRadius: CGFloat = 8
+    @State private var isHovering = false
+
+    func body(content: Content) -> some View {
+        content
+            .background(
+                RoundedRectangle(cornerRadius: LumaTheme.radiusSM)
+                    .fill(glowColor.opacity(isHovering ? 0.12 : 0))
+                    .blur(radius: glowRadius)
+                    .animation(.easeInOut(duration: 0.2), value: isHovering)
+            )
+            .onHover { hovering in
+                isHovering = hovering
+                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+            }
+    }
+}
+
+extension View {
+    /// Applies a subtle glow on hover with a pointing hand cursor.
+    func glowOnHover(color: Color = LumaTheme.accent, radius: CGFloat = 8) -> some View {
+        modifier(ButtonGlowHoverModifier(glowColor: color, glowRadius: radius))
     }
 }

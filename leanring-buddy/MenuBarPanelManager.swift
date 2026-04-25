@@ -102,13 +102,53 @@ final class MenuBarPanelManager: NSObject {
 
         positionPanelBelowStatusItem()
 
-        panel?.makeKeyAndOrderFront(nil)
-        panel?.orderFrontRegardless()
+        guard let panel else { return }
+
+        // Spring slide-down animation from menu bar (PRD 7.3)
+        panel.alphaValue = 0
+        let finalFrame = panel.frame
+        let startFrame = NSRect(
+            x: finalFrame.origin.x,
+            y: finalFrame.origin.y + 8,
+            width: finalFrame.width,
+            height: finalFrame.height
+        )
+        panel.setFrame(startFrame, display: false)
+        panel.makeKeyAndOrderFront(nil)
+        panel.orderFrontRegardless()
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.25
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.3, 1.0)
+            panel.animator().alphaValue = 1
+            panel.animator().setFrame(finalFrame, display: true)
+        }
+
         installClickOutsideMonitor()
     }
 
     private func hidePanel() {
-        panel?.orderOut(nil)
+        guard let panel else { return }
+
+        let currentFrame = panel.frame
+        let endFrame = NSRect(
+            x: currentFrame.origin.x,
+            y: currentFrame.origin.y + 6,
+            width: currentFrame.width,
+            height: currentFrame.height
+        )
+
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.15
+            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            panel.animator().alphaValue = 0
+            panel.animator().setFrame(endFrame, display: true)
+        }, completionHandler: {
+            panel.orderOut(nil)
+            panel.alphaValue = 1
+            panel.setFrame(currentFrame, display: false)
+        })
+
         removeClickOutsideMonitor()
     }
 

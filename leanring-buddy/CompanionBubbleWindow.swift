@@ -57,31 +57,39 @@ struct VisualEffectBlurView: NSViewRepresentable {
 @MainActor
 final class BubbleContentState: ObservableObject {
     @Published var bubbleText: String = ""
+    /// Current step index in walkthrough mode (0-based). Set to -1 when not in walkthrough.
+    @Published var walkthroughCurrentStep: Int = -1
+    /// Total number of steps in the current walkthrough. Set to 0 when not in walkthrough.
+    @Published var walkthroughTotalSteps: Int = 0
 }
 
 /// The SwiftUI content rendered inside the floating bubble panel.
+/// PRD 7.4: backdrop blur, animated gradient border, markdown rendering,
+/// smooth resize, step indicators for walkthrough mode.
 struct BubbleContentView: View {
 
     // MARK: - Layout Constants
 
     /// Horizontal padding inside the bubble, matching LumaTheme spacing.
-    private let horizontalPaddingAmount: CGFloat = 12
+    private let horizontalPaddingAmount: CGFloat = 14
 
     /// Vertical padding inside the bubble, matching LumaTheme spacing.
-    private let verticalPaddingAmount: CGFloat = 8
+    private let verticalPaddingAmount: CGFloat = 10
 
-    /// Minimum width so the bubble doesn't collapse to just a few characters.
-    private let minimumBubbleWidth: CGFloat = 120
+    /// Minimum width so the bubble doesn't collapse to just a few characters (PRD 7.4: 200pt).
+    private let minimumBubbleWidth: CGFloat = 200
 
-    /// Maximum width before text wraps — keeps long responses readable without
-    /// spanning the entire screen width.
-    private let maximumBubbleWidth: CGFloat = 320
+    /// Maximum width before text wraps (PRD 7.4: 380pt).
+    private let maximumBubbleWidth: CGFloat = 380
+
+    /// Maximum height before content scrolls.
+    private let maximumBubbleHeight: CGFloat = 300
 
     /// Corner radius matching LumaTheme.CornerRadius.bubble.
     private let bubbleCornerRadius: CGFloat = LumaTheme.CornerRadius.bubble
 
-    /// Border line width — thin enough to be subtle but visible on dark backgrounds.
-    private let borderLineWidth: CGFloat = 0.5
+    /// Gradient border line width — slightly thicker for the animated gradient to be visible.
+    private let gradientBorderLineWidth: CGFloat = 1.0
 
     // MARK: - State
 
@@ -91,52 +99,124 @@ struct BubbleContentView: View {
     /// to trigger the spring scale + opacity transition.
     @State private var isAppearing: Bool = false
 
+    /// Hue rotation angle for the animated gradient border (PRD 7.4: 8s loop).
+    @State private var gradientHueRotation: Double = 0
+
     // MARK: - Body
 
     var body: some View {
-        Text(contentState.bubbleText)
-            .font(.system(size: 13, weight: .regular))
-            .foregroundColor(LumaTheme.textPrimary)
-            .multilineTextAlignment(.leading)
-            // Allow text to grow vertically for multi-line content.
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, horizontalPaddingAmount)
-            .padding(.vertical, verticalPaddingAmount)
-            .frame(minWidth: minimumBubbleWidth, maxWidth: maximumBubbleWidth)
-            .background(
-                ZStack {
-                    // Dark blur layer — gives depth and ensures legibility over any
-                    // background content without a fully opaque mask.
-                    VisualEffectBlurView()
-                        .clipShape(RoundedRectangle(cornerRadius: bubbleCornerRadius))
-
-                    // Solid dark overlay on top of the blur so text contrast is
-                    // guaranteed even on very light or high-contrast screens.
-                    LumaTheme.background.opacity(0.88)
-                        .clipShape(RoundedRectangle(cornerRadius: bubbleCornerRadius))
-                }
-            )
-            // Subtle white border — adds refinement and separates the bubble from
-            // dark system backgrounds where the overlay might be hard to see.
-            .overlay(
-                RoundedRectangle(cornerRadius: bubbleCornerRadius)
-                    .stroke(LumaTheme.textPrimary.opacity(0.10), lineWidth: borderLineWidth)
-            )
-            // Drop shadow gives the bubble visual lift above the content below.
-            .shadow(color: .black.opacity(0.4), radius: 12)
-            // Scale and opacity spring entrance animation.
-            // The view starts scaled-down and transparent, then springs to full size.
-            .scaleEffect(isAppearing ? 1.0 : 0.85)
-            .opacity(isAppearing ? 1.0 : 0.0)
-            .animation(
-                .interpolatingSpring(stiffness: 200, damping: 20),
-                value: isAppearing
-            )
-            .onAppear {
-                // Trigger the entrance spring on the next run-loop tick so SwiftUI
-                // has already laid out the view at its initial (scaled-down) state.
-                isAppearing = true
+        VStack(alignment: .leading, spacing: 0) {
+            // Main content — markdown rendered text with scroll for overflow
+            ScrollView(.vertical, showsIndicators: false) {
+                markdownTextView
+                    .padding(.horizontal, horizontalPaddingAmount)
+                    .padding(.vertical, verticalPaddingAmount)
             }
+            .frame(minWidth: minimumBubbleWidth, maxWidth: maximumBubbleWidth)
+            .frame(maxHeight: maximumBubbleHeight)
+
+            // Step indicators for walkthrough mode (PRD 7.4)
+            if contentState.walkthroughTotalSteps > 0 {
+                walkthroughStepIndicators
+                    .padding(.horizontal, horizontalPaddingAmount)
+                    .padding(.bottom, 8)
+            }
+        }
+        .background(
+            ZStack {
+                // Backdrop blur layer (PRD 7.4)
+                VisualEffectBlurView()
+                    .clipShape(RoundedRectangle(cornerRadius: bubbleCornerRadius))
+
+                // Dark overlay: rgba(10, 10, 15, 0.85) per PRD 7.4
+                Color(red: 10/255, green: 10/255, blue: 15/255)
+                    .opacity(0.85)
+                    .clipShape(RoundedRectangle(cornerRadius: bubbleCornerRadius))
+            }
+        )
+        // Animated gradient border that cycles through hues (PRD 7.4: 8s loop)
+        .overlay(
+            RoundedRectangle(cornerRadius: bubbleCornerRadius)
+                .stroke(
+                    AngularGradient(
+                        gradient: Gradient(colors: [
+                            Color(hex: "#0A84FF"),
+                            Color(hex: "#BF5AF2"),
+                            Color(hex: "#FF375F"),
+                            Color(hex: "#FF9F0A"),
+                            Color(hex: "#30D158"),
+                            Color(hex: "#0A84FF"),
+                        ]),
+                        center: .center
+                    ),
+                    lineWidth: gradientBorderLineWidth
+                )
+                .hueRotation(.degrees(gradientHueRotation))
+                .opacity(0.6)
+        )
+        .shadow(color: .black.opacity(0.4), radius: 12)
+        // Spring animation on size changes for smooth resize (PRD 7.4)
+        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: contentState.bubbleText)
+        // Scale and opacity spring entrance animation
+        .scaleEffect(isAppearing ? 1.0 : 0.85)
+        .opacity(isAppearing ? 1.0 : 0.0)
+        .animation(
+            .interpolatingSpring(stiffness: 200, damping: 20),
+            value: isAppearing
+        )
+        .onAppear {
+            isAppearing = true
+            // Start the continuous hue rotation (8s full cycle per PRD 7.4)
+            withAnimation(.linear(duration: 8.0).repeatForever(autoreverses: false)) {
+                gradientHueRotation = 360
+            }
+        }
+    }
+
+    // MARK: - Markdown Text
+
+    /// Renders bubble text as markdown using AttributedString (PRD 7.4).
+    /// Falls back to plain text if markdown parsing fails.
+    private var markdownTextView: some View {
+        Group {
+            if let attributedString = try? AttributedString(markdown: contentState.bubbleText,
+                                                            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
+                Text(attributedString)
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundColor(LumaTheme.textPrimary)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+            } else {
+                Text(contentState.bubbleText)
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundColor(LumaTheme.textPrimary)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    // MARK: - Walkthrough Step Indicators
+
+    /// Dot indicators showing current step / total for walkthrough mode (PRD 7.4).
+    private var walkthroughStepIndicators: some View {
+        HStack(spacing: 5) {
+            ForEach(0..<contentState.walkthroughTotalSteps, id: \.self) { stepIndex in
+                Circle()
+                    .fill(stepIndex <= contentState.walkthroughCurrentStep
+                          ? LumaTheme.companionColor
+                          : LumaTheme.textPrimary.opacity(0.2))
+                    .frame(width: 5, height: 5)
+                    .animation(.easeInOut(duration: 0.2), value: contentState.walkthroughCurrentStep)
+            }
+            Spacer()
+            if contentState.walkthroughTotalSteps > 0 {
+                Text("\(contentState.walkthroughCurrentStep + 1)/\(contentState.walkthroughTotalSteps)")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(LumaTheme.textSecondary)
+            }
+        }
     }
 }
 
@@ -291,6 +371,13 @@ final class CompanionBubbleWindow {
     }
 
     // MARK: - Public API
+
+    /// Updates walkthrough step indicators shown at the bottom of the bubble.
+    /// Call with totalSteps: 0 to hide the indicators.
+    func updateWalkthroughProgress(currentStep: Int, totalSteps: Int) {
+        bubbleContentState.walkthroughCurrentStep = currentStep
+        bubbleContentState.walkthroughTotalSteps = totalSteps
+    }
 
     /// Shows the bubble with the given text. If the bubble is already visible,
     /// its text is updated immediately in place (no hide/show cycle).
