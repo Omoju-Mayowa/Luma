@@ -20,6 +20,9 @@ final class LumaSettingsWindowManager {
     private init() {}
 
     func showSettingsWindow() {
+        // Dismiss the menu bar panel so it's not visible behind the settings window
+        NotificationCenter.default.post(name: .lumaDismissPanel, object: nil)
+
         if settingsWindow == nil {
             settingsWindow = makeSettingsWindow()
         } else if let hostingView = settingsWindow?.contentView as? NSHostingView<SettingsPanelView> {

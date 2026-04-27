@@ -79,7 +79,7 @@ struct SettingsPanelView: View {
 
             Spacer()
         }
-        .frame(width: 200)
+        .frame(width: 240)
         .background(
             DS.Colors.surface2
                 .opacity(0.8)
@@ -170,7 +170,7 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
         case .api: return "API"
         case .model: return "Model"
         case .voice: return "Voice"
-        case .cursor: return "Cursor"
+        case .cursor: return "Luma Cursor"
         case .agents: return "Agents"
         case .general: return "General"
         }
@@ -199,7 +199,7 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
         case .voice:
             return "Adjust speech voice, pitch, rate, and volume."
         case .cursor:
-            return "Customize cursor shape, color, and state behavior."
+            return "Customize the Luma floating cursor shape, color, and state behavior."
         case .agents:
             return "Set agent limits, defaults, and agent-mode options."
         case .general:
