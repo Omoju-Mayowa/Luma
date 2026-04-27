@@ -102,6 +102,25 @@ final class AgentSession: ObservableObject, Identifiable {
                     let card = ResponseCard(source: .agent, rawText: entry.text)
                     self.latestResponseCard = card
                 }
+
+                // Persist to memory history
+                switch entry.role {
+                case .user:
+                    AgentMemoryIntegration.recordUserMessage(
+                        agentId: self.id.uuidString,
+                        agentTitle: self.title,
+                        content: entry.text
+                    )
+                case .assistant:
+                    AgentMemoryIntegration.recordAgentResponse(
+                        agentId: self.id.uuidString,
+                        agentTitle: self.title,
+                        content: entry.text,
+                        taskStatus: nil
+                    )
+                default:
+                    break
+                }
             }
             .store(in: &cancellables)
 
