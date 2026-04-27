@@ -133,7 +133,6 @@ final class CompanionManager: ObservableObject {
     @Published var expandedAgentBubbleID: UUID?
     @Published var isAgentModeEnabled: Bool = UserDefaults.standard.bool(forKey: "luma.agentMode.enabled")
 
-    private var agentHUDManager = LumaAgentHUDWindowManager()
     private var agentDockManager = LumaAgentDockWindowManager()
 
     /// The currently active agent session. Non-optional — start() guarantees
@@ -439,7 +438,6 @@ final class CompanionManager: ObservableObject {
 
         // Tear down agent sessions
         AgentHotkeyHandler.shared.stopMonitoring()
-        agentHUDManager.destroy()
         agentDockManager.hide()
         for session in agentSessions {
             Task { await session.stop() }
@@ -1589,21 +1587,6 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    func showAgentHUD() {
-        agentHUDManager.show(
-            companionManager: self,
-            openMemory: { /* Memory viewer will be wired in Task 15 */ },
-            prepareVoiceFollowUp: { [weak self] in
-                // Return to voice input mode after agent interaction
-                self?.buddyDictationManager.cancelCurrentDictation()
-            }
-        )
-    }
-
-    func hideAgentHUD() {
-        agentHUDManager.hide()
-    }
-
     func toggleExpandedBubble(id: UUID) {
         if expandedAgentBubbleID == id {
             expandedAgentBubbleID = nil
@@ -1634,9 +1617,8 @@ final class CompanionManager: ObservableObject {
                     self?.submitAgentPromptFromUI(action)
                 },
                 onTextFollowUp: { [weak self] sessionID in
-                    self?.expandedAgentBubbleID = nil
                     self?.activeAgentSessionID = sessionID
-                    self?.showAgentHUD()
+                    // Text follow-up is handled inline in the bubble overlay
                 },
                 onVoiceFollowUp: { [weak self] _ in
                     self?.expandedAgentBubbleID = nil

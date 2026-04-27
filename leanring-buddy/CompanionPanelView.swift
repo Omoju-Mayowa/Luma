@@ -85,7 +85,7 @@ struct CompanionPanelView: View {
                             companionManager.submitAgentPromptFromUI(prompt)
                         },
                         openHUD: {
-                            companionManager.showAgentHUD()
+                            // HUD removed — agents managed via floating bubbles
                         },
                         dismissResponseCard: {
                             companionManager.activeAgentSession.dismissLatestResponseCard()

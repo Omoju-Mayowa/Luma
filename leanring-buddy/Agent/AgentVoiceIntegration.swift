@@ -15,12 +15,39 @@ enum AgentVoiceIntegration {
     // MARK: - Voice Command Detection
 
     /// Intent detection patterns for agent spawn commands.
-    /// Matches phrases like "open a new agent", "create a new agent",
-    /// "spawn agent and research metal cups".
+    /// Primary trigger: "hey luma agent, <task>"
+    /// Also matches: "open/create/spawn agent and <task>"
     private static let agentSpawnPatterns: [String] = [
+        #"(?i)hey\s+luma\s+agent[\s,]+(.+)"#,
+        #"(?i)hey\s+luma\s+agent"#,
         #"(?i)(?:open|create|spawn|start|launch)\s+(?:a\s+)?(?:new\s+)?agent\s+(?:and|to)\s+(.+)"#,
         #"(?i)(?:open|create|spawn|start|launch)\s+(?:a\s+)?(?:new\s+)?agent"#,
     ]
+
+    /// Patterns that suggest a task is complex enough to warrant an agent.
+    /// Used for auto-detection when the user doesn't explicitly say "hey luma agent".
+    private static let agentWorthyPatterns: [String] = [
+        #"(?i)(?:write|build|create|make|generate)\s+(?:a\s+|an\s+)?(?:script|app|program|code|file|report|document|website|function)"#,
+        #"(?i)(?:research|investigate|analyze|find out|look into)\s+.{10,}"#,
+        #"(?i)(?:automate|set up|configure|install|deploy)\s+.+"#,
+        #"(?i)(?:refactor|fix|debug|optimize|update|migrate)\s+.+"#,
+    ]
+
+    /// Checks if a task description is complex enough to auto-spawn an agent
+    /// even if the user didn't explicitly say "hey luma agent".
+    static func isAgentWorthyTask(_ transcript: String) -> Bool {
+        let normalizedTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalizedTranscript.count > 15 else { return false }
+
+        for pattern in agentWorthyPatterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
+            let range = NSRange(normalizedTranscript.startIndex..<normalizedTranscript.endIndex, in: normalizedTranscript)
+            if regex.firstMatch(in: normalizedTranscript, range: range) != nil {
+                return true
+            }
+        }
+        return false
+    }
 
     /// Checks if a transcript contains an agent spawn command.
     /// Returns the extracted inline task if one follows the spawn command,
