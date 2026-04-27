@@ -161,12 +161,41 @@ final class AgentSession: ObservableObject, Identifiable {
         status = .running
         lastErrorMessage = nil
 
+        // Build full conversation context so the runtime has complete history
+        let contextualPrompt = buildContextualPrompt(latestPrompt: prompt)
+
         do {
-            try await runtime.submitPrompt(sessionId: id, prompt: prompt)
+            try await runtime.submitPrompt(sessionId: id, prompt: contextualPrompt)
         } catch {
             status = .failed(error.localizedDescription)
             lastErrorMessage = error.localizedDescription
         }
+    }
+
+    /// Builds a prompt string that includes prior conversation history so each
+    /// CLI invocation has full context (Claude CLI spawns a new process per prompt).
+    private func buildContextualPrompt(latestPrompt: String) -> String {
+        // If this is the first message, just return the prompt as-is
+        let priorEntries = entries.dropLast() // everything except the one we just appended
+        guard !priorEntries.isEmpty else { return latestPrompt }
+
+        var contextLines: [String] = ["[Previous conversation for context:]"]
+        for entry in priorEntries {
+            let roleLabel: String
+            switch entry.role {
+            case .user: roleLabel = "User"
+            case .assistant: roleLabel = "Assistant"
+            case .system: roleLabel = "System"
+            case .command: roleLabel = "Command"
+            case .plan: roleLabel = "Plan"
+            }
+            contextLines.append("\(roleLabel): \(entry.text)")
+        }
+        contextLines.append("")
+        contextLines.append("[New request:]")
+        contextLines.append(latestPrompt)
+
+        return contextLines.joined(separator: "\n")
     }
 
     func stop() async {
