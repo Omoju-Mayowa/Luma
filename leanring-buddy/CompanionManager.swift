@@ -112,6 +112,7 @@ final class CompanionManager: ObservableObject {
     /// Observer for macOS system screenshot shortcuts (Cmd+Shift+3/4/5).
     /// When detected the overlay hides for 2 seconds so it doesn't appear in the screenshot.
     private var screenshotShortcutObserver: NSObjectProtocol?
+    private var agentTaskCompletedObserver: NSObjectProtocol?
 
     /// Task that restores the overlay visibility after the screenshot hide delay.
     private var screenshotHideRestoreTask: Task<Void, Never>?
@@ -318,6 +319,28 @@ final class CompanionManager: ObservableObject {
             ensureDefaultAgentSession()
         }
         AgentHotkeyHandler.shared.startMonitoring(companionManager: self)
+
+        // Listen for agent task completion to speak results and update overlay
+        agentTaskCompletedObserver = NotificationCenter.default.addObserver(
+            forName: AgentSession.taskCompletedNotificationName,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let title = notification.userInfo?["title"] as? String ?? "Agent"
+                let summary = notification.userInfo?["summary"] as? String ?? "Task completed"
+
+                // Speak the completion summary via TTS
+                let spokenText = "\(title) finished. \(summary)"
+                self.nativeTTSClient.speak(spokenText)
+
+                // Update dock to show new status
+                self.updateAgentDock()
+
+                LumaLogger.log("[Luma] Agent task completed — \(title): \(summary.prefix(80))...")
+            }
+        }
     }
 
     /// Called by BlueCursorView after the buddy finishes its pointing
@@ -427,6 +450,11 @@ final class CompanionManager: ObservableObject {
         if let observer = screenshotShortcutObserver {
             NotificationCenter.default.removeObserver(observer)
             screenshotShortcutObserver = nil
+        }
+
+        if let observer = agentTaskCompletedObserver {
+            NotificationCenter.default.removeObserver(observer)
+            agentTaskCompletedObserver = nil
         }
 
         currentResponseTask?.cancel()
@@ -732,10 +760,28 @@ final class CompanionManager: ObservableObject {
                         // Partial transcripts are hidden (waveform-only UI)
                     },
                     submitDraftText: { [weak self] finalTranscript in
-                        self?.lastTranscript = finalTranscript
+                        guard let self else { return }
+                        self.lastTranscript = finalTranscript
                         LumaLogger.log("[Luma] Companion received transcript: \(finalTranscript)")
                         LumaAnalytics.trackUserMessageSent(transcript: finalTranscript)
-                        self?.sendTranscriptToClaudeWithScreenshot(transcript: finalTranscript)
+
+                        // Check for agent spawn command: "hey luma agent, <task>"
+                        if let inlineTask = AgentVoiceIntegration.extractAgentSpawnIntent(from: finalTranscript) {
+                            if !self.isAgentModeEnabled {
+                                self.isAgentModeEnabled = true
+                                UserDefaults.standard.set(true, forKey: "luma.agentMode.enabled")
+                            }
+                            AgentVoiceIntegration.handleSpawnIntent(inlineTask: inlineTask, companionManager: self)
+                            return
+                        }
+
+                        // Auto-detect agent-worthy tasks
+                        if self.isAgentModeEnabled, AgentVoiceIntegration.isAgentWorthyTask(finalTranscript) {
+                            AgentVoiceIntegration.handleSpawnIntent(inlineTask: finalTranscript, companionManager: self)
+                            return
+                        }
+
+                        self.sendTranscriptToClaudeWithScreenshot(transcript: finalTranscript)
                     }
                 )
             }
@@ -1585,7 +1631,10 @@ final class CompanionManager: ObservableObject {
         let systemContext = AgentMemoryIntegration.loadSummarizedMemoryForSystemContext()
         Task {
             await session.submitPrompt(prompt, systemContext: systemContext)
+            await MainActor.run { updateAgentDock() }
         }
+        // Update dock immediately so status shows "running"
+        updateAgentDock()
     }
 
     private func updateAgentDock() {

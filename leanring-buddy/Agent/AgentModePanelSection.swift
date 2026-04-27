@@ -12,7 +12,6 @@ struct AgentModePanelSection: View {
     @ObservedObject var session: AgentSession
     var responseCard: ResponseCard?
     var submitAgentPrompt: (String) -> Void
-    var openHUD: () -> Void
     var dismissResponseCard: () -> Void
     var runSuggestedNextAction: (String) -> Void
     var showSettings: () -> Void
@@ -80,32 +79,16 @@ struct AgentModePanelSection: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            // Inline response box
-            if shouldShowInlineAgentResponse {
+            // Response (single display — latest response only)
+            if let card = responseCard {
+                responseCardCompactView(card: card)
+            } else if shouldShowInlineAgentResponse {
                 inlineAgentResponse
             }
 
-            // Response card compact view
-            if let card = responseCard {
-                responseCardCompactView(card: card)
-            }
-
-            // Button row
+            // Send button
             HStack(spacing: 8) {
-                Button(action: openHUD) {
-                    Label("Dashboard", systemImage: "rectangle.grid.2x2")
-                        .font(.system(size: 11, weight: .semibold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 6)
-                }
-                .buttonStyle(.plain)
-                .pointerCursor()
-                .foregroundColor(DS.Colors.textSecondary)
-                .background(
-                    RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
-                        .fill(Color.white.opacity(0.07))
-                )
-
+                Spacer()
                 Button(action: runPrompt) {
                     Image(systemName: "paperplane.fill")
                         .font(.system(size: 12, weight: .bold))

@@ -1371,6 +1371,11 @@ private struct CursorCustomizerTabView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: DS.Spacing.lg) {
 
+                Text("These settings customize the Luma floating cursor overlay, not your macOS system cursor.")
+                    .font(.system(size: 12))
+                    .foregroundColor(DS.Colors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
                 // Live preview canvas at top
                 cursorPreviewCanvas
 
