@@ -20,63 +20,37 @@ struct SettingsPanelView: View {
     @StateObject private var profileManager = ProfileManager.shared
     @StateObject private var pinManager    = PINManager.shared
 
-    /// Which tab is currently selected (0–6: Account, API Profiles, Model, Voice, Cursor, Agent Mode, General).
-    @State private var selectedTabIndex: Int = 0
+    /// Which tab is currently selected.
+    @State private var selectedTab: SettingsTab = .account
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Custom tab bar — replaces native TabView tab bar to eliminate the blue accent
-            // glow/ring that macOS renders on the selected tab item. Active tab uses
-            // surfaceElevated fill only; no shadow, no ring, no glow in either state.
-            HStack(spacing: 0) {
-                settingsTabBarButton(label: "Account",  icon: "person.circle",    index: 0)
-                settingsTabBarButton(label: "API",     icon: "key.horizontal",  index: 1)
-                settingsTabBarButton(label: "Model",   icon: "cpu",             index: 2)
-                settingsTabBarButton(label: "Voice",   icon: "waveform",        index: 3)
-                settingsTabBarButton(label: "Cursor",  icon: "cursorarrow",     index: 4)
-                settingsTabBarButton(label: "Agents",  icon: "bubble.left.and.bubble.right", index: 5)
-                settingsTabBarButton(label: "General", icon: "gearshape",       index: 6)
-            }
-            .padding(.top, LumaTheme.paddingXL)
+        HStack(spacing: 0) {
+            settingsSidebar
 
             Divider()
-                .background(LumaTheme.border)
+                .background(DS.Colors.borderSubtle)
 
-            // Tab content — only the selected view renders at a time
-            Group {
-                switch selectedTabIndex {
-                case 0:
-                    AccountTabView(
-                        accountManager: accountManager,
-                        profileManager: profileManager,
-                        pinManager: pinManager,
-                        onResetComplete: { dismiss() }
-                    )
-                case 1:
-                    APIProfilesTabView(profileManager: profileManager)
-                case 2:
-                    ModelTabView(profileManager: profileManager)
-                case 3:
-                    VoiceSettingsTabView()
-                case 4:
-                    CursorCustomizerTabView()
-                case 5:
-                    AgentModeTabView()
-                default:
-                    GeneralTabView(pinManager: pinManager)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    settingsHeader
+                    selectedTabContent
                 }
+                .frame(maxWidth: 700, alignment: .leading)
+                .padding(.horizontal, 28)
+                .padding(.vertical, 22)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(DS.Colors.background)
         }
-        .frame(width: 600, height: 580)
-        .background(LumaTheme.background)
+        .frame(minWidth: 780, minHeight: 560)
+        .background(DS.Colors.background)
         .focusEffectDisabled()
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
-                Button("Done") { dismiss() }
+                Button("Done") { closeSettingsPanel() }
                     .buttonStyle(.plain)
-                    .font(LumaTheme.Typography.bodyMedium)
-                    .foregroundColor(LumaTheme.textPrimary)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(DS.Colors.textPrimary)
                     .focusEffectDisabled()
                     .onHover { isHovering in
                         if isHovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
@@ -85,29 +59,151 @@ struct SettingsPanelView: View {
         }
     }
 
-    /// One button in the custom settings tab bar.
-    /// Selected: LumaTheme.surfaceElevated background, primary text — no glow or ring.
-    /// Unselected: LumaTheme.surface background, secondary text.
-    @ViewBuilder
-    private func settingsTabBarButton(label: String, icon: String, index: Int) -> some View {
-        let isSelected = selectedTabIndex == index
-        Button {
-            selectedTabIndex = index
-        } label: {
-            VStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.system(size: 14))
-                Text(label)
-                    .font(.system(size: 11))
+    private func closeSettingsPanel() {
+        LumaSettingsWindowManager.shared.hideSettingsWindow()
+        dismiss()
+    }
+
+    private var settingsSidebar: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Luma Settings")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundColor(DS.Colors.textPrimary)
+                .padding(.horizontal, 14)
+                .padding(.top, 18)
+                .padding(.bottom, 12)
+
+            ForEach(SettingsTab.allCases) { tab in
+                settingsSidebarButton(tab: tab)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 10)
-            .background(isSelected ? LumaTheme.surfaceElevated : LumaTheme.surface)
-            .foregroundColor(isSelected ? LumaTheme.textPrimary : LumaTheme.textSecondary)
+
+            Spacer()
+        }
+        .frame(width: 200)
+        .background(
+            DS.Colors.surface2
+                .opacity(0.8)
+        )
+    }
+
+    private var settingsHeader: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(selectedTab.title)
+                .font(.system(size: 26, weight: .semibold))
+                .foregroundColor(DS.Colors.textPrimary)
+            Text(selectedTab.subtitle)
+                .font(.system(size: 13))
+                .foregroundColor(DS.Colors.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    @ViewBuilder
+    private var selectedTabContent: some View {
+        switch selectedTab {
+        case .account:
+            AccountTabView(
+                accountManager: accountManager,
+                profileManager: profileManager,
+                pinManager: pinManager,
+                onResetComplete: { closeSettingsPanel() }
+            )
+        case .api:
+            APIProfilesTabView(profileManager: profileManager)
+        case .model:
+            ModelTabView(profileManager: profileManager)
+        case .voice:
+            VoiceSettingsTabView()
+        case .cursor:
+            CursorCustomizerTabView()
+        case .agents:
+            AgentModeTabView()
+        case .general:
+            GeneralTabView(pinManager: pinManager)
+        }
+    }
+
+    @ViewBuilder
+    private func settingsSidebarButton(tab: SettingsTab) -> some View {
+        let isSelected = selectedTab == tab
+        Button {
+            selectedTab = tab
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: tab.icon)
+                    .font(.system(size: 14, weight: .medium))
+                    .frame(width: 20)
+                Text(tab.title)
+                    .font(.system(size: 13, weight: .medium))
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 32)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(isSelected ? DS.Colors.accent.opacity(0.16) : .clear)
+            )
+            .foregroundColor(isSelected ? DS.Colors.textPrimary : DS.Colors.textSecondary)
         }
         .buttonStyle(.plain)
+        .padding(.horizontal, 8)
         .onHover { isHovering in
             if isHovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
+    }
+}
+
+private enum SettingsTab: String, CaseIterable, Identifiable {
+    case account
+    case api
+    case model
+    case voice
+    case cursor
+    case agents
+    case general
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .account: return "Account"
+        case .api: return "API"
+        case .model: return "Model"
+        case .voice: return "Voice"
+        case .cursor: return "Cursor"
+        case .agents: return "Agents"
+        case .general: return "General"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .account: return "person.circle"
+        case .api: return "key.horizontal"
+        case .model: return "cpu"
+        case .voice: return "waveform"
+        case .cursor: return "cursorarrow"
+        case .agents: return "bubble.left.and.bubble.right"
+        case .general: return "gearshape"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .account:
+            return "Manage your local identity and reset behavior."
+        case .api:
+            return "Configure API providers and connection profiles."
+        case .model:
+            return "Choose the active model for companion responses."
+        case .voice:
+            return "Adjust speech voice, pitch, rate, and volume."
+        case .cursor:
+            return "Customize cursor shape, color, and state behavior."
+        case .agents:
+            return "Set agent limits, defaults, and agent-mode options."
+        case .general:
+            return "Open logs, app preferences, and maintenance actions."
         }
     }
 }
@@ -133,7 +229,7 @@ private struct AccountTabView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: LumaTheme.Spacing.xl) {
+            VStack(spacing: DS.Spacing.xl) {
 
                 if let account = accountManager.currentAccount {
                     accountContentView(account: account)
@@ -141,7 +237,7 @@ private struct AccountTabView: View {
                     noAccountPlaceholderView
                 }
             }
-            .padding(LumaTheme.Spacing.xl)
+            .padding(DS.Spacing.xl)
         }
         .onAppear {
             // Pre-populate the display name field with the current value.
@@ -152,41 +248,41 @@ private struct AccountTabView: View {
     // MARK: Account Content
 
     private func accountContentView(account: LumaAccount) -> some View {
-        VStack(spacing: LumaTheme.Spacing.xl) {
+        VStack(spacing: DS.Spacing.xl) {
 
             // Avatar + identity block
-            VStack(spacing: LumaTheme.Spacing.sm) {
+            VStack(spacing: DS.Spacing.sm) {
                 LumaAvatarView(initials: account.avatarInitials, size: 56)
 
                 Text(account.username)
-                    .font(LumaTheme.Typography.headline)
-                    .foregroundColor(LumaTheme.Colors.primaryText)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(DS.Colors.textPrimary)
 
                 Text(account.displayName)
-                    .font(LumaTheme.Typography.body)
-                    .foregroundColor(LumaTheme.Colors.secondaryText)
+                    .font(.system(size: 13))
+                    .foregroundColor(DS.Colors.textSecondary)
             }
 
             Divider()
 
             // Editable display name
-            VStack(alignment: .leading, spacing: LumaTheme.Spacing.sm) {
+            VStack(alignment: .leading, spacing: DS.Spacing.sm) {
                 Text("Display Name")
-                    .font(LumaTheme.Typography.bodyMedium)
-                    .foregroundColor(LumaTheme.Colors.primaryText)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(DS.Colors.textPrimary)
 
                 TextField("Display name", text: $editedDisplayName)
                     .textFieldStyle(.plain)
-                    .font(LumaTheme.Typography.body)
-                    .foregroundColor(LumaTheme.Colors.primaryText)
-                    .padding(LumaTheme.Spacing.sm)
+                    .font(.system(size: 13))
+                    .foregroundColor(DS.Colors.textPrimary)
+                    .padding(DS.Spacing.sm)
                     .background(
-                        RoundedRectangle(cornerRadius: LumaTheme.CornerRadius.medium)
-                            .fill(LumaTheme.Colors.surface)
+                        RoundedRectangle(cornerRadius: DS.CornerRadius.medium)
+                            .fill(DS.Colors.surface1)
                     )
                     .overlay(
-                        RoundedRectangle(cornerRadius: LumaTheme.CornerRadius.medium)
-                            .stroke(LumaTheme.Colors.surfaceElevated, lineWidth: 1)
+                        RoundedRectangle(cornerRadius: DS.CornerRadius.medium)
+                            .stroke(DS.Colors.surface2, lineWidth: 1)
                     )
                     // Save when the user presses Return
                     .onSubmit {
@@ -204,17 +300,17 @@ private struct AccountTabView: View {
             Divider()
 
             // Destructive: Reset Luma
-            VStack(alignment: .leading, spacing: LumaTheme.Spacing.sm) {
+            VStack(alignment: .leading, spacing: DS.Spacing.sm) {
                 Text("Danger Zone")
-                    .font(LumaTheme.Typography.bodyMedium)
-                    .foregroundColor(LumaTheme.Colors.primaryText)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(DS.Colors.textPrimary)
 
                 Button(role: .destructive) {
                     isShowingResetConfirmationAlert = true
                 } label: {
                     Text("Reset Luma")
-                        .font(LumaTheme.Typography.body)
-                        .foregroundColor(LumaTheme.Colors.error)
+                        .font(.system(size: 13))
+                        .foregroundColor(DS.Colors.destructive)
                 }
                 .buttonStyle(.plain)
                 .onHover { isHovering in
@@ -239,10 +335,10 @@ private struct AccountTabView: View {
 
     private var noAccountPlaceholderView: some View {
         Text("No account. Complete onboarding to create one.")
-            .font(LumaTheme.Typography.body)
-            .foregroundColor(LumaTheme.Colors.secondaryText)
+            .font(.system(size: 13))
+            .foregroundColor(DS.Colors.textSecondary)
             .multilineTextAlignment(.center)
-            .padding(LumaTheme.Spacing.xl)
+            .padding(DS.Spacing.xl)
     }
 
     // MARK: Actions
@@ -282,7 +378,7 @@ private struct APIProfilesTabView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: LumaTheme.Spacing.md) {
+            VStack(spacing: DS.Spacing.md) {
 
                 // Existing profiles list
                 ForEach(profileManager.profiles) { profile in
@@ -318,8 +414,8 @@ private struct APIProfilesTabView: View {
                             }
                         )
                     }
-                    .background(LumaTheme.Colors.surface)
-                    .cornerRadius(LumaTheme.CornerRadius.medium)
+                    .background(DS.Colors.surface1)
+                    .cornerRadius(DS.CornerRadius.medium)
                 }
 
                 // "Add Profile" button and expandable form
@@ -335,9 +431,9 @@ private struct APIProfilesTabView: View {
                             Image(systemName: isAddProfileFormExpanded ? "minus.circle" : "plus.circle")
                             Text(isAddProfileFormExpanded ? "Cancel" : "Add Profile")
                         }
-                        .font(LumaTheme.Typography.bodyMedium)
-                        .foregroundColor(LumaTheme.Colors.accent)
-                        .padding(LumaTheme.Spacing.md)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(DS.Colors.accent)
+                        .padding(DS.Spacing.md)
                     }
                     .buttonStyle(.plain)
                     .onHover { isHovering in
@@ -363,10 +459,10 @@ private struct APIProfilesTabView: View {
                         )
                     }
                 }
-                .background(LumaTheme.Colors.surface)
-                .cornerRadius(LumaTheme.CornerRadius.medium)
+                .background(DS.Colors.surface1)
+                .cornerRadius(DS.CornerRadius.medium)
             }
-            .padding(LumaTheme.Spacing.xl)
+            .padding(DS.Spacing.xl)
         }
     }
 }
@@ -389,40 +485,40 @@ private struct ProfileRowView: View {
     var body: some View {
         VStack(spacing: 0) {
             // Row header
-            HStack(spacing: LumaTheme.Spacing.md) {
+            HStack(spacing: DS.Spacing.md) {
 
                 // Checkmark for default profile
                 Image(systemName: profile.isDefault ? "checkmark.circle.fill" : "circle")
-                    .foregroundColor(profile.isDefault ? LumaTheme.Colors.accent : LumaTheme.Colors.tertiaryText)
+                    .foregroundColor(profile.isDefault ? DS.Colors.accent : DS.Colors.textTertiary)
                     .frame(width: 20)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(profile.name)
-                        .font(LumaTheme.Typography.bodyMedium)
-                        .foregroundColor(LumaTheme.Colors.primaryText)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(DS.Colors.textPrimary)
 
                     // Provider badge
                     Text(profile.provider.displayName)
-                        .font(LumaTheme.Typography.caption)
-                        .foregroundColor(LumaTheme.Colors.secondaryText)
-                        .padding(.horizontal, LumaTheme.Spacing.xs)
+                        .font(.system(size: 11))
+                        .foregroundColor(DS.Colors.textSecondary)
+                        .padding(.horizontal, DS.Spacing.xs)
                         .padding(.vertical, 2)
-                        .background(LumaTheme.Colors.surfaceElevated)
-                        .cornerRadius(LumaTheme.CornerRadius.small)
+                        .background(DS.Colors.surface2)
+                        .cornerRadius(DS.CornerRadius.small)
                 }
 
                 Spacer()
 
                 // Action buttons
-                HStack(spacing: LumaTheme.Spacing.sm) {
+                HStack(spacing: DS.Spacing.sm) {
 
                     // Edit toggle
                     Button(isEditFormExpanded ? "Done" : "Edit") {
                         onToggleEditForm()
                     }
-                    .font(LumaTheme.Typography.caption)
+                    .font(.system(size: 11))
                     .buttonStyle(.plain)
-                    .foregroundColor(LumaTheme.Colors.secondaryText)
+                    .foregroundColor(DS.Colors.textSecondary)
                     .onHover { isHovering in
                         if isHovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
                     }
@@ -431,9 +527,9 @@ private struct ProfileRowView: View {
                     Button("Set Default") {
                         onSetDefault()
                     }
-                    .font(LumaTheme.Typography.caption)
+                    .font(.system(size: 11))
                     .buttonStyle(.plain)
-                    .foregroundColor(profile.isDefault ? LumaTheme.Colors.tertiaryText : LumaTheme.Colors.accent)
+                    .foregroundColor(profile.isDefault ? DS.Colors.textTertiary : DS.Colors.accent)
                     .disabled(profile.isDefault)
                     .onHover { isHovering in
                         if isHovering && !profile.isDefault { NSCursor.pointingHand.push() } else { NSCursor.pop() }
@@ -443,21 +539,21 @@ private struct ProfileRowView: View {
                     Button("Delete") {
                         onDelete()
                     }
-                    .font(LumaTheme.Typography.caption)
+                    .font(.system(size: 11))
                     .buttonStyle(.plain)
-                    .foregroundColor(totalProfileCount <= 1 ? LumaTheme.Colors.tertiaryText : LumaTheme.Colors.error)
+                    .foregroundColor(totalProfileCount <= 1 ? DS.Colors.textTertiary : DS.Colors.destructive)
                     .disabled(totalProfileCount <= 1)
                     .onHover { isHovering in
                         if isHovering && totalProfileCount > 1 { NSCursor.pointingHand.push() } else { NSCursor.pop() }
                     }
                 }
             }
-            .padding(LumaTheme.Spacing.lg)
+            .padding(DS.Spacing.lg)
 
             // Inline edit form (expands below the row header)
             if isEditFormExpanded {
                 Divider()
-                    .padding(.horizontal, LumaTheme.Spacing.md)
+                    .padding(.horizontal, DS.Spacing.md)
 
                 ProfileFormView(
                     mode: .edit,
@@ -507,33 +603,33 @@ private struct ProfileFormView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: LumaTheme.Spacing.lg) {
+        VStack(alignment: .leading, spacing: DS.Spacing.lg) {
 
             // Name field
-            VStack(alignment: .leading, spacing: LumaTheme.Spacing.xs) {
+            VStack(alignment: .leading, spacing: DS.Spacing.xs) {
                 Text("Profile Name")
-                    .font(LumaTheme.Typography.caption)
-                    .foregroundColor(LumaTheme.Colors.secondaryText)
+                    .font(.system(size: 11))
+                    .foregroundColor(DS.Colors.textSecondary)
                 TextField("e.g. Work - OpenRouter", text: $profileName)
                     .textFieldStyle(.plain)
-                    .font(LumaTheme.Typography.body)
-                    .foregroundColor(LumaTheme.Colors.primaryText)
-                    .padding(LumaTheme.Spacing.sm)
+                    .font(.system(size: 13))
+                    .foregroundColor(DS.Colors.textPrimary)
+                    .padding(DS.Spacing.sm)
                     .background(
-                        RoundedRectangle(cornerRadius: LumaTheme.CornerRadius.medium)
-                            .fill(LumaTheme.Colors.surface)
+                        RoundedRectangle(cornerRadius: DS.CornerRadius.medium)
+                            .fill(DS.Colors.surface1)
                     )
                     .overlay(
-                        RoundedRectangle(cornerRadius: LumaTheme.CornerRadius.medium)
-                            .stroke(LumaTheme.Colors.surfaceElevated, lineWidth: 1)
+                        RoundedRectangle(cornerRadius: DS.CornerRadius.medium)
+                            .stroke(DS.Colors.surface2, lineWidth: 1)
                     )
             }
 
             // Provider picker
-            VStack(alignment: .leading, spacing: LumaTheme.Spacing.xs) {
+            VStack(alignment: .leading, spacing: DS.Spacing.xs) {
                 Text("Provider")
-                    .font(LumaTheme.Typography.caption)
-                    .foregroundColor(LumaTheme.Colors.secondaryText)
+                    .font(.system(size: 11))
+                    .foregroundColor(DS.Colors.textSecondary)
                 Picker("Provider", selection: $selectedProvider) {
                     ForEach(LumaAPIProvider.allCases, id: \.self) { provider in
                         Text(provider.displayName).tag(provider)
@@ -544,75 +640,75 @@ private struct ProfileFormView: View {
 
             // Base URL (only shown for Custom provider)
             if selectedProvider == .custom {
-                VStack(alignment: .leading, spacing: LumaTheme.Spacing.xs) {
+                VStack(alignment: .leading, spacing: DS.Spacing.xs) {
                     Text("Base URL")
-                        .font(LumaTheme.Typography.caption)
-                        .foregroundColor(LumaTheme.Colors.secondaryText)
+                        .font(.system(size: 11))
+                        .foregroundColor(DS.Colors.textSecondary)
                     TextField("https://your-endpoint.com/v1", text: $customBaseURL)
                         .textFieldStyle(.plain)
-                        .font(LumaTheme.Typography.body)
-                        .foregroundColor(LumaTheme.Colors.primaryText)
-                        .padding(LumaTheme.Spacing.sm)
+                        .font(.system(size: 13))
+                        .foregroundColor(DS.Colors.textPrimary)
+                        .padding(DS.Spacing.sm)
                         .background(
-                            RoundedRectangle(cornerRadius: LumaTheme.CornerRadius.medium)
-                                .fill(LumaTheme.Colors.surface)
+                            RoundedRectangle(cornerRadius: DS.CornerRadius.medium)
+                                .fill(DS.Colors.surface1)
                         )
                         .overlay(
-                            RoundedRectangle(cornerRadius: LumaTheme.CornerRadius.medium)
-                                .stroke(LumaTheme.Colors.surfaceElevated, lineWidth: 1)
+                            RoundedRectangle(cornerRadius: DS.CornerRadius.medium)
+                                .stroke(DS.Colors.surface2, lineWidth: 1)
                         )
                 }
             }
 
             // API key field with eye toggle
-            VStack(alignment: .leading, spacing: LumaTheme.Spacing.xs) {
+            VStack(alignment: .leading, spacing: DS.Spacing.xs) {
                 Text("API Key")
-                    .font(LumaTheme.Typography.caption)
-                    .foregroundColor(LumaTheme.Colors.secondaryText)
+                    .font(.system(size: 11))
+                    .foregroundColor(DS.Colors.textSecondary)
 
                 HStack {
                     if isAPIKeyVisible {
                         TextField("Paste API key here", text: $apiKeyInput)
                             .textFieldStyle(.plain)
-                            .font(LumaTheme.Typography.body)
-                            .foregroundColor(LumaTheme.Colors.primaryText)
+                            .font(.system(size: 13))
+                            .foregroundColor(DS.Colors.textPrimary)
                     } else {
                         SecureField("Paste API key here", text: $apiKeyInput)
                             .textFieldStyle(.plain)
-                            .font(LumaTheme.Typography.body)
-                            .foregroundColor(LumaTheme.Colors.primaryText)
+                            .font(.system(size: 13))
+                            .foregroundColor(DS.Colors.textPrimary)
                     }
 
                     Button {
                         isAPIKeyVisible.toggle()
                     } label: {
                         Image(systemName: isAPIKeyVisible ? "eye.slash" : "eye")
-                            .foregroundColor(LumaTheme.Colors.secondaryText)
+                            .foregroundColor(DS.Colors.textSecondary)
                     }
                     .buttonStyle(.plain)
                     .onHover { isHovering in
                         if isHovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
                     }
                 }
-                .padding(LumaTheme.Spacing.sm)
+                .padding(DS.Spacing.sm)
                 .background(
-                    RoundedRectangle(cornerRadius: LumaTheme.CornerRadius.medium)
-                        .fill(LumaTheme.Colors.surface)
+                    RoundedRectangle(cornerRadius: DS.CornerRadius.medium)
+                        .fill(DS.Colors.surface1)
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: LumaTheme.CornerRadius.medium)
-                        .stroke(LumaTheme.Colors.surfaceElevated, lineWidth: 1)
+                    RoundedRectangle(cornerRadius: DS.CornerRadius.medium)
+                        .stroke(DS.Colors.surface2, lineWidth: 1)
                 )
             }
 
             // Test Connection button + result
-            HStack(spacing: LumaTheme.Spacing.sm) {
+            HStack(spacing: DS.Spacing.sm) {
                 Button("Test Connection") {
                     Task { await runConnectionTest() }
                 }
                 .buttonStyle(.plain)
-                .font(LumaTheme.Typography.caption)
-                .foregroundColor(LumaTheme.Colors.accent)
+                .font(.system(size: 11))
+                .foregroundColor(DS.Colors.accent)
                 .onHover { isHovering in
                     if isHovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
                 }
@@ -627,27 +723,27 @@ private struct ProfileFormView: View {
                         .scaleEffect(0.6)
                 case .success:
                     Text("✓ Connected")
-                        .font(LumaTheme.Typography.caption)
-                        .foregroundColor(LumaTheme.Colors.success)
+                        .font(.system(size: 11))
+                        .foregroundColor(DS.Colors.success)
                 case .failure(let reason):
                     Text("✗ Failed: \(reason)")
-                        .font(LumaTheme.Typography.caption)
-                        .foregroundColor(LumaTheme.Colors.error)
+                        .font(.system(size: 11))
+                        .foregroundColor(DS.Colors.destructive)
                 }
             }
 
             // Save / Cancel
-            HStack(spacing: LumaTheme.Spacing.sm) {
+            HStack(spacing: DS.Spacing.sm) {
                 Button(mode == .add ? "Save Profile" : "Save Changes") {
                     saveProfile()
                 }
                 .buttonStyle(.plain)
-                .font(LumaTheme.Typography.bodyMedium)
-                .foregroundColor(LumaTheme.Colors.accentForeground)
-                .padding(.horizontal, LumaTheme.Spacing.md)
-                .padding(.vertical, LumaTheme.Spacing.sm)
-                .background(LumaTheme.Colors.accent)
-                .cornerRadius(LumaTheme.CornerRadius.small)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(DS.Colors.accentForeground)
+                .padding(.horizontal, DS.Spacing.md)
+                .padding(.vertical, DS.Spacing.sm)
+                .background(DS.Colors.accent)
+                .cornerRadius(DS.CornerRadius.small)
                 .disabled(profileName.trimmingCharacters(in: .whitespaces).isEmpty)
                 .onHover { isHovering in
                     if isHovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
@@ -655,14 +751,14 @@ private struct ProfileFormView: View {
 
                 Button("Cancel", action: onCancel)
                     .buttonStyle(.plain)
-                    .font(LumaTheme.Typography.body)
-                    .foregroundColor(LumaTheme.Colors.secondaryText)
+                    .font(.system(size: 13))
+                    .foregroundColor(DS.Colors.textSecondary)
                     .onHover { isHovering in
                         if isHovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
                     }
             }
         }
-        .padding(LumaTheme.Spacing.lg)
+        .padding(DS.Spacing.lg)
         .onAppear {
             populateFormFromExistingProfile()
         }
@@ -792,45 +888,45 @@ private struct ModelTabView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: LumaTheme.Spacing.xl) {
+            VStack(alignment: .leading, spacing: DS.Spacing.xl) {
 
                 // Subtitle explaining the per-profile relationship
                 Text("Model is selected per profile. Manage profiles in the API Profiles tab.")
-                    .font(LumaTheme.Typography.body)
-                    .foregroundColor(LumaTheme.Colors.secondaryText)
+                    .font(.system(size: 13))
+                    .foregroundColor(DS.Colors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
 
                 if let activeProfile = profileManager.activeProfile {
-                    VStack(alignment: .leading, spacing: LumaTheme.Spacing.md) {
+                    VStack(alignment: .leading, spacing: DS.Spacing.md) {
 
                         // Active profile context
-                        HStack(spacing: LumaTheme.Spacing.sm) {
+                        HStack(spacing: DS.Spacing.sm) {
                             Text("Active Profile:")
-                                .font(LumaTheme.Typography.bodyMedium)
-                                .foregroundColor(LumaTheme.Colors.primaryText)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(DS.Colors.textPrimary)
                             Text(activeProfile.name)
-                                .font(LumaTheme.Typography.body)
-                                .foregroundColor(LumaTheme.Colors.secondaryText)
+                                .font(.system(size: 13))
+                                .foregroundColor(DS.Colors.textSecondary)
                         }
 
                         // Model string field
-                        VStack(alignment: .leading, spacing: LumaTheme.Spacing.xs) {
+                        VStack(alignment: .leading, spacing: DS.Spacing.xs) {
                             Text("Model")
-                                .font(LumaTheme.Typography.bodyMedium)
-                                .foregroundColor(LumaTheme.Colors.primaryText)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(DS.Colors.textPrimary)
 
                             TextField("e.g. google/gemini-2.5-flash:free", text: $editedModelString)
                                 .textFieldStyle(.plain)
-                                .font(LumaTheme.Typography.body)
-                                .foregroundColor(LumaTheme.Colors.primaryText)
-                                .padding(LumaTheme.Spacing.sm)
+                                .font(.system(size: 13))
+                                .foregroundColor(DS.Colors.textPrimary)
+                                .padding(DS.Spacing.sm)
                                 .background(
-                                    RoundedRectangle(cornerRadius: LumaTheme.CornerRadius.medium)
-                                        .fill(LumaTheme.Colors.surface)
+                                    RoundedRectangle(cornerRadius: DS.CornerRadius.medium)
+                                        .fill(DS.Colors.surface1)
                                 )
                                 .overlay(
-                                    RoundedRectangle(cornerRadius: LumaTheme.CornerRadius.medium)
-                                        .stroke(LumaTheme.Colors.surfaceElevated, lineWidth: 1)
+                                    RoundedRectangle(cornerRadius: DS.CornerRadius.medium)
+                                        .stroke(DS.Colors.surface2, lineWidth: 1)
                                 )
                                 // Save on Return
                                 .onSubmit {
@@ -838,8 +934,8 @@ private struct ModelTabView: View {
                                 }
 
                             Text("Paste any OpenRouter or provider model ID here. A searchable picker is coming soon.")
-                                .font(LumaTheme.Typography.caption)
-                                .foregroundColor(LumaTheme.Colors.tertiaryText)
+                                .font(.system(size: 11))
+                                .foregroundColor(DS.Colors.textTertiary)
                         }
 
                         // Save button
@@ -847,23 +943,23 @@ private struct ModelTabView: View {
                             saveModelStringToActiveProfile(activeProfile: activeProfile)
                         }
                         .buttonStyle(.plain)
-                        .font(LumaTheme.Typography.bodyMedium)
-                        .foregroundColor(LumaTheme.Colors.accentForeground)
-                        .padding(.horizontal, LumaTheme.Spacing.md)
-                        .padding(.vertical, LumaTheme.Spacing.sm)
-                        .background(LumaTheme.Colors.accent)
-                        .cornerRadius(LumaTheme.CornerRadius.small)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(DS.Colors.accentForeground)
+                        .padding(.horizontal, DS.Spacing.md)
+                        .padding(.vertical, DS.Spacing.sm)
+                        .background(DS.Colors.accent)
+                        .cornerRadius(DS.CornerRadius.small)
                         .onHover { isHovering in
                             if isHovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
                         }
                     }
                 } else {
                     Text("No active profile. Add a profile in the API Profiles tab.")
-                        .font(LumaTheme.Typography.body)
-                        .foregroundColor(LumaTheme.Colors.secondaryText)
+                        .font(.system(size: 13))
+                        .foregroundColor(DS.Colors.textSecondary)
                 }
             }
-            .padding(LumaTheme.Spacing.xl)
+            .padding(DS.Spacing.xl)
         }
         .onAppear {
             editedModelString = profileManager.activeProfile?.selectedModel ?? ""
@@ -900,7 +996,7 @@ private struct GeneralTabView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: LumaTheme.Spacing.xl) {
+            VStack(alignment: .leading, spacing: DS.Spacing.xl) {
 
                 launchAtLoginSection
                 Divider()
@@ -910,7 +1006,7 @@ private struct GeneralTabView: View {
                 Divider()
                 aboutSection
             }
-            .padding(LumaTheme.Spacing.xl)
+            .padding(DS.Spacing.xl)
         }
         // PIN entry sheet (set or change)
         .sheet(isPresented: $isShowingPINEntrySheet) {
@@ -926,16 +1022,16 @@ private struct GeneralTabView: View {
     // MARK: Launch at Login Section
 
     private var launchAtLoginSection: some View {
-        VStack(alignment: .leading, spacing: LumaTheme.Spacing.sm) {
+        VStack(alignment: .leading, spacing: DS.Spacing.sm) {
 
             Text("Launch at Login")
-                .font(LumaTheme.Typography.headline)
-                .foregroundColor(LumaTheme.Colors.primaryText)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(DS.Colors.textPrimary)
 
             Toggle(isOn: $launchAtLoginEnabled) {
                 Text("Start Luma automatically when you log in")
-                    .font(LumaTheme.Typography.body)
-                    .foregroundColor(LumaTheme.Colors.primaryText)
+                    .font(.system(size: 13))
+                    .foregroundColor(DS.Colors.textPrimary)
             }
             .toggleStyle(.switch)
             .onChange(of: launchAtLoginEnabled) { newValue in
@@ -947,21 +1043,21 @@ private struct GeneralTabView: View {
     // MARK: PIN Management Section
 
     private var pinManagementSection: some View {
-        VStack(alignment: .leading, spacing: LumaTheme.Spacing.md) {
+        VStack(alignment: .leading, spacing: DS.Spacing.md) {
 
             Text("PIN")
-                .font(LumaTheme.Typography.headline)
-                .foregroundColor(LumaTheme.Colors.primaryText)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(DS.Colors.textPrimary)
 
             if pinManager.hasPIN {
                 // PIN is set — show Change and Remove options
-                HStack(spacing: LumaTheme.Spacing.md) {
+                HStack(spacing: DS.Spacing.md) {
                     Button("Change PIN") {
                         isShowingPINEntrySheet = true
                     }
                     .buttonStyle(.plain)
-                    .font(LumaTheme.Typography.body)
-                    .foregroundColor(LumaTheme.Colors.accent)
+                    .font(.system(size: 13))
+                    .foregroundColor(DS.Colors.accent)
                     .onHover { isHovering in
                         if isHovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
                     }
@@ -970,8 +1066,8 @@ private struct GeneralTabView: View {
                         try? pinManager.clearPIN()
                     }
                     .buttonStyle(.plain)
-                    .font(LumaTheme.Typography.body)
-                    .foregroundColor(LumaTheme.Colors.error)
+                    .font(.system(size: 13))
+                    .foregroundColor(DS.Colors.destructive)
                     .onHover { isHovering in
                         if isHovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
                     }
@@ -983,8 +1079,8 @@ private struct GeneralTabView: View {
                     isShowingPINEntrySheet = true
                 }
                 .buttonStyle(.plain)
-                .font(LumaTheme.Typography.body)
-                .foregroundColor(LumaTheme.Colors.accent)
+                .font(.system(size: 13))
+                .foregroundColor(DS.Colors.accent)
                 .onHover { isHovering in
                     if isHovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
                 }
@@ -995,18 +1091,18 @@ private struct GeneralTabView: View {
     // MARK: Logs Section
 
     private var logsSection: some View {
-        VStack(alignment: .leading, spacing: LumaTheme.Spacing.sm) {
+        VStack(alignment: .leading, spacing: DS.Spacing.sm) {
 
             Text("Logs")
-                .font(LumaTheme.Typography.headline)
-                .foregroundColor(LumaTheme.Colors.primaryText)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(DS.Colors.textPrimary)
 
             Text("View real-time activity or copy the log file for debugging.")
-                .font(LumaTheme.Typography.body)
-                .foregroundColor(LumaTheme.Colors.secondaryText)
+                .font(.system(size: 13))
+                .foregroundColor(DS.Colors.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            HStack(spacing: LumaTheme.Spacing.md) {
+            HStack(spacing: DS.Spacing.md) {
                 Button {
                     LumaLogWindowManager.shared.showLogWindow()
                 } label: {
@@ -1014,13 +1110,13 @@ private struct GeneralTabView: View {
                         Image(systemName: "doc.text.magnifyingglass")
                             .font(.system(size: 12))
                         Text("Open Log Window")
-                            .font(LumaTheme.Typography.bodyMedium)
+                            .font(.system(size: 13, weight: .medium))
                     }
-                    .foregroundColor(LumaTheme.Colors.accentForeground)
-                    .padding(.horizontal, LumaTheme.Spacing.md)
-                    .padding(.vertical, LumaTheme.Spacing.sm)
-                    .background(LumaTheme.Colors.accent)
-                    .cornerRadius(LumaTheme.CornerRadius.small)
+                    .foregroundColor(DS.Colors.accentForeground)
+                    .padding(.horizontal, DS.Spacing.md)
+                    .padding(.vertical, DS.Spacing.sm)
+                    .background(DS.Colors.accent)
+                    .cornerRadius(DS.CornerRadius.small)
                 }
                 .buttonStyle(.plain)
                 .onHover { isHovering in
@@ -1031,8 +1127,8 @@ private struct GeneralTabView: View {
                     copyLogsToClipboard()
                 }
                 .buttonStyle(.plain)
-                .font(LumaTheme.Typography.body)
-                .foregroundColor(LumaTheme.Colors.accent)
+                .font(.system(size: 13))
+                .foregroundColor(DS.Colors.accent)
                 .onHover { isHovering in
                     if isHovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
                 }
@@ -1050,14 +1146,14 @@ private struct GeneralTabView: View {
 
     private var aboutSection: some View {
         // Centered About block with app version and copyright
-        VStack(spacing: LumaTheme.Spacing.xs) {
+        VStack(spacing: DS.Spacing.xs) {
             Text("Luma v1.0")
-                .font(LumaTheme.Typography.bodyMedium)
-                .foregroundColor(LumaTheme.Colors.secondaryText)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(DS.Colors.textSecondary)
 
             Text("© 2026 Omoju Oluwamayowa (Nox)")
-                .font(LumaTheme.Typography.caption)
-                .foregroundColor(LumaTheme.Colors.tertiaryText)
+                .font(.system(size: 11))
+                .foregroundColor(DS.Colors.textTertiary)
         }
         .frame(maxWidth: .infinity)
         .multilineTextAlignment(.center)
@@ -1093,11 +1189,11 @@ private struct VoiceSettingsTabView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: LumaTheme.Spacing.xl) {
+            VStack(alignment: .leading, spacing: DS.Spacing.xl) {
 
                 Text("Configure how Luma sounds when speaking responses.")
-                    .font(LumaTheme.Typography.body)
-                    .foregroundColor(LumaTheme.Colors.secondaryText)
+                    .font(.system(size: 13))
+                    .foregroundColor(DS.Colors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
 
                 // Gender toggle
@@ -1144,24 +1240,24 @@ private struct VoiceSettingsTabView: View {
                 // Preview button
                 previewVoiceSection
             }
-            .padding(LumaTheme.Spacing.xl)
+            .padding(DS.Spacing.xl)
         }
     }
 
     // MARK: Gender Section
 
     private var voiceGenderSection: some View {
-        VStack(alignment: .leading, spacing: LumaTheme.Spacing.sm) {
+        VStack(alignment: .leading, spacing: DS.Spacing.sm) {
             Text("Voice Gender")
-                .font(LumaTheme.Typography.headline)
-                .foregroundColor(LumaTheme.Colors.primaryText)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(DS.Colors.textPrimary)
 
             HStack(spacing: 0) {
                 voiceGenderToggleButton(label: "Female", value: "female")
                 voiceGenderToggleButton(label: "Male",   value: "male")
             }
-            .background(LumaTheme.Colors.surface)
-            .cornerRadius(LumaTheme.CornerRadius.medium)
+            .background(DS.Colors.surface1)
+            .cornerRadius(DS.CornerRadius.medium)
         }
     }
 
@@ -1171,12 +1267,12 @@ private struct VoiceSettingsTabView: View {
             voiceGender = value
         } label: {
             Text(label)
-                .font(LumaTheme.Typography.bodyMedium)
-                .foregroundColor(isSelected ? LumaTheme.Colors.primaryText : LumaTheme.Colors.secondaryText)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(isSelected ? DS.Colors.textPrimary : DS.Colors.textSecondary)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, LumaTheme.Spacing.sm)
-                .background(isSelected ? LumaTheme.Colors.surfaceElevated : Color.clear)
-                .cornerRadius(LumaTheme.CornerRadius.medium)
+                .padding(.vertical, DS.Spacing.sm)
+                .background(isSelected ? DS.Colors.surface2 : Color.clear)
+                .cornerRadius(DS.CornerRadius.medium)
         }
         .buttonStyle(.plain)
         .onHover { isHovering in
@@ -1194,47 +1290,47 @@ private struct VoiceSettingsTabView: View {
         valueLabel: String,
         description: String
     ) -> some View {
-        VStack(alignment: .leading, spacing: LumaTheme.Spacing.sm) {
+        VStack(alignment: .leading, spacing: DS.Spacing.sm) {
             HStack {
                 Text(title)
-                    .font(LumaTheme.Typography.headline)
-                    .foregroundColor(LumaTheme.Colors.primaryText)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(DS.Colors.textPrimary)
 
                 Spacer()
 
                 Text(valueLabel)
-                    .font(LumaTheme.Typography.body)
-                    .foregroundColor(LumaTheme.Colors.secondaryText)
+                    .font(.system(size: 13))
+                    .foregroundColor(DS.Colors.textSecondary)
                     .monospacedDigit()
             }
 
             Slider(value: value, in: range)
-                .tint(LumaTheme.Colors.accent)
+                .tint(DS.Colors.accent)
 
             Text(description)
-                .font(LumaTheme.Typography.caption)
-                .foregroundColor(LumaTheme.Colors.tertiaryText)
+                .font(.system(size: 11))
+                .foregroundColor(DS.Colors.textTertiary)
         }
     }
 
     // MARK: Preview Section
 
     private var previewVoiceSection: some View {
-        VStack(alignment: .leading, spacing: LumaTheme.Spacing.sm) {
+        VStack(alignment: .leading, spacing: DS.Spacing.sm) {
             Button {
                 Task { await previewCurrentVoice() }
             } label: {
-                HStack(spacing: LumaTheme.Spacing.sm) {
+                HStack(spacing: DS.Spacing.sm) {
                     Image(systemName: isPreviewPlaying ? "speaker.wave.3.fill" : "play.fill")
                         .font(.system(size: 12))
                     Text(isPreviewPlaying ? "Playing..." : "Preview Voice")
-                        .font(LumaTheme.Typography.bodyMedium)
+                        .font(.system(size: 13, weight: .medium))
                 }
-                .foregroundColor(LumaTheme.Colors.accentForeground)
-                .padding(.horizontal, LumaTheme.Spacing.md)
-                .padding(.vertical, LumaTheme.Spacing.sm)
-                .background(LumaTheme.Colors.accent)
-                .cornerRadius(LumaTheme.CornerRadius.small)
+                .foregroundColor(DS.Colors.accentForeground)
+                .padding(.horizontal, DS.Spacing.md)
+                .padding(.vertical, DS.Spacing.sm)
+                .background(DS.Colors.accent)
+                .cornerRadius(DS.CornerRadius.small)
             }
             .buttonStyle(.plain)
             .disabled(isPreviewPlaying)
@@ -1273,7 +1369,7 @@ private struct CursorCustomizerTabView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: LumaTheme.Spacing.lg) {
+            VStack(alignment: .leading, spacing: DS.Spacing.lg) {
 
                 // Live preview canvas at top
                 cursorPreviewCanvas
@@ -1296,13 +1392,13 @@ private struct CursorCustomizerTabView: View {
                     CustomCursorManager.shared.reloadCursorProfile()
                 }
                 .buttonStyle(.plain)
-                .font(LumaTheme.Typography.body)
-                .foregroundColor(LumaTheme.Colors.error)
+                .font(.system(size: 13))
+                .foregroundColor(DS.Colors.destructive)
                 .onHover { isHovering in
                     if isHovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
                 }
             }
-            .padding(LumaTheme.Spacing.xl)
+            .padding(DS.Spacing.xl)
         }
         .onChange(of: cursorProfile) { newProfile in
             newProfile.saveToKeychain()
@@ -1313,24 +1409,24 @@ private struct CursorCustomizerTabView: View {
     // MARK: Preview Canvas
 
     private var cursorPreviewCanvas: some View {
-        VStack(spacing: LumaTheme.Spacing.sm) {
+        VStack(spacing: DS.Spacing.sm) {
             // State picker row for preview
-            HStack(spacing: LumaTheme.Spacing.sm) {
+            HStack(spacing: DS.Spacing.sm) {
                 ForEach([LumaCursorState.idle, .pointing, .listening, .processing], id: \.self) { state in
                     Button {
                         selectedPreviewState = state
                     } label: {
                         Text(state.displayName)
-                            .font(LumaTheme.Typography.caption)
+                            .font(.system(size: 11))
                             .foregroundColor(selectedPreviewState == state
-                                             ? LumaTheme.Colors.primaryText
-                                             : LumaTheme.Colors.secondaryText)
-                            .padding(.horizontal, LumaTheme.Spacing.sm)
+                                             ? DS.Colors.textPrimary
+                                             : DS.Colors.textSecondary)
+                            .padding(.horizontal, DS.Spacing.sm)
                             .padding(.vertical, 4)
                             .background(selectedPreviewState == state
-                                        ? LumaTheme.Colors.surfaceElevated
+                                        ? DS.Colors.surface2
                                         : Color.clear)
-                            .cornerRadius(LumaTheme.CornerRadius.small)
+                            .cornerRadius(DS.CornerRadius.small)
                     }
                     .buttonStyle(.plain)
                     .onHover { isHovering in
@@ -1341,7 +1437,7 @@ private struct CursorCustomizerTabView: View {
 
             // Preview canvas
             ZStack {
-                RoundedRectangle(cornerRadius: LumaTheme.CornerRadius.large)
+                RoundedRectangle(cornerRadius: DS.CornerRadius.large)
                     .fill(Color(red: 0.08, green: 0.08, blue: 0.10))
                     .frame(height: 160)
 
@@ -1358,16 +1454,16 @@ private struct CursorCustomizerTabView: View {
     // MARK: Per-State Section
 
     private func cursorStateSection(state: LumaCursorState, appearance: Binding<CursorStateAppearance>) -> some View {
-        VStack(alignment: .leading, spacing: LumaTheme.Spacing.sm) {
+        VStack(alignment: .leading, spacing: DS.Spacing.sm) {
             Text(state.displayName)
-                .font(LumaTheme.Typography.headline)
-                .foregroundColor(LumaTheme.Colors.primaryText)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(DS.Colors.textPrimary)
 
             // Shape picker — grid of shape options
-            HStack(spacing: LumaTheme.Spacing.sm) {
+            HStack(spacing: DS.Spacing.sm) {
                 Text("Shape")
-                    .font(LumaTheme.Typography.body)
-                    .foregroundColor(LumaTheme.Colors.secondaryText)
+                    .font(.system(size: 13))
+                    .foregroundColor(DS.Colors.textSecondary)
                     .frame(width: 50, alignment: .leading)
 
                 ForEach(CursorShape.allCases) { shape in
@@ -1377,13 +1473,13 @@ private struct CursorCustomizerTabView: View {
                         Image(systemName: shape.sfSymbolName)
                             .font(.system(size: 16))
                             .foregroundColor(appearance.wrappedValue.shape == shape
-                                             ? LumaTheme.Colors.primaryText
-                                             : LumaTheme.Colors.tertiaryText)
+                                             ? DS.Colors.textPrimary
+                                             : DS.Colors.textTertiary)
                             .frame(width: 32, height: 32)
                             .background(appearance.wrappedValue.shape == shape
-                                        ? LumaTheme.Colors.surfaceElevated
+                                        ? DS.Colors.surface2
                                         : Color.clear)
-                            .cornerRadius(LumaTheme.CornerRadius.small)
+                            .cornerRadius(DS.CornerRadius.small)
                     }
                     .buttonStyle(.plain)
                     .onHover { isHovering in
@@ -1393,10 +1489,10 @@ private struct CursorCustomizerTabView: View {
             }
 
             // Color picker
-            HStack(spacing: LumaTheme.Spacing.sm) {
+            HStack(spacing: DS.Spacing.sm) {
                 Text("Color")
-                    .font(LumaTheme.Typography.body)
-                    .foregroundColor(LumaTheme.Colors.secondaryText)
+                    .font(.system(size: 13))
+                    .foregroundColor(DS.Colors.textSecondary)
                     .frame(width: 50, alignment: .leading)
 
                 ColorPicker(
@@ -1412,24 +1508,24 @@ private struct CursorCustomizerTabView: View {
                 .labelsHidden()
 
                 Text(appearance.wrappedValue.colorHex)
-                    .font(LumaTheme.Typography.caption)
-                    .foregroundColor(LumaTheme.Colors.tertiaryText)
+                    .font(.system(size: 11))
+                    .foregroundColor(DS.Colors.textTertiary)
                     .monospacedDigit()
             }
 
             // Size slider
-            HStack(spacing: LumaTheme.Spacing.sm) {
+            HStack(spacing: DS.Spacing.sm) {
                 Text("Size")
-                    .font(LumaTheme.Typography.body)
-                    .foregroundColor(LumaTheme.Colors.secondaryText)
+                    .font(.system(size: 13))
+                    .foregroundColor(DS.Colors.textSecondary)
                     .frame(width: 50, alignment: .leading)
 
                 Slider(value: appearance.size, in: 8...32, step: 1)
                     .frame(maxWidth: 200)
 
                 Text("\(Int(appearance.wrappedValue.size))pt")
-                    .font(LumaTheme.Typography.body)
-                    .foregroundColor(LumaTheme.Colors.secondaryText)
+                    .font(.system(size: 13))
+                    .foregroundColor(DS.Colors.textSecondary)
                     .monospacedDigit()
                     .frame(width: 40, alignment: .trailing)
             }
@@ -1481,15 +1577,26 @@ private struct CursorShapePreview: View {
 private struct AgentModeTabView: View {
 
     @StateObject private var agentSettingsManager = AgentSettingsManager.shared
+    @StateObject private var agentRuntimeManager = AgentRuntimeManager.shared
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: LumaTheme.Spacing.xl) {
+            VStack(alignment: .leading, spacing: DS.Spacing.xl) {
 
-                Text("Configure agent mode behavior and per-agent model assignments.")
-                    .font(LumaTheme.Typography.body)
-                    .foregroundColor(LumaTheme.Colors.secondaryText)
+                Text("Configure agent mode behavior, runtime, and per-agent model assignments.")
+                    .font(.system(size: 13))
+                    .foregroundColor(DS.Colors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+
+                // Agent mode toggle
+                agentModeToggleSection
+
+                Divider()
+
+                // Runtime selection
+                runtimeSection
+
+                Divider()
 
                 // Maximum Agents stepper
                 maximumAgentsSection
@@ -1499,39 +1606,116 @@ private struct AgentModeTabView: View {
                 // Per-agent model configuration
                 agentProfilesSection
             }
-            .padding(LumaTheme.Spacing.xl)
+            .padding(DS.Spacing.xl)
+        }
+    }
+
+    // MARK: Agent Mode Toggle
+
+    private var agentModeToggleSection: some View {
+        VStack(alignment: .leading, spacing: DS.Spacing.sm) {
+            Toggle("Agent Mode", isOn: $agentSettingsManager.isAgentModeEnabled)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(DS.Colors.textPrimary)
+                .toggleStyle(.switch)
+                .tint(DS.Colors.accent)
+
+            Text("Enable the agent panel section and HUD dashboard for autonomous task execution.")
+                .font(.system(size: 11))
+                .foregroundColor(DS.Colors.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    // MARK: Runtime Selection
+
+    private var runtimeSection: some View {
+        VStack(alignment: .leading, spacing: DS.Spacing.sm) {
+            Text("Agent Runtime")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(DS.Colors.textPrimary)
+
+            HStack(spacing: DS.Spacing.md) {
+                Picker("Runtime", selection: runtimeOverrideBinding) {
+                    Text("Auto-detect").tag("auto")
+                    Text("Claude Code CLI").tag("claudeCode")
+                    Text("Claude API").tag("claudeAPI")
+                }
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 360)
+
+                runtimeStatusIndicator
+            }
+
+            Text("Current: \(agentRuntimeManager.effectiveRuntimeType.rawValue)")
+                .font(.system(size: 11))
+                .foregroundColor(DS.Colors.textTertiary)
+
+            if let path = agentRuntimeManager.claudeCodePath {
+                Text("CLI path: \(path)")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(DS.Colors.textTertiary)
+            }
+        }
+    }
+
+    private var runtimeOverrideBinding: Binding<String> {
+        Binding(
+            get: {
+                UserDefaults.standard.string(forKey: "luma.agentRuntime.override") ?? "auto"
+            },
+            set: { newValue in
+                if newValue == "auto" {
+                    UserDefaults.standard.removeObject(forKey: "luma.agentRuntime.override")
+                } else {
+                    agentRuntimeManager.setOverride(newValue)
+                }
+                agentRuntimeManager.detectRuntime()
+            }
+        )
+    }
+
+    @ViewBuilder
+    private var runtimeStatusIndicator: some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(agentRuntimeManager.claudeCodePath != nil ? DS.Colors.success : DS.Colors.warning)
+                .frame(width: 7, height: 7)
+            Text(agentRuntimeManager.claudeCodePath != nil ? "CLI detected" : "CLI not found")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(DS.Colors.textSecondary)
         }
     }
 
     // MARK: Maximum Agents
 
     private var maximumAgentsSection: some View {
-        VStack(alignment: .leading, spacing: LumaTheme.Spacing.sm) {
+        VStack(alignment: .leading, spacing: DS.Spacing.sm) {
             Text("Maximum Agents")
-                .font(LumaTheme.Typography.headline)
-                .foregroundColor(LumaTheme.Colors.primaryText)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(DS.Colors.textPrimary)
 
-            HStack(spacing: LumaTheme.Spacing.md) {
+            HStack(spacing: DS.Spacing.md) {
                 Stepper(
                     value: $agentSettingsManager.maxAgentCount,
                     in: 1...10,
                     step: 1
                 ) {
                     Text("\(agentSettingsManager.maxAgentCount)")
-                        .font(LumaTheme.Typography.title)
-                        .foregroundColor(LumaTheme.Colors.primaryText)
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundColor(DS.Colors.textPrimary)
                         .monospacedDigit()
                         .frame(width: 30, alignment: .center)
                 }
 
                 Text("simultaneous agents allowed")
-                    .font(LumaTheme.Typography.body)
-                    .foregroundColor(LumaTheme.Colors.secondaryText)
+                    .font(.system(size: 13))
+                    .foregroundColor(DS.Colors.textSecondary)
             }
 
             Text("When the limit is reached, the oldest idle agent is automatically dismissed.")
-                .font(LumaTheme.Typography.caption)
-                .foregroundColor(LumaTheme.Colors.tertiaryText)
+                .font(.system(size: 11))
+                .foregroundColor(DS.Colors.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -1539,11 +1723,11 @@ private struct AgentModeTabView: View {
     // MARK: Agent Profiles
 
     private var agentProfilesSection: some View {
-        VStack(alignment: .leading, spacing: LumaTheme.Spacing.md) {
+        VStack(alignment: .leading, spacing: DS.Spacing.md) {
             HStack {
                 Text("Agent Profiles")
-                    .font(LumaTheme.Typography.headline)
-                    .foregroundColor(LumaTheme.Colors.primaryText)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(DS.Colors.textPrimary)
 
                 Spacer()
 
@@ -1555,8 +1739,8 @@ private struct AgentModeTabView: View {
                         Image(systemName: "plus.circle")
                         Text("Add Agent")
                     }
-                    .font(LumaTheme.Typography.bodyMedium)
-                    .foregroundColor(LumaTheme.Colors.accent)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(DS.Colors.accent)
                 }
                 .buttonStyle(.plain)
                 .onHover { isHovering in
@@ -1566,9 +1750,9 @@ private struct AgentModeTabView: View {
 
             if agentSettingsManager.agentProfiles.isEmpty {
                 Text("No agent profiles configured. Add one to assign a model.")
-                    .font(LumaTheme.Typography.body)
-                    .foregroundColor(LumaTheme.Colors.tertiaryText)
-                    .padding(.vertical, LumaTheme.Spacing.md)
+                    .font(.system(size: 13))
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .padding(.vertical, DS.Spacing.md)
             } else {
                 ForEach(agentSettingsManager.agentProfiles) { profile in
                     AgentProfileRowView(
@@ -1591,8 +1775,8 @@ private struct AgentModeTabView: View {
             }
 
             Text("Default model: \(AgentModel.claudeSonnet.displayName). Each agent can use a different model for its API calls.")
-                .font(LumaTheme.Typography.caption)
-                .foregroundColor(LumaTheme.Colors.tertiaryText)
+                .font(.system(size: 11))
+                .foregroundColor(DS.Colors.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -1611,19 +1795,19 @@ private struct AgentProfileRowView: View {
     @State private var selectedModel: AgentModel = .claudeSonnet
 
     var body: some View {
-        HStack(spacing: LumaTheme.Spacing.md) {
+        HStack(spacing: DS.Spacing.md) {
 
             // Editable agent name
             TextField("Agent name", text: $editedName)
                 .textFieldStyle(.plain)
-                .font(LumaTheme.Typography.bodyMedium)
-                .foregroundColor(LumaTheme.Colors.primaryText)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(DS.Colors.textPrimary)
                 .frame(maxWidth: 120)
-                .padding(.horizontal, LumaTheme.Spacing.sm)
+                .padding(.horizontal, DS.Spacing.sm)
                 .padding(.vertical, 6)
                 .background(
-                    RoundedRectangle(cornerRadius: LumaTheme.CornerRadius.small)
-                        .fill(LumaTheme.Colors.surface)
+                    RoundedRectangle(cornerRadius: DS.CornerRadius.small)
+                        .fill(DS.Colors.surface1)
                 )
                 .onSubmit {
                     let trimmed = editedName.trimmingCharacters(in: .whitespaces)
@@ -1647,12 +1831,12 @@ private struct AgentProfileRowView: View {
 
             // Provider badge
             Text(selectedModel.providerName)
-                .font(LumaTheme.Typography.caption)
-                .foregroundColor(LumaTheme.Colors.secondaryText)
-                .padding(.horizontal, LumaTheme.Spacing.xs)
+                .font(.system(size: 11))
+                .foregroundColor(DS.Colors.textSecondary)
+                .padding(.horizontal, DS.Spacing.xs)
                 .padding(.vertical, 2)
-                .background(LumaTheme.Colors.surfaceElevated)
-                .cornerRadius(LumaTheme.CornerRadius.small)
+                .background(DS.Colors.surface2)
+                .cornerRadius(DS.CornerRadius.small)
 
             // Delete button
             Button {
@@ -1660,16 +1844,16 @@ private struct AgentProfileRowView: View {
             } label: {
                 Image(systemName: "trash")
                     .font(.system(size: 12))
-                    .foregroundColor(LumaTheme.Colors.error)
+                    .foregroundColor(DS.Colors.destructive)
             }
             .buttonStyle(.plain)
             .onHover { isHovering in
                 if isHovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
             }
         }
-        .padding(LumaTheme.Spacing.md)
-        .background(LumaTheme.Colors.surface)
-        .cornerRadius(LumaTheme.CornerRadius.medium)
+        .padding(DS.Spacing.md)
+        .background(DS.Colors.surface1)
+        .cornerRadius(DS.CornerRadius.medium)
         .onAppear {
             editedName = profile.name
             selectedModel = profile.model
