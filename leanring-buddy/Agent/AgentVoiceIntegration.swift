@@ -2,13 +2,13 @@
 //  AgentVoiceIntegration.swift
 //  leanring-buddy
 //
-//  Handles per-agent voice input, spawn detection via voice commands,
-//  and agent title generation via lightweight API calls.
+//  Handles voice command detection for agent spawning via regex patterns.
+//  Includes heuristic title generation from task text.
 //
 
 import Foundation
 
-/// Integrates voice commands and text input with the agent system.
+/// Integrates voice commands and text input with the agent session system.
 @MainActor
 enum AgentVoiceIntegration {
 
@@ -48,49 +48,23 @@ enum AgentVoiceIntegration {
         return nil
     }
 
-    /// Handles a spawn intent: creates a new agent, and if an inline task was
-    /// extracted, starts it immediately.
-    static func handleSpawnIntent(inlineTask: String) {
-        let agent = AgentManager.shared.spawnAgent()
+    /// Handles a spawn intent: creates a new agent session, and if an inline task was
+    /// extracted, submits it immediately.
+    static func handleSpawnIntent(inlineTask: String, companionManager: CompanionManager) {
+        let session = companionManager.createAndSelectNewAgentSession()
 
         if !inlineTask.isEmpty {
-            // Record the task and start processing
-            AgentMemoryIntegration.recordUserMessage(
-                agentId: agent.id.uuidString,
-                agentTitle: agent.title,
-                content: inlineTask
-            )
-            AgentManager.shared.updateAgent(withID: agent.id) { mutableAgent in
-                mutableAgent.state = .processing
-                mutableAgent.processingText = inlineTask
-            }
-            // Title will be generated once the task classifier processes it
+            let systemContext = AgentMemoryIntegration.loadSummarizedMemoryForSystemContext()
             Task {
-                await generateAgentTitle(for: agent.id, fromTask: inlineTask)
+                await session.submitPrompt(inlineTask, systemContext: systemContext)
             }
         }
     }
 
-    // MARK: - Agent Title Generation
-
-    /// Generates a short (3–5 word) title for an agent based on its first task.
-    /// Uses a lightweight API call to produce the title.
-    static func generateAgentTitle(for agentID: UUID, fromTask task: String) async {
-        let titlePrompt = "Generate a 3-5 word title for this task: \(task). Return only the title, nothing else."
-
-        // Use the cheapest model available — prefer gpt-4o-mini
-        // For now, generate a simple heuristic title to avoid API dependency in Phase 5
-        let generatedTitle = heuristicTitle(from: task)
-
-        AgentManager.shared.updateAgent(withID: agentID) { agent in
-            agent.title = generatedTitle
-        }
-
-        LumaLogger.log("[AgentVoice] Generated title '\(generatedTitle)' for agent \(agentID)")
-    }
+    // MARK: - Heuristic Title Generation
 
     /// Simple heuristic title generation: takes first few meaningful words from the task.
-    private static func heuristicTitle(from task: String) -> String {
+    static func heuristicTitle(from task: String) -> String {
         let stopWords: Set<String> = ["a", "an", "the", "to", "for", "and", "or", "in", "on", "at", "is", "it", "of", "my", "me", "i", "please", "can", "you", "could", "would"]
         let words = task.lowercased()
             .components(separatedBy: .whitespacesAndNewlines)

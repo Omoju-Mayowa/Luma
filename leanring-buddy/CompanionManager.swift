@@ -126,6 +126,41 @@ final class CompanionManager: ObservableObject {
     /// Used by the panel to show accurate status text ("Active" vs "Ready").
     @Published private(set) var isOverlayVisible: Bool = false
 
+    // MARK: - Agent Sessions (v3)
+
+    @Published var agentSessions: [AgentSession] = []
+    @Published var activeAgentSessionID: UUID?
+    @Published var isAgentModeEnabled: Bool = UserDefaults.standard.bool(forKey: "luma.agentMode.enabled")
+
+    private var agentHUDManager = LumaAgentHUDWindowManager()
+    private var agentDockManager = LumaAgentDockWindowManager()
+
+    /// The currently active agent session. Non-optional — start() guarantees
+    /// at least one session exists via ensureDefaultAgentSession().
+    var activeAgentSession: AgentSession {
+        if let id = activeAgentSessionID,
+           let session = agentSessions.first(where: { $0.id == id }) {
+            return session
+        }
+        guard let first = agentSessions.first else {
+            // Failsafe: return a disconnected session if called before start()
+            return AgentSession()
+        }
+        return first
+    }
+
+    var agentDockItems: [AgentDockItem] {
+        agentSessions.map { session in
+            AgentDockItem(
+                id: session.id,
+                title: session.title,
+                accentTheme: session.accentTheme,
+                status: session.status,
+                caption: session.latestActivitySummary.flatMap { String($0.prefix(40)) }
+            )
+        }
+    }
+
     /// Legacy property kept for backwards compatibility — CompanionManager.selectedModel
     /// is no longer used for API calls (APIClient reads the model from ProfileManager.activeProfile).
     /// Kept as an observable so any UI binding to it doesn't crash.
@@ -274,6 +309,10 @@ final class CompanionManager: ObservableObject {
                 }
             }
         }
+
+        // Initialize agent session system — ensure at least one session exists
+        ensureDefaultAgentSession()
+        AgentHotkeyHandler.shared.startMonitoring(companionManager: self)
     }
 
     /// Called by BlueCursorView after the buddy finishes its pointing
@@ -392,6 +431,14 @@ final class CompanionManager: ObservableObject {
         audioPowerCancellable?.cancel()
         accessibilityCheckTimer?.invalidate()
         accessibilityCheckTimer = nil
+
+        // Tear down agent sessions
+        AgentHotkeyHandler.shared.stopMonitoring()
+        agentHUDManager.destroy()
+        agentDockManager.hide()
+        for session in agentSessions {
+            Task { await session.stop() }
+        }
     }
 
     func refreshAllPermissions() {
@@ -796,20 +843,18 @@ final class CompanionManager: ObservableObject {
             // The original transcript is kept for conversation history so context is human-readable.
             let compressedTranscript = LumaMLEngine.shared.compressPrompt(transcript)
 
-            // Before routing ANY request to Claude, check if any guide keyword matches.
-            // This runs regardless of network status — guides are always preferred over API calls
-            // when a trigger word is present. Only falls through to Claude when no keyword matches.
-            if let guideMatch = OfflineGuideManager.shared.findGuideByKeyword(for: compressedTranscript) {
-                OfflineGuideManager.shared.executeGuide(guideMatch.guide)
-                voiceState = .idle
-                scheduleTransientHideIfNeeded()
-                return
-            }
-
-            // Offline fallback: no guide keyword matched and we can't reach Claude.
+            // Offline fallback: only use offline guides when the user is actually offline.
+            // When online, always route to live AI even if an offline guide keyword matches.
             // Messages are split and sequenced — "You're offline." plays first and finishes
             // before the follow-up is spoken, so the two sentences never overlap.
             if !OfflineGuideManager.shared.isOnline {
+                if let guideMatch = OfflineGuideManager.shared.findGuideByKeyword(for: compressedTranscript) {
+                    OfflineGuideManager.shared.executeGuide(guideMatch.guide)
+                    voiceState = .idle
+                    scheduleTransientHideIfNeeded()
+                    return
+                }
+
                 lastAPIErrorMessage = LumaWriteEngine.shared.errorMessage(for: .offline)
                 try? await nativeTTSClient.speakText("You're offline.")
                 await nativeTTSClient.waitUntilFinished()
@@ -1458,6 +1503,108 @@ final class CompanionManager: ObservableObject {
                 LumaLogger.log("[Luma] Onboarding demo: pointing at \"\(parseResult.elementLabel ?? "element")\" — \"\(parseResult.spokenText)\"")
             } catch {
                 LumaLogger.log("[Luma] Onboarding demo error: \(error)")
+            }
+        }
+    }
+
+    // MARK: - Agent Session Lifecycle
+
+    private let agentAccentThemeRotation: [LumaAccentTheme] = [.blue, .mint, .amber, .rose]
+
+    /// Ensures at least one agent session exists. Called during start().
+    private func ensureDefaultAgentSession() {
+        guard agentSessions.isEmpty else { return }
+        createAndSelectNewAgentSession()
+    }
+
+    /// Creates a new agent session with a rotated accent theme, binds a runtime, and selects it.
+    @discardableResult
+    func createAndSelectNewAgentSession() -> AgentSession {
+        let maxAgents = AgentSettingsManager.shared.maxAgentCount
+        if agentSessions.count >= maxAgents {
+            // Dismiss oldest non-running session to make room
+            if let oldestIdleSession = agentSessions.first(where: { $0.status != .running }) {
+                Task { await dismissAgentSession(id: oldestIdleSession.id) }
+            } else {
+                LumaLogger.log("[Luma] Agent limit reached (\(maxAgents)), all sessions busy")
+            }
+        }
+
+        let themeIndex = agentSessions.count % agentAccentThemeRotation.count
+        let theme = agentAccentThemeRotation[themeIndex]
+
+        let session = AgentSession(accentTheme: theme)
+        let runtime = AgentRuntimeManager.shared.createRuntime()
+        session.bind(to: runtime)
+
+        agentSessions.append(session)
+        activeAgentSessionID = session.id
+
+        LumaLogger.log("[Luma] Spawned agent session: \(session.id)")
+        updateAgentDock()
+
+        return session
+    }
+
+    func dismissAgentSession(id: UUID) async {
+        guard let session = agentSessions.first(where: { $0.id == id }) else { return }
+        await session.stop()
+        agentSessions.removeAll(where: { $0.id == id })
+
+        if activeAgentSessionID == id {
+            activeAgentSessionID = agentSessions.first?.id
+        }
+
+        updateAgentDock()
+        LumaLogger.log("[Luma] Dismissed agent session: \(id)")
+    }
+
+    func selectAgentSession(_ id: UUID) {
+        guard agentSessions.contains(where: { $0.id == id }) else { return }
+        activeAgentSessionID = id
+    }
+
+    func cycleActiveAgent() {
+        guard agentSessions.count > 1, let currentID = activeAgentSessionID else { return }
+        guard let currentIndex = agentSessions.firstIndex(where: { $0.id == currentID }) else { return }
+        let nextIndex = (currentIndex + 1) % agentSessions.count
+        activeAgentSessionID = agentSessions[nextIndex].id
+    }
+
+    func switchToAgentAtIndex(_ index: Int) {
+        guard index >= 0, index < agentSessions.count else { return }
+        activeAgentSessionID = agentSessions[index].id
+    }
+
+    func submitAgentPromptFromUI(_ prompt: String) {
+        guard let session = agentSessions.first(where: { $0.id == activeAgentSessionID }) ?? agentSessions.first else { return }
+        let systemContext = AgentMemoryIntegration.loadSummarizedMemoryForSystemContext()
+        Task {
+            await session.submitPrompt(prompt, systemContext: systemContext)
+        }
+    }
+
+    func showAgentHUD() {
+        agentHUDManager.show(
+            companionManager: self,
+            openMemory: { /* Memory viewer will be wired in Task 15 */ },
+            prepareVoiceFollowUp: { [weak self] in
+                // Return to voice input mode after agent interaction
+                self?.buddyDictationManager.cancelCurrentDictation()
+            }
+        )
+    }
+
+    func hideAgentHUD() {
+        agentHUDManager.hide()
+    }
+
+    private func updateAgentDock() {
+        if agentSessions.isEmpty {
+            agentDockManager.hide()
+        } else {
+            agentDockManager.show(items: agentDockItems) { [weak self] id in
+                self?.selectAgentSession(id)
             }
         }
     }
