@@ -144,7 +144,8 @@ private struct AgentBubbleItemView: View {
 
     @State private var isHovered = false
     @State private var dragOffset: CGSize = .zero
-    @State private var dragVelocity: CGSize = .zero
+    /// Persisted position from previous drags so the bubble stays where you drop it
+    @State private var savedPosition: CGSize = .zero
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
@@ -159,20 +160,24 @@ private struct AgentBubbleItemView: View {
             miniBubble
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
-        .offset(dragOffset)
+        // Hover on the entire row (mini + expanded) so moving to the card keeps it open
+        .onHover { hovering in
+            isHovered = hovering
+        }
+        .offset(x: savedPosition.width + dragOffset.width,
+                y: savedPosition.height + dragOffset.height)
         .gesture(
             DragGesture()
                 .onChanged { value in
                     dragOffset = value.translation
                 }
                 .onEnded { value in
-                    dragVelocity = CGSize(
-                        width: value.predictedEndTranslation.width - value.translation.width,
-                        height: value.predictedEndTranslation.height - value.translation.height
+                    // Keep the bubble where it was dropped
+                    savedPosition = CGSize(
+                        width: savedPosition.width + value.translation.width,
+                        height: savedPosition.height + value.translation.height
                     )
-                    withAnimation(.interpolatingSpring(stiffness: 200, damping: 18)) {
-                        dragOffset = .zero
-                    }
+                    dragOffset = .zero
                 }
         )
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: isHovered)
@@ -206,9 +211,6 @@ private struct AgentBubbleItemView: View {
         .frame(width: 48, height: 48)
         .shadow(color: .black.opacity(0.45), radius: 12, y: 4)
         .scaleEffect(isHovered ? 1.08 : 1.0)
-        .onHover { hovering in
-            isHovered = hovering
-        }
         .pointerCursor()
     }
 
