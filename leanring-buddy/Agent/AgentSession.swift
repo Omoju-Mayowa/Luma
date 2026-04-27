@@ -198,7 +198,7 @@ final class AgentSession: ObservableObject, Identifiable {
                     }
                 }
             } catch {
-                LumaLogger.shared.log("[Luma] Title generation failed: \(error)")
+                LumaLogger.log("[Luma] Title generation failed: \(error)")
             }
         }
     }

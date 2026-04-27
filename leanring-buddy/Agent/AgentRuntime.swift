@@ -92,7 +92,7 @@ final class AgentRuntimeManager: ObservableObject {
         if let whichPath = Self.runWhichClaude() {
             claudeCodePath = whichPath
             detectedRuntimeType = .claudeCode
-            LumaLogger.shared.log("[Luma] Detected Claude Code CLI at \(whichPath)")
+            LumaLogger.log("[Luma] Detected Claude Code CLI at \(whichPath)")
             return
         }
 
@@ -101,14 +101,14 @@ final class AgentRuntimeManager: ObservableObject {
             if FileManager.default.isExecutableFile(atPath: path) {
                 claudeCodePath = path
                 detectedRuntimeType = .claudeCode
-                LumaLogger.shared.log("[Luma] Detected Claude Code CLI at \(path)")
+                LumaLogger.log("[Luma] Detected Claude Code CLI at \(path)")
                 return
             }
         }
 
         claudeCodePath = nil
         detectedRuntimeType = .claudeAPI
-        LumaLogger.shared.log("[Luma] Claude Code CLI not found, using API fallback")
+        LumaLogger.log("[Luma] Claude Code CLI not found, using API fallback")
     }
 
     func createRuntime() -> any AgentRuntime {
