@@ -146,9 +146,15 @@ final class AgentSession: ObservableObject, Identifiable {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] (sessionId, newStatus) in
                 guard let self, sessionId == self.id else { return }
+                let previousStatus = self.status
                 self.status = newStatus
                 if case .failed(let message) = newStatus {
                     self.lastErrorMessage = message
+                }
+
+                // Detect task completion: running → ready
+                if case .running = previousStatus, case .ready = newStatus {
+                    self.announceTaskCompletion()
                 }
             }
             .store(in: &cancellables)
@@ -228,6 +234,32 @@ final class AgentSession: ObservableObject, Identifiable {
 
     func setResponseCard(_ card: ResponseCard) {
         latestResponseCard = card
+    }
+
+    // MARK: - Task Completion
+
+    /// Notification posted when an agent session completes a task.
+    /// userInfo contains "sessionId" (UUID), "title" (String), "summary" (String).
+    static let taskCompletedNotificationName = Notification.Name("lumaAgentTaskCompleted")
+
+    private func announceTaskCompletion() {
+        let completionSummary = entries.last(where: { $0.role == .assistant })?.text ?? "Task completed"
+        let truncatedSummary = completionSummary.count > 200
+            ? String(completionSummary.prefix(200)) + "..."
+            : completionSummary
+
+        // Post notification so overlay/pointer bubble can display the result
+        NotificationCenter.default.post(
+            name: Self.taskCompletedNotificationName,
+            object: nil,
+            userInfo: [
+                "sessionId": id,
+                "title": title,
+                "summary": truncatedSummary
+            ]
+        )
+
+        LumaLogger.log("[Luma] Agent '\(title)' completed task: \(truncatedSummary.prefix(80))...")
     }
 
     // MARK: - Title Generation
