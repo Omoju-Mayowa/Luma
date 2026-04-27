@@ -54,6 +54,7 @@ final class ClaudeCodeAgentRuntime: AgentRuntime {
         var arguments = [
             "-p", task,
             "--output-format", "stream-json",
+            "--verbose",
             "--dangerously-skip-permissions"
         ]
 

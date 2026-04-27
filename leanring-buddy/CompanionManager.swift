@@ -130,6 +130,7 @@ final class CompanionManager: ObservableObject {
 
     @Published var agentSessions: [AgentSession] = []
     @Published var activeAgentSessionID: UUID?
+    @Published var expandedAgentBubbleID: UUID?
     @Published var isAgentModeEnabled: Bool = UserDefaults.standard.bool(forKey: "luma.agentMode.enabled")
 
     private var agentHUDManager = LumaAgentHUDWindowManager()
@@ -156,7 +157,9 @@ final class CompanionManager: ObservableObject {
                 title: session.title,
                 accentTheme: session.accentTheme,
                 status: session.status,
-                caption: session.latestActivitySummary.flatMap { String($0.prefix(40)) }
+                caption: session.latestActivitySummary.flatMap { String($0.prefix(40)) },
+                responseText: session.latestResponseCard?.truncatedText,
+                suggestedActions: session.latestResponseCard?.suggestedActions ?? []
             )
         }
     }
@@ -1601,13 +1604,46 @@ final class CompanionManager: ObservableObject {
         agentHUDManager.hide()
     }
 
+    func toggleExpandedBubble(id: UUID) {
+        if expandedAgentBubbleID == id {
+            expandedAgentBubbleID = nil
+        } else {
+            expandedAgentBubbleID = id
+            activeAgentSessionID = id
+        }
+        updateAgentDock()
+    }
+
     private func updateAgentDock() {
         if agentSessions.isEmpty || !isAgentModeEnabled {
             agentDockManager.hide()
         } else {
-            agentDockManager.show(items: agentDockItems) { [weak self] id in
-                self?.selectAgentSession(id)
-            }
+            agentDockManager.show(
+                items: agentDockItems,
+                expandedItemID: expandedAgentBubbleID,
+                onSelect: { [weak self] id in
+                    self?.toggleExpandedBubble(id: id)
+                },
+                onDismissExpanded: { [weak self] in
+                    self?.expandedAgentBubbleID = nil
+                    self?.updateAgentDock()
+                },
+                onRunSuggestedAction: { [weak self] sessionID, action in
+                    self?.expandedAgentBubbleID = nil
+                    self?.activeAgentSessionID = sessionID
+                    self?.submitAgentPromptFromUI(action)
+                },
+                onTextFollowUp: { [weak self] sessionID in
+                    self?.expandedAgentBubbleID = nil
+                    self?.activeAgentSessionID = sessionID
+                    self?.showAgentHUD()
+                },
+                onVoiceFollowUp: { [weak self] _ in
+                    self?.expandedAgentBubbleID = nil
+                    // Return to voice input mode
+                    self?.buddyDictationManager.cancelCurrentDictation()
+                }
+            )
         }
     }
 }
