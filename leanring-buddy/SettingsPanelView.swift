@@ -739,7 +739,7 @@ private struct ProfileFormView: View {
                 }
                 .buttonStyle(.plain)
                 .font(.system(size: 13, weight: .medium))
-                .foregroundColor(DS.Colors.accentForeground)
+                .foregroundColor(DS.Colors.textOnAccent)
                 .padding(.horizontal, DS.Spacing.md)
                 .padding(.vertical, DS.Spacing.sm)
                 .background(DS.Colors.accent)
@@ -944,7 +944,7 @@ private struct ModelTabView: View {
                         }
                         .buttonStyle(.plain)
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(DS.Colors.accentForeground)
+                        .foregroundColor(DS.Colors.textOnAccent)
                         .padding(.horizontal, DS.Spacing.md)
                         .padding(.vertical, DS.Spacing.sm)
                         .background(DS.Colors.accent)
@@ -1112,7 +1112,7 @@ private struct GeneralTabView: View {
                         Text("Open Log Window")
                             .font(.system(size: 13, weight: .medium))
                     }
-                    .foregroundColor(DS.Colors.accentForeground)
+                    .foregroundColor(DS.Colors.textOnAccent)
                     .padding(.horizontal, DS.Spacing.md)
                     .padding(.vertical, DS.Spacing.sm)
                     .background(DS.Colors.accent)
@@ -1326,7 +1326,7 @@ private struct VoiceSettingsTabView: View {
                     Text(isPreviewPlaying ? "Playing..." : "Preview Voice")
                         .font(.system(size: 13, weight: .medium))
                 }
-                .foregroundColor(DS.Colors.accentForeground)
+                .foregroundColor(DS.Colors.textOnAccent)
                 .padding(.horizontal, DS.Spacing.md)
                 .padding(.vertical, DS.Spacing.sm)
                 .background(DS.Colors.accent)
