@@ -1,7 +1,8 @@
 # Luma v3.0 — Product Requirements Document
 
-## Overview
-This document outlines all changes for Luma v3.0. Tasks are ordered from easiest to hardest. Each task has a progress state so Claude Code can resume from any checkpoint if paused.
+## Directive
+
+Rebuild Luma's UI and agent system to match OpenClicky exactly. This is a clean rebuild — every visual element, interaction pattern, and agent behavior must replicate OpenClicky's design language and architecture. The voice pipeline, screen capture, and core companion logic stay, but the shell around them changes completely.
 
 ---
 
@@ -12,543 +13,969 @@ This document outlines all changes for Luma v3.0. Tasks are ordered from easiest
 
 ---
 
-## PHASE 1 — Settings & Configuration (Easiest)
+## PHASE 1 — Design System Overhaul
 
-### 1.1 Voice Settings Panel
-**Progress:** `[x]`
+### 1.1 Replace LumaTheme with OpenClicky Design System
+**Progress:** `[x]` — DesignSystem.swift complete (1,462 lines)
 
-Add a new **Voice** tab in SettingsPanelView with the following controls:
+Replace `LumaTheme.swift` with a new `DesignSystem.swift` (alias `DS`) containing these exact tokens:
 
-- Gender toggle — Male / Female (maps to AVSpeechSynthesisVoice identifiers)
-- Pitch slider — range 0.5 to 2.0 (AVSpeechUtterance.pitchMultiplier)
-- Rate/Tempo slider — range 0.1 to 1.0 (AVSpeechUtterance.rate)
-- Volume slider — range 0.0 to 1.0 (AVSpeechUtterance.volume)
-- "Preview Voice" button — speaks a short test string with current settings
-- All values persist to UserDefaults under keys: `luma.voice.gender`, `luma.voice.pitch`, `luma.voice.rate`, `luma.voice.volume`
-- NativeTTSClient must read these values before every utterance
+**Color Palette**
 
-**Acceptance:** Voice changes apply immediately on next Luma response. Preview button works.
+| Token | Hex | Usage |
+|-------|-----|-------|
+| `background` | `#101211` | Deepest background layer |
+| `surface1` | `#171918` | Cards, sidebar |
+| `surface2` | `#202221` | Elevated surfaces, button resting |
+| `surface3` | `#272A29` | Hover states, tooltips |
+| `surface4` | `#2E3130` | Pressed states |
+| `borderSubtle` | `#373B39` | Card outlines, dividers |
+| `borderStrong` | `#444947` | Focused states |
+| `textPrimary` | `#ECEEED` | Main text |
+| `textSecondary` | `#ADB5B2` | Descriptions, hints |
+| `textTertiary` | `#6B736F` | Labels, muted text |
+| `textOnAccent` | `#FFFFFF` | Text on accent backgrounds |
+| `success` | `#34D399` | Granted indicators, success states |
+| `destructive` | `#E5484D` | Danger, close actions |
+| `destructiveHover` | `#F2555A` | Destructive hover |
+| `destructiveText` | `#FF6369` | Destructive text |
+| `warning` | `#FFB224` | Warning states |
+| `warningText` | `#F1A10D` | Warning text |
+| `info` | `#70B8FF` | Info states |
 
----
+**Accent Theme System (4 themes, user-switchable)**
 
-### 1.2 Agent Limit Setting
-**Progress:** `[x]`
+| Theme | Accent | Hover | Text | Cursor |
+|-------|--------|-------|------|--------|
+| Blue (default) | `#2563EB` | `#1D4ED8` | `#60A5FA` | `#3380FF` |
+| Mint | `#059669` | `#047857` | `#34D399` | `#35D39A` |
+| Amber | `#D97706` | `#B45309` | `#FBBF24` | `#FACC15` |
+| Rose | `#E11D48` | `#BE123C` | `#FB7185` | `#FF4F5E` |
 
-Add to the **Agent Mode** settings tab:
+Store selected theme in UserDefaults key `lumaAccentTheme`. Default is Blue.
 
-- "Maximum Agents" stepper — min 1, max 10, default 3
-- Persists to UserDefaults under `luma.agents.maxCount`
-- When limit is reached and a new agent is requested, auto-dismiss the agent with the oldest `lastUsedAt` timestamp that is not currently processing
-- Show a brief macOS notification: "Agent limit reached. Removed idle agent."
+**Floating Gradient (Jewel Effect)**
+- Purple: `#8F46EB` → Pink: `#E84D9E` → Orange: `#FF8C33`
 
-**Acceptance:** Creating agents beyond the limit auto-removes the oldest inactive one.
+**Spacing**
+- xs: 4pt, sm: 8pt, md: 12pt, lg: 16pt, xl: 20pt, xxl: 24pt, xxxl: 32pt
 
----
+**Corner Radii**
+- small: 6pt (tags, badges)
+- medium: 8pt (buttons, inputs)
+- large: 10pt (cards, chat bubbles)
+- extraLarge: 12pt (panels, permission cards)
+- pill: Capsule (infinite)
 
-### 1.3 Supported Models Configuration
-**Progress:** `[x]`
+**Animation Durations**
+- fast: 0.15s (hover, press feedback)
+- normal: 0.25s (standard transitions)
+- slow: 0.4s (fade-ins, celebrations)
 
-In Agent Mode settings, add a **Model** picker per agent profile. Supported models only:
+**State Layer Opacities**
+- hover: 0.08
+- focus: 0.12
+- pressed: 0.12
+- dragged: 0.16
 
-- `claude-sonnet-4-6` (Anthropic)
-- `claude-opus-4-6` (Anthropic)
-- `gpt-4o` (OpenAI)
-- `gpt-4o-mini` (OpenAI)
-
-Model selection persists per agent in a new `AgentProfile` struct stored in UserDefaults/Keychain. Default is `claude-sonnet-4-6`.
-
-**Acceptance:** Each agent can have a different model. Model is used in all API calls for that agent.
-
----
-
-### 1.4 Real-Time Log Window
-**Progress:** `[x]`
-
-Add a **Log** button in the main settings page (General tab).
-
-- Clicking opens a new NSWindow titled "Luma Activity Log"
-- Window is non-modal, resizable, minimum 700x400px
-- Contains a scrollable NSTextView with monospaced font (SF Mono or Menlo)
-- Log entries are appended in real time with timestamp: `[HH:mm:ss] message`
-- A `LumaLogger` singleton handles all log writes — replace all existing `print()` statements with `LumaLogger.shared.log()`
-- "Clear" button at top right clears the view (does not delete file logs)
-- Auto-scrolls to bottom on new entries
-
-**Acceptance:** Log window shows all Luma activity in real time. Existing print statements migrated.
-
----
-
-## PHASE 2 — Cursor Customizer
-
-### 2.1 Cursor State Model
-**Progress:** `[x]`
-
-Define a `LumaCursorState` enum with cases:
-- `.idle` — default resting state
-- `.pointing` — when Luma is targeting an element
-- `.listening` — when voice input is active
-- `.processing` — when agent is working autonomously
-- `.hover` — when cursor hovers a UI element
-
-Create a `CursorProfile` struct:
-```swift
-struct CursorProfile: Codable {
-    var idleShape: CursorShape
-    var idleColor: String // hex
-    var idleSize: CGFloat
-    var pointingShape: CursorShape
-    var pointingColor: String
-    var pointingSize: CGFloat
-    var listeningShape: CursorShape
-    var listeningColor: String
-    var listeningSize: CGFloat
-    var processingShape: CursorShape
-    var processingColor: String
-    var processingSize: CGFloat
-}
-
-enum CursorShape: String, Codable, CaseIterable {
-    case teardrop, circle, roundedTriangle, diamond, cross, dot
-}
-```
-
-Persist `CursorProfile` to Keychain under `luma.cursor.profile`.
-
-**Acceptance:** Model compiles. Default profile matches current Luma cursor behavior.
+**Acceptance:** All existing views compile with DS tokens. No references to old LumaTheme remain. App launches with new dark palette.
 
 ---
 
-### 2.2 Cursor Customizer Settings UI
-**Progress:** `[x]`
+### 1.2 Button Style System (7 Variants)
+**Progress:** `[x]` — All 7 styles implemented in DesignSystem.swift
 
+Implement all seven button styles as SwiftUI `ButtonStyle` conformances inside `DesignSystem.swift`:
 
-Add a **Cursor** tab in SettingsPanelView:
+**1. DSPrimaryButtonStyle** (Accent CTA)
+- Font: 16pt, medium weight
+- Padding: V 14pt, full width
+- Background: Accent color
+- Capsule shape
+- Hover: Scale 1.0→1.03 over 0.6s + breathing glow (2.5s easeInOut loop, oscillates shadow radius 10→16pt, opacity 0.18→0.32)
+- Press: Scale 0.97, brighten slightly
+- Glow uses accent color as shadow color
 
-- Section per state: Idle, Pointing, Listening, Processing
-- Each section has:
-  - Shape picker (segmented control or grid of shape previews)
-  - Color picker (NSColorWell)
-  - Size slider (8pt to 32pt)
-- Live preview canvas at top of tab — 200x200px dark rounded rect showing the cursor shape in real time as user adjusts
-- "Reset to Default" button restores original teardrop profile
-- Changes apply immediately to CustomCursorManager
+**2. DSSecondaryButtonStyle** (Supporting)
+- Font: 16pt, medium weight
+- Padding: V 12pt, H 16pt
+- Background: surface2 → surface3 (hover) → surface4 (press)
+- Press: Scale 0.97
 
-**Acceptance:** Changing cursor shape/color/size in settings updates the live cursor visually.
+**3. DSTertiaryButtonStyle** (Ghost)
+- Font: 16pt, medium weight
+- Padding: V 8pt, H 12pt
+- Text: textSecondary → accentText (hover) → accentHover (press)
+- Background: transparent → surface2 (hover) → surface3 (press)
 
----
+**4. DSTextButtonStyle** (Minimal inline)
+- Font: 14pt, medium weight
+- No background ever
+- Text: textTertiary → textPrimary (hover/press)
 
-### 2.3 CustomCursorManager Update
-**Progress:** `[x]`
+**5. DSOutlinedButtonStyle** (Bordered)
+- Font: 16pt, medium weight
+- Padding: V 12pt, H 16pt
+- Capsule with 1pt border
+- Background: surface1 → surface2 (hover) → surface3 (press)
+- Border: borderSubtle → borderStrong (hover/press)
 
-Update `CustomCursorManager.swift` to:
+**6. DSDestructiveButtonStyle** (Danger)
+- Font: 16pt, medium weight
+- Padding: V 10pt, H 16pt
+- Background: destructive @10% → @30% (hover) → @40% (press)
+- Border: destructive @15% → @40%
+- Text: destructiveText → white (hover/press)
 
-- Read `CursorProfile` from Keychain on init
-- Expose `func setState(_ state: LumaCursorState)` — switches active cursor appearance
-- Redraw cursor NSImage based on current state's shape, color, and size
-- Called by:
-  - VoiceEngine on listening start/stop → `.listening` / `.idle`
-  - WalkthroughEngine on step point → `.pointing` / `.idle`
-  - AgentEngine on autonomous task start/stop → `.processing` / `.idle`
+**7. DSIconButtonStyle** (Circular utility)
+- Base size: 28pt (configurable)
+- Icon: 43% of button size
+- Circle: surface2 → surface3 (hover) → surface4 (press)
+- Border: 1pt, borderSubtle @50% → borderStrong (hover/press)
+- Press: Scale 0.93
+- Tooltip support: 11pt font, surface3 @85%, 0.6s delay
+- Tooltip shadow: black @42% radius 14 y:8 + black @26% radius 4 y:2
 
-**Acceptance:** Cursor visually changes per state using customized profile values.
+**Cursor Helpers**
+- `PointerCursorView` — NSViewRepresentable that sets pointing-hand cursor via NSView cursor rects
+- `IBeamCursorView` — NSViewRepresentable for text selection cursor
+- `NativeTooltipView` — macOS-native tooltip system
+- `.pointerOnHover()` view modifier wrapping PointerCursorView
 
----
-
-## PHASE 3 — Memory & Conversation Storage
-
-### 3.1 LumaMemoryManager
-**Progress:** `[x]`
-
-Create `LumaMemoryManager.swift`:
-
-- Manages two file types in `~/Library/Application Support/Luma/`:
-  - `memory.md` — global markdown file, AI persona + remembered preferences
-  - `history/agent_{id}_{timestamp}.json` — per-agent conversation history
-- When a JSON history file exceeds 2MB, create a new timestamped file automatically
-- `func appendToHistory(agentId: String, entry: ConversationEntry)` — appends to current JSON file
-- `func loadMemory() -> String` — returns full contents of memory.md
-- `func searchHistory(query: String) -> [ConversationEntry]` — basic keyword search across all JSON files
-- `func updateMemory(newFact: String)` — appends to memory.md with timestamp
-
-```swift
-struct ConversationEntry: Codable {
-    let timestamp: Date
-    let agentId: String
-    let agentTitle: String
-    let role: String // "user" or "luma"
-    let content: String
-    let taskStatus: String? // "complete", "failed", "in_progress"
-}
-```
-
-**Acceptance:** Files are created correctly. History appends per agent. Memory loads as string.
+**Acceptance:** All 7 styles render correctly. Breathing glow animates on primary buttons. Tooltips appear with delay. Pointer cursor shows on interactive elements.
 
 ---
 
-### 3.2 Memory Integration with Agents
-**Progress:** `[x]`
+### 1.3 Typography & Shadows
+**Progress:** `[x]` — Done in DesignSystem.swift
 
-- On agent init, load `memory.md` and prepend as system context in the first API call
-- After every completed task, call `LumaMemoryManager.shared.appendToHistory()`
-- If a user asks "have I done this before" or similar — search history files and summarise results in the agent bubble
-- Memory file is never sent raw to API — it is summarised to max 500 tokens before prepending
+**Typography** — System font (San Francisco) throughout:
+- Headers: 14pt semibold
+- Body: 11–12pt medium
+- Labels: 10–11pt medium
+- Monospaced: SF Mono or Menlo for keyboard hints and code
+- Weights: semibold (default emphasis), bold (strong emphasis), medium (secondary text)
 
-**Acceptance:** Agent has context from memory. History is searchable. Memory is summarised before API call.
+**Shadow Definitions**
+- Panel Shadow: black @50% radius 20 y:10 + black @30% radius 4 y:2 (layered)
+- Tooltip Shadow: black @42% radius 14 y:8 + black @26% radius 4 y:2
+- HUD Shadow: black @34% radius 22 y:14
+- Icon Glow: accent @72% radius 8
 
----
-
-## PHASE 4 — Agent Bubble UI (Core)
-
-### 4.1 Agent Data Model
-**Progress:** `[x]`
-
-Create `LumaAgent.swift`:
-
-```swift
-struct LumaAgent: Identifiable {
-    let id: UUID
-    var title: String // generated from first task
-    var color: Color // random on creation
-    var shape: AgentShape // random on creation
-    var isAnimating: Bool // random — some animate, some don't
-    var position: CGPoint // screen position, persisted
-    var state: AgentState
-    var lastUsedAt: Date
-    var model: String
-    var conversationHistory: [ConversationEntry]
-    var processingText: String? // "researching metal cups"
-    var completionText: String? // one-liner result
-    var taskStatus: TaskStatus?
-}
-
-enum AgentShape: CaseIterable {
-    case square, rhombus, triangle, hexagon, circle
-}
-
-enum AgentState {
-    case idle
-    case expanded
-    case processing
-    case complete
-}
-
-enum TaskStatus {
-    case complete, failed, inProgress
-}
-```
-
-Create `AgentManager.swift` — singleton that holds `[LumaAgent]`, handles spawn/dismiss/update.
-
-**Acceptance:** Model compiles. AgentManager can add/remove agents. Agent positions persist to UserDefaults.
+**Acceptance:** All text uses system font at correct sizes. Shadows match spec on all panels.
 
 ---
 
-### 4.2 Agent Shape Rendering
-**Progress:** `[x]`
+## PHASE 2 — Panel & Window Rebuild
 
-Create `AgentShapeView.swift` — SwiftUI view that renders a shape inside a rounded rect button:
+### 2.1 Menu Bar Panel Manager
+**Progress:** `[~]` — Modified by Codex, needs verification against spec
 
-- Shape fills ~60% of button area
-- Shape color matches agent color
-- Button background: dark translucent (`Color.black.opacity(0.75)`) with agent color glow (shadow with agent color, radius 8)
-- Agent color hint as subtle tinted border (2pt, agent color at 40% opacity)
-- Supports `.square`, `.rhombus`, `.triangle`, `.hexagon`, `.circle`
-- Shape is drawn with SwiftUI `Path` or `Shape` protocol
+Rebuild `MenuBarPanelManager.swift` to match OpenClicky exactly:
 
-**Acceptance:** Each shape renders correctly inside the button. Glow matches agent color.
+**Status Item**
+- NSStatusItem with programmatic triangle icon (rotated 35°, template image for system tint)
+- Icon size: 18×18pt, triangle fills 70% of icon
 
----
+**Panel Specs**
+- Width: 356pt (fixed)
+- Default height: 318pt
+- Minimum size: 356×300pt
+- Max transient height: 720pt
+- Screen edge padding: 12pt
+- Gap below menu bar icon: 4pt
 
-### 4.3 Idle Bubble Animation
-**Progress:** `[x]`
+**Panel Behavior**
+- Borderless `NSPanel` with `.nonactivatingPanel` style
+- Can become key but does not steal focus
+- Transparent background (backgroundColor = .clear)
+- Full-size content view (no titlebar padding)
+- Click-outside-to-dismiss with 300ms delay (avoids closing on system permission dialogs)
 
-Add idle bounce animation to minimized agent bubbles:
+**Pin/Unpin Mode**
+- Pin: Switches to standard window style (titled, closable, miniaturizable, shadow)
+- Unpin: Back to floating panel (borderless, no shadow, transparent)
+- Pin button in header toggles between modes
 
-- Agents with `isAnimating == true` get a continuous vertical ease-in-out bounce (amplitude ~4pt, duration ~2.0s, repeat forever, `autoreverse: true`)
-- Agents with `isAnimating == false` are static
-- When `state == .processing` — all agents shake horizontally (amplitude ~3pt, duration ~0.08s, repeat) and neighbours within 80pt wobble at 50% amplitude
-- Use SwiftUI `.animation(.easeInOut(duration: 2).repeatForever(autoreverses: true))` for idle
-- Use `withAnimation(.spring(response: 0.1, dampingFraction: 0.3))` for processing shake
+**Positioning**
+- Centers horizontally beneath status item
+- Clamps to screen bounds with 12pt edge padding
+- Content height change triggers panel resize (30ms debounce)
 
-**Acceptance:** Animated agents bounce continuously. Processing shake triggers on task start. Neighbours wobble.
-
----
-
-### 4.4 Minimized Agent Stack & Drag
-**Progress:** `[x]`
-
-Create `AgentStackView.swift` — an overlay view that positions all agent bubbles:
-
-- Default layout: vertical stack on right edge of screen, 16pt from edge, 12pt gap between bubbles, starting 60pt from top
-- Each bubble is 56x56pt in minimized state
-- Draggable — use `DragGesture` to update `agent.position` on drag end
-- Position persists to UserDefaults per agent ID
-- Hover over bubble → show X button (circle with x, 18pt, top-right of bubble, white on dark)
-- X button tap → dismiss agent with fade out animation, remove from AgentManager
-
-**Acceptance:** Bubbles stack on right. Drag repositions and persists. Hover shows X. X dismisses with animation.
+**Acceptance:** Panel appears below menu bar icon, auto-dismisses on click outside (unless pinned), resizes with content.
 
 ---
 
-### 4.5 Expanded Agent Bubble
-**Progress:** `[x]`
+### 2.2 Companion Panel View — Full Rebuild
+**Progress:** `[~]` — Partially converted to DS tokens, needs full rebuild to match spec
 
-When agent bubble is tapped, expand to engaged state:
+Rebuild `CompanionPanelView.swift` to match OpenClicky's layout exactly:
 
-- Animate from 56x56pt to ~500x400pt using SwiftUI `.matchedGeometryEffect` or spring animation
-- Expand in whichever direction has more screen space (check screen bounds)
-- Expanded view has three sections:
+**Overall Container**
+- Background: DS.background
+- Corner radius: 12pt (continuous)
+- Shadow: Panel shadow (black @50% radius 20 + black @30% radius 4)
+- Border: white @10%, 0.5pt
 
-**Section 1 — Header (fixed height ~48pt)**
-- Agent title (auto-generated, truncated if long)
-- Small colored shape icon left of title
-- Background: agent color at 8% opacity
+**Section 1 — Header** (12pt vertical padding, 14pt horizontal)
+- Left: "Luma" text (14pt, bold) + status dot (7×7pt) with glow + status text (11pt, semibold, tertiary)
+- Right: Pin button (20×20pt circle, 8pt icon) + Close button (20×20pt circle, 9pt icon)
+- Status dot colors: green (idle), blue (listening/processing), success (ready)
+- Onboarding mode: Show only title + close button
 
-**Section 2 — Status Area (fixed height ~280pt, scrollable)**
-- When processing: show text "processing text here" + macOS-style indeterminate progress bar in agent color below it
-- When complete: show one-liner result + status badge ("✓ Complete" or "✗ Failed") in agent color
-- No conversation history in this view (scrap convo history per spec)
+**Divider** — 0.5pt horizontal line, borderSubtle
 
-**Section 3 — Input (fixed height ~72pt)**
-- Voice button (mic icon) + Text button (keyboard icon), both in agent color
-- Tapping Text reveals multiline NSTextView/TextField with:
-  - X in circle button to dismiss text field
-  - Up-arrow in circle submit button
-  - Enter key submits
-  - Textbox clears immediately on submit then disappears
+**Section 2 — Permissions** (T:15pt, H:14pt)
+- Compact copy rows showing hotkey hints:
+  - Voice mode: "Hold ⌃ + ⌥ to talk" with keyboard chip styling
+  - Agent mode: "Say 'Hey Agent...' to spawn agents"
+  - Text mode: "Control twice to enter text mode"
+- Keyboard chip: H:6 V:4 padding, 4pt corner radius, white @10% background, white @14% border 1pt, 10–11pt monospaced font
+- 4 permission rows (Microphone, Accessibility, Screen Recording, Screen Content):
+  - 6pt vertical padding per row
+  - Icon: 16pt width
+  - Text: 13pt medium, secondary color
+  - Granted state: 6pt green dot + "Granted" label (11pt, success color)
+  - Action: "Grant" button (11pt semibold, accent background) + "Find App" drag-assist button
+- Onboarding progress: "1 of 3" with progress bar, three-step flow
 
-- Click outside expanded bubble → animate back to minimized state
+**Section 3 — Agent Mode Panel** (12pt top spacing, H:14pt)
+- Only visible when agent mode is enabled
+- Uses `AgentModePanelSection` component (see Task 4.2)
 
-**Acceptance:** Expand/collapse animation works. All three sections render correctly. Input works.
+**Section 4 — Bottom Controls** (T:13pt, B:10pt, H:14pt)
+- Cursor color selector: 4 theme buttons (Rose, Blue, Amber, Mint)
+  - Each button: 28×28pt with small triangle cursor preview + colored glow
+  - Selected: colored background + colored border
+  - Unselected: white @5.5% background
+- Footer: Memory button, Settings button, Quit button
+- Version text (10pt, tertiary)
 
----
-
-## PHASE 5 — Agent Voice & Text Input
-
-### 5.1 Per-Agent Voice Input
-**Progress:** `[x]`
-
-- Voice button in expanded bubble starts listening immediately (no hotkey required)
-- `Ctrl + Option` also starts/stops listening for the last active agent
-- When listening:
-  - Luma cursor switches to `.listening` state
-  - Voice button pulses in agent color
-  - Agent shape in minimized bubble pulses
-- On speech end → transcribe (raw, no compression for agent mode) → send to agent API
-- Stop listening: press voice button again, or `Ctrl + Option`
-
-**Acceptance:** Voice button triggers listening. Cursor updates. Transcription uses raw text.
+**Acceptance:** Panel matches OpenClicky pixel-for-pixel. All existing functionality preserved. Permissions flow works.
 
 ---
 
-### 5.2 Agent Title Generation
-**Progress:** `[x]`
+### 2.3 Settings Window — Full Rebuild
+**Progress:** `[~]` — Sidebar layout started, has syntax errors from Codex code-gen (.font malformed)
 
-- On first task submission to any agent:
-  - Send a separate lightweight API call: `"Generate a 3-5 word title for this task: {task}. Return only the title, nothing else."`
-  - Use the cheapest available model for this call (gpt-4o-mini or claude-haiku if available, else default model)
-  - Set `agent.title` to result
-  - Update bubble header immediately
+Replace `SettingsPanelView.swift` and `LumaSettingsWindowManager.swift` with `LumaSettingsWindowManager.swift`:
 
-**Acceptance:** Agent title appears in header after first task. Title is short and relevant.
+**Window**
+- Default: 860×580pt
+- Minimum: 760×500pt
+- Centered on screen
+- Unified toolbar style
 
----
+**Layout**
+- Sidebar: 190pt width, regularMaterial background
+- 1pt divider
+- Content: Scrollable, max 660pt width, padding H:28 V:24
 
-### 5.3 New Agent via Voice Command
-**Progress:** `[x]`
+**Sidebar Tab Buttons** (7 tabs)
 
-- Add intent detection to the task classifier: if user says "open a new agent" or "create a new agent" or "spawn agent" → call `AgentManager.shared.spawnAgent()`
-- New agent spawns with random color + shape
-- If a task follows the spawn command in the same utterance (e.g. "open a new agent and research metal cups"), extract the task and immediately start it in the new agent
-- Hotkey `Ctrl + Cmd` also spawns a new agent
+| Tab | Icon (SF Symbol) | Content |
+|-----|------------------|---------|
+| General | gearshape | Core behavior, cursor appearance, companion controls |
+| Voice | waveform | Speech input, response model, TTS voice, API keys |
+| Pointing | cursorarrow.rays | Screen capture, pointing model |
+| Computer Use | macwindow.and.cursorarrow | CUA swift control, app discovery |
+| Agent Mode | terminal | Background agents, model, working directory |
+| Memory | books.vertical | Persistent memory, learned skills |
+| App | app.badge | Onboarding, support, app actions |
 
-**Acceptance:** Voice command spawns agent. Hotkey spawns agent. Inline task starts immediately.
+- Selected: accent @18% background
+- Hover: surface2 background
+- Icon: 14pt, 20pt width
+- Label: 12pt medium
 
----
+**Section Headers**
+- Title: 26pt semibold
+- Subtitle: 13pt, secondary color
 
-### 5.4 Agent Switching via Hotkeys
-**Progress:** `[x]`
+**Settings Groups**
+- Background: controlBackgroundColor with 1pt border @8% opacity
+- Corner radius: 10pt
+- Spacing: 14pt between groups
 
-- `Ctrl + Option + 1` through `Ctrl + Option + 9` — switch focus to agent at that index in the stack
-- `Ctrl + Option + Tab` — cycle to next agent
-- "Focus" means: expand that agent's bubble, collapse any currently expanded bubble
-- Register global NSEvent monitors for these key combos
+**UI Elements**
+- Toggle rows: H:12 spacing, icon 14pt (20pt width), V:11 padding
+- Input fields: 12pt font, roundedBorder style
+- Action buttons: 13pt medium with chevron indicator
+- Model grids: 2 columns with 8pt spacing
 
-**Acceptance:** Hotkeys switch agent focus correctly. Only one bubble expanded at a time.
+**Voice Tab Contents** (from old SettingsPanelView)
+- Gender toggle (Male/Female)
+- Pitch slider (0.5–2.0)
+- Rate/Tempo slider (0.1–1.0)
+- Volume slider (0.0–1.0)
+- Preview Voice button
+- API key fields (AssemblyAI, OpenRouter)
+- All values persist to UserDefaults
 
----
+**General Tab Contents**
+- Cursor color picker (4 accent themes with triangle preview)
+- Cursor state customizer (shape, color, size per state — carry over from v2 cursor work)
+- Log button → opens Log window
 
-## PHASE 6 — Autonomous Agent Mode
+**Agent Mode Tab Contents**
+- Enable/disable toggle
+- Maximum agents stepper (1–10, default 3)
+- Model picker per agent profile
+- Working directory path
 
-### 6.1 Agent Mode Toggle
-**Progress:** `[x]`
-
-- Add "Agent Mode" toggle to the main companion panel (not per-agent, global toggle)
-- When OFF → Luma behaves as current guided walkthrough mode
-- When ON → Luma operates Mac autonomously
-- Toggle state persists to UserDefaults `luma.agentMode.enabled`
-- Show a subtle indicator in the menu bar icon when agent mode is ON (e.g. colored dot)
-
-**Acceptance:** Toggle switches between guide and autonomous mode. State persists.
-
----
-
-### 6.2 Autonomous Task Execution Engine
-**Progress:** `[x]`
-
-Create `LumaAgentEngine.swift`:
-
-- Receives task string + agent context
-- Builds a multi-step action plan via Claude API (system prompt instructs Claude to return JSON array of actions)
-- Action types:
-  ```swift
-  enum AgentAction {
-      case click(coordinate: CGPoint)
-      case type(text: String)
-      case keyPress(key: String, modifiers: [String])
-      case screenshot
-      case wait(seconds: Double)
-      case openApp(bundleId: String)
-      case search(query: String)
-  }
-  ```
-- Executes actions sequentially using CGEvent for clicks/keypresses, AX API for app interaction
-- Updates `agent.processingText` on each action start
-- On completion: sets `agent.completionText` + `agent.taskStatus`
-- Saves to LumaMemoryManager history
-
-**Acceptance:** Agent can click, type, open apps. Processing text updates per action.
+**Acceptance:** Settings window has 7 sidebar tabs. All existing settings relocated to correct tabs. Window is resizable, scrollable content.
 
 ---
 
-### 6.3 Cursor Behaviour During Autonomous Mode
-**Progress:** `[x]`
+## PHASE 3 — Overlay & Cursor System
 
-- When agent starts autonomous task: hide system cursor, show Luma cursor in `.processing` state
-- Luma cursor moves to each click target with smooth animation (0.15s ease)
-- If user moves physical mouse → detect via NSEvent global monitor → pause agent, restore system cursor, set agent to continue under the hood (no cursor) until user stops moving mouse for 2 seconds → resume cursor control
-- On task complete: restore system cursor, hide Luma processing cursor
-
-**Acceptance:** Luma cursor takes over during autonomous tasks. Mouse interruption handled gracefully.
-
----
-
-### 6.4 Multi-Agent Conflict Resolution
-**Progress:** `[x]`
-
-In `LumaAgentEngine`:
-
-- Before any click/type action, check `AgentManager.shared.isMouseInUse`
-- If mouse is in use by another agent: find alternative (AX API direct interaction, keyboard shortcut, or wait 500ms and retry)
-- `isMouseInUse` flag is set/cleared by whichever agent currently controls the cursor
-- Only one agent may control the cursor at a time — queue-based lock
-
-**Acceptance:** Two simultaneous agents do not conflict on cursor. Both complete their tasks.
-
----
-
-### 6.5 Task Completion Notification
-**Progress:** `[x]`
-
-On agent task complete:
-
-- Send macOS `UNUserNotification` with title = agent title, body = completion one-liner
-- If task result involves a file (detected by checking if completion text contains a file path): add action button "Open Now" to notification
-- Tapping "Open Now" opens the file after 3-10 second delay (configurable, default 5s)
-- Agent bubble updates to show completion state
-
-**Acceptance:** Notification fires on completion. File open action works.
-
----
-
-## PHASE 7 — UI Polish & Animations (Hardest)
-
-### 7.1 Physics-Based Bubble Interactions
+### 3.1 Overlay Window Rebuild
 **Progress:** `[ ]`
 
-Implement physics simulation for agent bubbles:
+Rebuild `OverlayWindow.swift` to match OpenClicky exactly:
 
-- Use a simple spring physics model (not full SceneKit/SpriteKit — implement manually with a display link timer)
-- Each bubble has velocity + position
-- When a bubble enters processing state (violent shake), nearby bubbles within 80pt receive a force impulse proportional to distance
-- Bubbles that are dragged and released have momentum (decay over 0.5s)
-- Bubbles gently repel each other if overlapping (minimum 8pt separation)
-- All physics updates run on a `CADisplayLink` at 60fps
+**Overlay Window**
+- One per connected screen (covers entire screen)
+- Level: `.screenSaver` (always on top)
+- Click-through: `ignoresMouseEvents = true`
+- Collection behavior: `canJoinAllSpaces`, `stationary`, `fullScreenAuxiliary`
+- canBecomeKey: false
+- Background: transparent
+- No shadow, no halos
 
-**Acceptance:** Bubbles feel physically real. Processing shake propagates to neighbours. Drag has momentum.
+**Blue Cursor View (Triangle)**
+- Size: 16×16pt
+- Default rotation: -35°
+- Color: Theme cursor color (default `#3380FF` for blue theme)
+- Glow shadow: 8pt radius @100% opacity + dynamic `(scale-1)*20` extra radius
+
+**Waveform View (Listening State)**
+- 5 bars, 2pt width each, 2pt spacing
+- Height profile: [0.4, 0.7, 1.0, 0.7, 0.4]
+- Animation interval: 1/36s (28ms)
+- Glow: 6pt radius @60% opacity
+- Colors: Leading `#F3FBFF`, Trailing `#8FD2FF`, Glow `#AEE3FF`
+
+**Spinner View (Processing State)**
+- Size: 14×14pt
+- Line width: 2.5pt
+- Trim: 15% to 85%
+- Rotation: 0.8s loop
+- Glow: 6pt radius @60% opacity
+
+**Cursor Following**
+- 60fps timer (0.016s interval)
+- Spring animation: response 0.2s, dampingFraction 0.6
+- Offset from mouse: x+35, y+25
+
+**Bezier Flight Arc**
+- Duration: distance/800, clamped 0.6–1.4s
+- Frame rate: 60fps timer-driven (NOT SwiftUI implicit animation)
+- Arc height: distance × 0.2, max 80pt
+- Scale pulse: sin curve 1.0→1.3× at apex
+- Easing: smoothstep (3t²−2t³)
+- Rotation: tangent to curve (cursor faces direction of travel)
+
+**Speech Bubbles (Welcome & Navigation)**
+- Font: 11pt, medium weight
+- Text: white
+- Padding: H:8, V:4
+- Corner radius: 6pt
+- Background: cursor color
+- Glow: 6pt radius @50% opacity
+- Position: 8px right, 12px below cursor
+
+**Navigation Bubble Pop-In**
+- Initial scale: 0.5×
+- Final scale: 1.0×
+- Spring: response 0.4s, dampingFraction 0.6
+- Character streaming: 30–60ms per character
+- Hold: 3 seconds after text completes, then 0.5s fade
+
+**Welcome Animation**
+- Text: "hey! i'm luma"
+- 30ms per character, 2s hold, 0.5s fade
+
+**Pointer Phrases** (random selection)
+- "right here!", "this one!", "over here!", "click this!", "here it is!", "found it!"
+
+**Return Flight Cancellation**
+- Cancel by moving cursor >100px during return flight only (not forward flight)
+
+**Acceptance:** Cursor follows mouse with spring physics. Flight arcs render with bezier curves. Waveform and spinner states match spec.
 
 ---
 
-### 7.2 Expanded Bubble Ease Animation
-**Progress:** `[x]`
+### 3.2 Companion Response Overlay
+**Progress:** `[ ]`
 
-- Minimized → Expanded: spring animation (`response: 0.4, dampingFraction: 0.75`) scaling from 56x56 to full size, origin stays anchored to bubble position
-- Expanded → Minimized: spring animation reverse, fade out content before scale down
-- Background dim: when any bubble is expanded, add a subtle 20% black overlay behind it (not blocking other bubbles)
-- All three sections inside the expanded bubble stagger-reveal with 80ms delay between each
+Rebuild `CompanionResponseOverlay.swift`:
 
-**Acceptance:** Expand/collapse feels natural and polished. Stagger reveal works.
-
----
-
-### 7.3 Full UI Overhaul — Companion Panel
-**Progress:** `[x]`
-
-Redesign `CompanionPanelView.swift`:
-
-- Dark base: `#0A0A0F` background
-- Subtle noise texture overlay (use a generated grain pattern via Core Image)
-- Rounded corners (16pt), shadow with 30% opacity
-- Typography: SF Pro Display for headers, SF Pro Text for body
-- All buttons use agent/accent color with subtle glow on hover
-- Smooth tab switching animation (cross-fade, 0.2s)
-- Settings icon, close button — use SF Symbols with proper sizing
-- Panel open/close: slide down from menu bar with spring animation
-
-**Acceptance:** Panel looks premium and polished. All existing functionality intact.
-
----
-
-### 7.4 Companion Bubble Overhaul
-**Progress:** `[x]`
-
-Redesign `CompanionBubbleWindow.swift`:
-
-- Bubble background: `rgba(10, 10, 15, 0.85)` with backdrop blur
-- Subtle animated gradient border (cycles through hues slowly, 8s loop)
-- Response text renders markdown — use `AttributedString` with markdown support or embed a `WKWebView` for rich rendering
-- Bubble resizes smoothly as content changes (spring animation on height change)
-- Max width 380pt, min width 200pt
+**Response Bubble**
+- Background: rgba(10, 10, 15, 0.85) with backdrop blur
+- Animated gradient border: 8s hue cycle through accent colors
+- Max width: 380pt, min width: 200pt
+- Corner radius: large (10pt)
+- Markdown rendering via `AttributedString`
+- Spring animation on height change (smooth resize as content streams)
 - Scroll for overflow content
-- Step indicators (dots) for walkthrough mode showing current step / total
+- Step indicators (dots) for walkthrough mode
 
-**Acceptance:** Bubble renders markdown. Resizes smoothly. Gradient border animates.
+**Acceptance:** Response bubble renders markdown, resizes smoothly, gradient border animates.
 
 ---
 
-### 7.5 Final Integration & Regression Testing
-**Progress:** `[x]`
+## PHASE 4 — Agent System Rebuild (OpenClicky-style)
 
-- Run all existing `leanring-buddyTests` — fix any failures caused by new code
-- Test guide mode (Agent Mode OFF) is completely unaffected by new agent system
-- Test all hotkeys: `Ctrl+Option`, `Ctrl+Cmd`, `Ctrl+Option+Tab`, `Ctrl+Option+1-9`
-- Test memory file creation, growth, and rotation
-- Test autonomous mode with at least 3 simultaneous agents
-- Test cursor customizer across all states
-- Test voice settings apply correctly to TTS
-- Performance check: Luma must remain under 150MB RAM with 3 active agents
+### 4.1 Agent Session Model
+**Progress:** `[ ]`
 
-**Acceptance:** All tests pass. No regressions. Memory under 150MB with 3 agents.
+Replace the current `LumaAgent` bubble model with OpenClicky's session-based agent architecture.
+
+Create `AgentSession.swift`:
+
+```swift
+struct AgentSession: Identifiable {
+    let id: UUID
+    var title: String
+    var accentTheme: AccentTheme // Blue, Mint, Amber, Rose
+    var status: AgentSessionStatus
+    var workingDirectoryPath: String
+    var model: String
+    var entries: [AgentTranscriptEntry]
+    var latestResponseCard: ResponseCard?
+}
+
+enum AgentSessionStatus {
+    case stopped, starting, ready, running, failed
+}
+
+struct AgentTranscriptEntry: Identifiable {
+    let id: UUID
+    let role: TranscriptRole
+    let text: String
+    let createdAt: Date
+}
+
+enum TranscriptRole {
+    case user, assistant, system, command, plan
+}
+```
+
+**Role Colors:**
+- user: accentText
+- assistant: textSecondary
+- system: destructiveText
+- command: yellow @90%
+- plan: purple @90%
+
+**Acceptance:** Model compiles. Sessions can be created, updated, dismissed. Status transitions work.
+
+---
+
+### 4.2 Agent Mode Panel Section
+**Progress:** `[ ]`
+
+Create `AgentModePanelSection.swift` — the agent controls that appear inline in the companion panel:
+
+**Container**
+- Padding: 9pt all sides
+- Background: white @4.5%
+- Border: borderSubtle, 0.5pt
+- Corner radius: large (10pt)
+
+**Header Row**
+- Status dot: 7×7pt, colored by session status:
+  - stopped: tertiary
+  - starting: warning (amber pulse)
+  - ready: success (green)
+  - running: accent (blue pulse)
+  - failed: destructive (red)
+- Status label: 12pt semibold (e.g. "AGENT", "STARTING", "WORKING", "NEEDS ATTENTION", "OFFLINE")
+- Right side: Settings icon button + Model name (10pt, tertiary)
+
+**Summary Text**
+- Font: 11pt, tertiary color
+- Fixed size with wrapping
+- Shows current agent task or status description
+
+**Agent Prompt Input**
+- Placeholder: "Ask Luma to do something..."
+- Font: 12pt
+- Line limit: 1–3 lines
+- Padding: H:10, V:7
+- Background: white @7%
+- Border: borderSubtle, 0.5pt (→ borderStrong on focus)
+- Corner radius: medium (8pt)
+
+**Error Display**
+- Font: 10pt, destructiveText color
+- Max 3 lines with wrapping
+
+**Inline Response Box** (shows latest agent response)
+- Padding: H:10, V:9
+- Background: white @5.5%
+- Border: borderSubtle @75%, 0.5pt
+- Corner radius: medium (8pt)
+- Label: 9pt, heavy weight, tertiary, uppercase, 0.45pt kerning ("AGENT RESPONSE")
+- Text: 11pt, medium, max 5 lines
+
+**Button Row** (8pt spacing)
+- Dashboard button: Label style, 11pt semibold, secondary text → opens HUD window
+- Send button: 42×30pt, icon only (paperplane.fill 12pt), accent background
+- Disabled send: accent @35% opacity
+
+**Acceptance:** Agent section renders in companion panel. Input submits to agent. Response box streams text. Status dot reflects session state.
+
+---
+
+### 4.3 Agent HUD Window (Dashboard)
+**Progress:** `[ ]`
+
+Create `LumaAgentHUDWindowManager.swift` — the full agent dashboard window:
+
+**Window**
+- Size: 594×452pt
+- Minimum: 594×452pt
+- Corner radius: 18pt
+- Background: RGB(0.067, 0.075, 0.071) @98% opacity
+- Border: white @10%, 1pt
+- Shadow: black @34% radius 22 y:14
+- Level: floating
+- Non-activating panel
+
+**Header** (H:12, V:7 padding)
+- Left: Icon (12pt semibold, 24×24 circle background @12% opacity) + Title "Luma" (13pt, heavy weight)
+- Right: Memory button (28pt icon) + Warm-up button (28pt icon) + Close button (28pt icon)
+
+**Agent Team Strip** (horizontal scroll, 8pt spacing)
+- Agent session buttons: 30pt circles
+- Border: 0.8–1.4pt depending on selection state
+- Shadow: theme-dependent opacity 0.10–0.34, radius 3–7pt
+- Selected: thicker border + stronger shadow
+- Add button: Plus icon (12pt heavy), 30×30pt circle
+- Each agent uses its accent theme color
+
+**Response Card** (below team strip)
+- Shows latest response card from active agent
+- Compact view: truncated text + source badge
+- Action buttons: Dismiss, Run suggested action, Text follow-up, Voice follow-up
+
+**Transcript Area** (scrollable)
+- Spacing: 10pt between entries
+- Padding: 10pt all sides
+- Entry: 9pt padding, 9pt corner radius
+- Entry text: 11pt
+- Role label: 9pt bold, uppercase
+- Auto-scrolls to bottom on new entries
+
+**Composer Section** (10pt padding)
+- Input: 11pt medium weight, 1–4 line limit
+- Padding: H:10, V:9
+- Run button: 76×32pt, 10pt corner radius
+- Icon: 10pt bold, Text: 10pt heavy weight
+- Accent background
+
+**Acceptance:** HUD window opens from dashboard button. Shows agent team, transcript, composer. Multi-agent switching works.
+
+---
+
+### 4.4 Response Card System
+**Progress:** `[ ]`
+
+Create `ResponseCard.swift` and `ResponseCardView.swift`:
+
+**ResponseCard Model**
+```swift
+struct ResponseCard: Identifiable {
+    let id: UUID
+    let source: ResponseCardSource
+    var rawText: String
+    var contextTitle: String?
+    var suggestedActions: [String] // max 2
+}
+
+enum ResponseCardSource {
+    case voice, agent, handoff
+}
+```
+
+**Text Processing:**
+- Strip `<NEXT_ACTIONS>...</NEXT_ACTIONS>` tags → extract as suggestedActions (max 2)
+- Remove code blocks, excess markdown
+- Truncate at 220 characters on word boundary for compact display
+
+**ResponseCardCompactView**
+- Shows truncated text + source badge
+- Action buttons: Dismiss, Run suggested action (accent), Text follow-up, Voice follow-up
+- Compact layout for HUD and panel embedding
+
+**Integration Points:**
+- Voice responses create response cards (source: `.voice`)
+- Agent responses create response cards (source: `.agent`)
+- Cards display in: overlay cursor area, agent HUD, companion panel agent section
+
+**Acceptance:** Response cards display in all three contexts. Suggested actions extract correctly. Truncation works.
+
+---
+
+### 4.5 Agent Dock Window
+**Progress:** `[ ]`
+
+Create `LumaAgentDockWindowManager.swift` — floating dock showing active agents:
+
+**Dock Item Model**
+```swift
+struct AgentDockItem: Identifiable {
+    let id: UUID
+    var title: String
+    var accentTheme: AccentTheme
+    var status: AgentSessionStatus
+    var caption: String? // current task name
+}
+```
+
+**Dock Window**
+- Size: 520×190pt
+- Floating, non-activating
+- Transparent background
+
+**Dock Item Rendering**
+- Button size: 54×54pt, total frame 66×66pt with status indicator
+- Border: 1.1pt with gradient (accent theme)
+- Shadow: 24pt @30% + 15pt @62% + 10pt @50% black (layered)
+- Status indicator: 9pt center dot with pulse halo animation
+- Icon spacing: 10pt
+
+**Hover Card**
+- Width: 390pt
+- Shows: title, status, caption, accent color
+- Trailing inset: 10pt
+
+**Acceptance:** Dock appears when agents are active. Items reflect session status. Hover cards show detail.
+
+---
+
+## PHASE 5 — Agent Engine & Execution
+
+### 5.1 Agent Session Lifecycle
+**Progress:** `[ ]`
+
+Integrate agent sessions into `CompanionManager`:
+
+- `agentSessions: [AgentSession]` — array of active sessions
+- `activeAgentSessionID: UUID?` — currently selected session
+- `agentDockItems: [AgentDockItem]` — derived from sessions for dock display
+
+**Session Lifecycle:**
+- Create: Spawns new session with random accent theme (cycles through Blue, Mint, Amber, Rose)
+- Warm-up: Initializes connection, sets status to `.ready`
+- Submit prompt: Sets status to `.running`, sends to API, streams response
+- Complete: Sets status to `.ready`, creates response card
+- Fail: Sets status to `.failed`, shows error in panel
+- Dismiss: Removes session, cleans up
+
+**Voice Integration:**
+- "Hey Agent..." or "spawn agent" → creates new session
+- Voice input routes to active agent session
+- Agent voice commands use regex detection (carry over from `AgentVoiceIntegration`)
+
+**Hotkeys:**
+- Ctrl+Cmd+N: Spawn new agent session
+- Ctrl+Option+Tab: Cycle active agent
+- Ctrl+Option+1–9: Switch to agent at index
+
+**Acceptance:** Sessions create, run, complete, dismiss. Voice spawning works. Hotkeys work.
+
+---
+
+### 5.2 Agent Runtime — Claude Code CLI + Claude API Hybrid
+**Progress:** `[ ]`
+
+Replace old `LumaAgentEngine.swift` with a dual-runtime agent system that mirrors OpenClicky's architecture.
+
+**Runtime Detection (on app launch + periodic refresh):**
+- Check for `claude` CLI via `Process("/bin/zsh", ["-c", "which claude"])` and common paths (`/usr/local/bin/claude`, `~/.claude/bin/claude`, `/opt/homebrew/bin/claude`)
+- If found → `ClaudeCodeAgentRuntime` (default)
+- If not found → `ClaudeAPIAgentRuntime` (fallback)
+- Expose `activeRuntimeType` in Settings → Agent Mode tab so user can override
+- Show runtime indicator in Agent Mode panel section (e.g., "Claude Code" badge or "Claude API" badge)
+- Persist override to UserDefaults key `luma.agentRuntime.override` (values: `auto`, `claudeCode`, `claudeAPI`)
+
+**Shared Protocol:**
+```swift
+protocol AgentRuntime: AnyObject {
+    /// Start a new agent session. Transitions status to .starting then .ready.
+    func startSession(id: UUID, task: String, workingDirectory: String, systemContext: String) async throws
+
+    /// Submit a follow-up prompt to an existing session.
+    func submitPrompt(sessionId: UUID, prompt: String) async throws
+
+    /// Stop and tear down a session. Kills subprocess or cancels API task.
+    func stopSession(sessionId: UUID) async
+
+    /// Combine publisher for transcript entries (user, assistant, system, command, plan roles)
+    var transcriptPublisher: AnyPublisher<AgentTranscriptEntry, Never> { get }
+
+    /// Combine publisher for session status changes
+    var statusPublisher: AnyPublisher<(UUID, AgentSessionStatus), Never> { get }
+}
+```
+
+**ClaudeCodeAgentRuntime** (default — mirrors OpenClicky's Codex subprocess approach):
+- Spawns `claude` CLI as a child process via Foundation `Process()`
+- Launch arguments: `claude -p "<task>" --output-format stream-json --allowedTools "Bash,Read,Write,Edit,Glob,Grep" --dangerously-skip-permissions`
+- Sets `currentDirectoryURL` to session working directory
+- Pipes stdout → parse JSON stream for transcript entries (role, text, tool use)
+- Pipes stderr → capture errors, set session to `.failed` on non-zero exit
+- One `Process` per agent session, tracked by session UUID in `[UUID: Process]` dictionary
+- `stopSession` sends `SIGTERM`, waits 2s, then `SIGKILL` if still running
+- `startSession` validates `claude` binary exists before spawning (fall back to API runtime if gone)
+- Session lifecycle: `.stopped` → `.starting` (process spawning) → `.ready` (first output received) → `.running` (actively producing output) → `.stopped`/`.failed`
+- Environment: inherits user shell env, adds `CLAUDE_CODE_ENTRYPOINT=luma-agent`
+
+**ClaudeAPIAgentRuntime** (fallback — tool-use loop):
+- Uses existing `ClaudeAPI.swift` with extended tool definitions
+- System prompt includes: memory summary, screenshot description (base64), working directory path
+- Tool definitions sent to Claude:
+  ```
+  screenshot() → captures screen via CompanionScreenCaptureUtility, returns base64
+  click(x: Int, y: Int) → CGEvent click at coordinates
+  type(text: String) → CGEvent key-by-key typing
+  key_press(key: String, modifiers: [String]) → CGEvent modified keypress
+  open_app(bundleId: String) → NSWorkspace.open
+  wait(seconds: Double) → Task.sleep
+  bash(command: String) → Process() shell execution, returns stdout/stderr
+  ```
+- Execution loop: send message → receive tool_use → execute locally → send tool_result → repeat until no more tool calls
+- Each tool execution emits a transcript entry (role: `.command`)
+- Queue-based cursor lock for multi-agent conflict resolution (only one session controls cursor at a time)
+- User mouse movement pauses agent cursor control (2s timeout to resume)
+- Max 50 tool-use iterations per prompt (safety limit)
+
+**AgentRuntimeManager** (singleton, owns runtime lifecycle):
+- `@Published var detectedRuntime: RuntimeType` — `.claudeCode` or `.claudeAPI`
+- `@Published var activeRuntime: any AgentRuntime`
+- `func detectRuntime()` — runs on launch and when user opens Agent Mode settings
+- `func createRuntime(for type: RuntimeType) -> any AgentRuntime`
+- Subscribes to both publishers and re-emits on `@MainActor`
+
+**Files to create:**
+- `leanring-buddy/Agent/AgentRuntime.swift` — protocol + `AgentRuntimeManager`
+- `leanring-buddy/Agent/ClaudeCodeAgentRuntime.swift` — CLI subprocess runtime
+- `leanring-buddy/Agent/ClaudeAPIAgentRuntime.swift` — API tool-use runtime
+
+**Files to remove (Codex abstractions that don't match OpenClicky):**
+- `leanring-buddy/Agent/AgentExecutionModels.swift`
+- `leanring-buddy/Agent/ClaudeAgentRuntime.swift`
+- `leanring-buddy/Agent/AgentSessionMemoryStore.swift`
+- `leanring-buddy/LumaTests/ClaudeAgentRuntimeStateTests.swift`
+- `leanring-buddy/LumaTests/AgentExecutionCoordinatorTests.swift`
+
+**Acceptance:** Claude Code CLI detected and used when available. Falls back to Claude API cleanly. Transcript streams in real-time. Sessions start/stop/fail correctly. Runtime indicator shows in panel.
+
+---
+
+### 5.3 Agent Title Generation
+**Progress:** `[ ]`
+
+On first prompt submitted to any agent session:
+- Send lightweight API call: "Generate a 3–5 word title for this task: {task}. Return only the title."
+- Use cheapest available model
+- Update session title + dock item title immediately
+
+**Acceptance:** Agent title appears after first task. Title is short and descriptive.
+
+---
+
+## PHASE 6 — Memory & Persistence
+
+### 6.1 Memory Manager
+**Progress:** `[ ]`
+
+Carry over `LumaMemoryManager.swift` with updates for session model:
+
+- `memory.md` — global markdown, AI persona + preferences
+- `history/agent_{sessionId}_{timestamp}.json` — per-session conversation history
+- Auto-rotate at 2MB
+- `appendToHistory(sessionId:, entry:)` — appends transcript entry
+- `loadMemory() -> String` — returns memory.md contents
+- `searchHistory(query:) -> [ConversationEntry]` — keyword search across JSON files
+- `updateMemory(newFact:)` — appends to memory.md with timestamp
+- Memory summarized to max 500 tokens before prepending to API calls
+
+**Storage:** `~/Library/Application Support/Luma/`
+
+**Acceptance:** Files created correctly. History appends per session. Memory loads and summarizes.
+
+---
+
+### 6.2 Memory Integration
+**Progress:** `[ ]`
+
+- On session create: load memory.md, prepend summarized context to first API call
+- After completed task: append to history
+- Memory button in HUD header and companion panel footer → opens memory viewer
+- Memory viewer: 1180×860pt default, 760×520pt minimum
+
+**Acceptance:** Agent has memory context. History searchable. Memory viewer opens.
+
+---
+
+## PHASE 7 — Voice & Input
+
+### 7.1 Voice Settings
+**Progress:** `[ ]`
+
+In Settings → Voice tab:
+- Gender toggle (Male/Female) → maps to AVSpeechSynthesisVoice identifiers
+- Pitch slider (0.5–2.0, AVSpeechUtterance.pitchMultiplier)
+- Rate slider (0.1–1.0, AVSpeechUtterance.rate)
+- Volume slider (0.0–1.0, AVSpeechUtterance.volume)
+- Preview Voice button
+- Persist to UserDefaults: `luma.voice.gender`, `.pitch`, `.rate`, `.volume`
+- NativeTTSClient reads values before each utterance
+
+**Acceptance:** Voice changes apply on next response. Preview works.
+
+---
+
+### 7.2 Agent Mode Toggle
+**Progress:** `[ ]`
+
+- Global toggle in companion panel (not per-agent)
+- OFF: Luma behaves as guided walkthrough/companion mode
+- ON: Agent mode panel section appears, autonomous operation enabled
+- Persists to UserDefaults `luma.agentMode.enabled`
+- Subtle indicator on menu bar icon when ON (colored dot on status item)
+
+**Acceptance:** Toggle switches modes. Panel section visibility follows toggle. State persists.
+
+---
+
+### 7.3 Cursor State System
+**Progress:** `[ ]`
+
+Carry over `LumaCursorState` enum and `CursorProfile`:
+
+**States:** idle, pointing, listening, processing, hover
+
+**CursorProfile** (persisted to Keychain):
+- Per-state: shape, color (hex), size
+- Shapes: teardrop, circle, roundedTriangle, diamond, cross, dot
+- Size range: 8–32pt
+- Default matches blue accent theme cursor
+
+**CustomCursorManager:**
+- Reads profile from Keychain on init
+- `setState(_:)` switches active cursor
+- Redraws NSImage per state
+- Renders glow per shape
+
+**Cursor Customizer UI** in Settings → General:
+- Section per state with shape picker, color picker (NSColorWell), size slider
+- Live preview: 200×200pt dark rounded rect showing cursor in real time
+- "Reset to Default" button
+
+**Acceptance:** Cursor changes per state. Customizer updates live preview. Profile persists.
+
+---
+
+## PHASE 8 — Polish & Integration
+
+### 8.1 Log Window
+**Progress:** `[ ]`
+
+`LumaLogWindowManager.swift`:
+- Non-modal NSWindow titled "Luma Activity Log"
+- Resizable, minimum 700×400pt
+- Monospaced NSTextView (SF Mono or Menlo)
+- Real-time log entries: `[HH:mm:ss] message`
+- Auto-scroll to bottom
+- Clear button (clears view, not file)
+- LumaLogger singleton with Combine `liveLogEntryPublisher`
+- All `print()` statements → `LumaLogger.shared.log()`
+- File: `~/Library/Logs/Luma/luma.log`, auto-rotate at 2MB
+
+**Acceptance:** Log window shows real-time activity. Clear works. Auto-scrolls.
+
+---
+
+### 8.2 Migration & Cleanup
+**Progress:** `[ ]`
+
+Remove all old agent bubble code that doesn't fit the new architecture:
+
+**Remove (old v2 agent bubble code):**
+- `AgentStackView.swift` (old bubble-based overlay) — replaced by Agent Dock
+- `AgentShapeView.swift` (old shape rendering) — no longer needed
+- `AgentBubblePhysics.swift` (old physics engine) — no longer needed
+- `CompanionBubbleWindow.swift` — functionality merged into overlay + response card system
+- Old `LumaAgent.swift` model — replaced by `AgentSession`
+- Old `AgentManager.swift` — replaced by session management in CompanionManager
+- Old `AgentProfile.swift` — replaced by session accent themes
+
+**Remove (Codex rebuild abstractions that don't match OpenClicky):**
+- `AgentExecutionModels.swift` — stubbed coordinator, hesitation states, not in OpenClicky
+- `ClaudeAgentRuntime.swift` — replaced by `AgentRuntime` protocol + dual implementations
+- `AgentSessionMemoryStore.swift` — merged into `LumaMemoryManager`
+- `LumaTests/ClaudeAgentRuntimeStateTests.swift` — tests for removed code
+- `LumaTests/AgentExecutionCoordinatorTests.swift` — tests for removed code
+
+**Fix (Codex code-gen bugs):**
+- `SettingsPanelView.swift` — fix all malformed `.font(.system(size: 13)Medium)` → `.font(.system(size: 13, weight: .medium))`
+- Remove any `ClaudeAgentRuntimeAPI` protocol conformance from `ClaudeAPI.swift`
+- Remove `ClaudeAgentRequest` struct from `ClaudeAPI.swift`
+
+**Rename/Update:**
+- All `LumaTheme.*` references → `DS.*`
+- `AgentSettingsManager` → merge into settings window Agent Mode tab
+- `AgentHotkeyHandler` → keep but update for session-based switching
+- `AgentVoiceIntegration` → keep but update for session spawning
+- `AgentMemoryIntegration` → keep but update for session model
+
+**Keep Unchanged:**
+- Voice pipeline (`BuddyDictationManager`, transcription providers, `GlobalPushToTalkShortcutMonitor`)
+- Screen capture (`CompanionScreenCaptureUtility`)
+- API clients (`ClaudeAPI`, `OpenAIAPI`)
+- TTS (`ElevenLabsTTSClient`)
+- Element detection (`ElementLocationDetector`, `LumaImageProcessingEngine`, `LumaMobileNetDetector`)
+- Analytics (`LumaAnalytics`)
+- Keychain management (`KeychainManager`)
+- Account management (`AccountManager`)
+
+**Acceptance:** Old bubble code removed. All DS references compile. No dead code remains.
+
+---
+
+### 8.3 Final Integration & Regression
+**Progress:** `[ ]`
+
+- All existing `leanring-buddyTests` pass
+- Guide mode (Agent Mode OFF) works identically to before
+- All hotkeys work: Ctrl+Option (voice), Ctrl+Cmd+N (spawn agent), Ctrl+Option+Tab (cycle), Ctrl+Option+1–9 (switch)
+- Memory file creation, growth, rotation works
+- Autonomous mode with 3 simultaneous agent sessions
+- Cursor customizer across all states
+- Voice settings apply to TTS
+- Agent HUD: team strip, transcript, composer all functional
+- Agent dock items reflect active sessions
+- Response cards display in overlay, HUD, and panel
+- Performance: under 150MB RAM with 3 active agents
+- Settings window: all 7 tabs render correctly with correct content
+
+**Acceptance:** All tests pass. No regressions. Performance target met.
 
 ---
 
 ## Notes for Claude Code
 
-- Work through phases in order. Do not start Phase 2 until all Phase 1 tasks are `[x]`.
-- After completing each task, mark it `[x]` in this file and commit with message: `feat: complete task {number} — {task name}`
-- If paused mid-task, mark it `[~]` and add a comment below it: `// PAUSED: {what was done, what remains}`
-- Never modify existing walkthrough engine or guide mode behavior unless explicitly required by a task
-- All new Swift files go in their logical folder: Core/, ML/, Walkthrough/, UI/, Overlay/, Agent/ (new folder)
-- Create `Agent/` folder for: `LumaAgent.swift`, `AgentManager.swift`, `LumaAgentEngine.swift`, `AgentStackView.swift`, `AgentShapeView.swift`
-- API keys for OpenAI agents go through the existing `ProfileManager` — add OpenAI as a new provider type
-- Target: macOS 14.0+, Swift 5.9, SwiftUI + AppKit hybrid (existing pattern)
+- Work through phases in order. Do not start Phase N+1 until all Phase N tasks are `[x]`.
+- After completing each task, mark it `[x]` in this file and commit: `feat: complete task {number} — {task name}`
+- If paused mid-task, mark `[~]` and add: `// PAUSED: {done, remaining}`
+- Reference `/Users/nox/Desktop/openclicky` for exact visual implementation details when coding any UI component.
+- All new Swift files go in logical locations: Agent/, UI/, Overlay/, Core/
+- The "leanring" typo in the project directory and scheme is intentional/legacy — do NOT rename.
+- Target: macOS 14.0+, Swift 5.9, SwiftUI + AppKit hybrid
+- Do NOT run `xcodebuild` — it invalidates TCC permissions
+- Do NOT fix known non-blocking warnings (Swift 6 concurrency, deprecated onChange)
