@@ -310,8 +310,10 @@ final class CompanionManager: ObservableObject {
             }
         }
 
-        // Initialize agent session system — ensure at least one session exists
-        ensureDefaultAgentSession()
+        // Initialize agent session system only if agent mode is enabled
+        if isAgentModeEnabled {
+            ensureDefaultAgentSession()
+        }
         AgentHotkeyHandler.shared.startMonitoring(companionManager: self)
     }
 
@@ -1600,7 +1602,7 @@ final class CompanionManager: ObservableObject {
     }
 
     private func updateAgentDock() {
-        if agentSessions.isEmpty {
+        if agentSessions.isEmpty || !isAgentModeEnabled {
             agentDockManager.hide()
         } else {
             agentDockManager.show(items: agentDockItems) { [weak self] id in
