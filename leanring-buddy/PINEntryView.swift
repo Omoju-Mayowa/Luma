@@ -24,11 +24,11 @@ struct PINEntryView: View {
     @State private var showMismatchError: Bool = false
 
     var body: some View {
-        VStack(spacing: LumaTheme.Spacing.xl) {
+        VStack(spacing: DS.Spacing.xxxl) {
             // Title
             Text(isConfirmingStep ? "Confirm PIN" : title)
-                .font(LumaTheme.Typography.headline)
-                .foregroundColor(LumaTheme.Colors.primaryText)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(DS.Colors.textPrimary)
 
             // PIN dots display
             pinDotsView
@@ -37,13 +37,13 @@ struct PINEntryView: View {
             // Error messages
             if showIncorrectError {
                 Text("Incorrect PIN")
-                    .font(LumaTheme.Typography.caption)
-                    .foregroundColor(LumaTheme.Colors.error)
+                    .font(.system(size: 11))
+                    .foregroundColor(DS.Colors.destructive)
             }
             if showMismatchError {
                 Text("PINs don't match")
-                    .font(LumaTheme.Typography.caption)
-                    .foregroundColor(LumaTheme.Colors.error)
+                    .font(.system(size: 11))
+                    .foregroundColor(DS.Colors.destructive)
             }
 
             // Numeric keypad
@@ -52,24 +52,24 @@ struct PINEntryView: View {
             // Cancel button
             if let onCancel = onCancel {
                 Button("Cancel", action: onCancel)
-                    .font(LumaTheme.Typography.body)
-                    .foregroundColor(LumaTheme.Colors.secondaryText)
+                    .font(.system(size: 13))
+                    .foregroundColor(DS.Colors.textSecondary)
                     .buttonStyle(.plain)
                     .onHover { isHovering in
                         if isHovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
                     }
             }
         }
-        .padding(LumaTheme.Spacing.xl)
+        .padding(DS.Spacing.xxxl)
     }
 
     // MARK: - Subviews
 
     private var pinDotsView: some View {
-        HStack(spacing: LumaTheme.Spacing.md) {
+        HStack(spacing: DS.Spacing.lg) {
             ForEach(0..<6, id: \.self) { index in
                 Circle()
-                    .fill(currentDigits.count > index ? LumaTheme.Colors.accent : LumaTheme.Colors.tertiaryText)
+                    .fill(currentDigits.count > index ? DS.Colors.accent : DS.Colors.textTertiary)
                     .frame(width: 12, height: 12)
             }
         }
@@ -80,9 +80,9 @@ struct PINEntryView: View {
     }
 
     private var numericKeypad: some View {
-        VStack(spacing: LumaTheme.Spacing.sm) {
+        VStack(spacing: DS.Spacing.sm) {
             ForEach([[1,2,3],[4,5,6],[7,8,9],[0]], id: \.self) { row in
-                HStack(spacing: LumaTheme.Spacing.md) {
+                HStack(spacing: DS.Spacing.lg) {
                     ForEach(row, id: \.self) { digit in
                         PINKeypadButton(digit: digit) {
                             appendDigit(String(digit))
@@ -95,8 +95,8 @@ struct PINEntryView: View {
                 Spacer()
                 Button(action: deleteLastDigit) {
                     Image(systemName: "delete.backward")
-                        .font(LumaTheme.Typography.headline)
-                        .foregroundColor(LumaTheme.Colors.primaryText)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(DS.Colors.textPrimary)
                         .frame(width: 60, height: 60)
                 }
                 .buttonStyle(.plain)
@@ -179,12 +179,12 @@ private struct PINKeypadButton: View {
     var body: some View {
         Button(action: action) {
             Text("\(digit)")
-                .font(LumaTheme.Typography.title)
-                .foregroundColor(LumaTheme.Colors.primaryText)
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundColor(DS.Colors.textPrimary)
                 .frame(width: 60, height: 60)
                 .background(
                     Circle()
-                        .fill(isHovering ? LumaTheme.Colors.surface : LumaTheme.Colors.surfaceElevated)
+                        .fill(isHovering ? DS.Colors.surface2 : DS.Colors.surface1)
                 )
         }
         .buttonStyle(.plain)
