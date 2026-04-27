@@ -53,7 +53,7 @@ final class ClaudeAPIAgentRuntime: AgentRuntime {
     }
 
     func submitPrompt(sessionId: UUID, prompt: String) async throws {
-        let systemContext = AgentMemoryIntegration.shared.loadMemorySummaryForSystemContext()
+        let systemContext = AgentMemoryIntegration.loadSummarizedMemoryForSystemContext()
         let workingDirectory = UserDefaults.standard.string(forKey: "luma.agent.workingDirectory") ?? NSHomeDirectory()
 
         try await startSession(
