@@ -10,6 +10,7 @@
 import AppKit
 import Combine
 import Foundation
+import SwiftUI
 
 enum AgentSessionStatus: Equatable {
     case stopped

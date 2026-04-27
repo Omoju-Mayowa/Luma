@@ -79,7 +79,9 @@ final class ClaudeCodeAgentRuntime: AgentRuntime {
         outputPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
             guard !data.isEmpty else { return }
-            self?.handleOutputData(data, sessionId: id)
+            DispatchQueue.main.async {
+                self?.handleOutputData(data, sessionId: id)
+            }
         }
 
         errorPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
@@ -87,8 +89,10 @@ final class ClaudeCodeAgentRuntime: AgentRuntime {
             guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return }
-            let entry = AgentTranscriptEntry(role: .system, text: "[stderr] \(trimmed)")
-            self?.transcriptSubject.send(entry)
+            DispatchQueue.main.async {
+                let entry = AgentTranscriptEntry(role: .system, text: "[stderr] \(trimmed)")
+                self?.transcriptSubject.send(entry)
+            }
         }
 
         process.terminationHandler = { [weak self] proc in
@@ -98,10 +102,13 @@ final class ClaudeCodeAgentRuntime: AgentRuntime {
                 self.outputBuffers.removeValue(forKey: id)
             }
 
-            if proc.terminationStatus == 0 {
-                self.statusSubject.send((id, .ready))
-            } else {
-                self.statusSubject.send((id, .failed("Process exited with code \(proc.terminationStatus)")))
+            let terminationStatus = proc.terminationStatus
+            DispatchQueue.main.async {
+                if terminationStatus == 0 {
+                    self.statusSubject.send((id, .ready))
+                } else {
+                    self.statusSubject.send((id, .failed("Process exited with code \(terminationStatus)")))
+                }
             }
         }
 
