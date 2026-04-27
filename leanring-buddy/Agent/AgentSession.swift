@@ -52,9 +52,25 @@ final class AgentSession: ObservableObject, Identifiable {
     @Published var model: String
     @Published var workingDirectoryPath: String
 
+    /// Random icon shape assigned at creation for visual variety in the dock
+    let iconShape: AgentIconShape
+    /// Random glow color for the dock bubble
+    let glowColor: Color
+
     private var runtime: (any AgentRuntime)?
     private var cancellables = Set<AnyCancellable>()
     private var hasGeneratedTitle = false
+
+    private static let randomGlowColors: [Color] = [
+        Color(red: 0.04, green: 0.52, blue: 1.0),   // Blue
+        Color(red: 0.20, green: 0.83, blue: 0.60),   // Mint
+        Color(red: 1.00, green: 0.70, blue: 0.14),   // Amber
+        Color(red: 0.96, green: 0.36, blue: 0.42),   // Rose
+        Color(red: 0.65, green: 0.40, blue: 1.00),   // Purple
+        Color(red: 0.00, green: 0.87, blue: 0.87),   // Cyan
+        Color(red: 1.00, green: 0.47, blue: 0.00),   // Orange
+        Color(red: 0.56, green: 0.85, blue: 0.27),   // Lime
+    ]
 
     var statusSummaryLine: String {
         switch status {
@@ -86,6 +102,8 @@ final class AgentSession: ObservableObject, Identifiable {
         self.accentTheme = accentTheme
         self.model = model
         self.workingDirectoryPath = workingDirectoryPath
+        self.iconShape = AgentIconShape.random
+        self.glowColor = Self.randomGlowColors.randomElement() ?? Color.blue
     }
 
     func bind(to runtime: any AgentRuntime) {

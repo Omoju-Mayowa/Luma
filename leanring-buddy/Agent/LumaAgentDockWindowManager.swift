@@ -3,13 +3,14 @@
 //  leanring-buddy
 //
 //  Floating agent bubbles stacked vertically on the right edge of the screen.
-//  Each bubble is a 48x48 rounded square with a colored cursor arrow icon
-//  and a status dot. Tapping expands to show the response card with
-//  suggested actions and follow-up buttons.
+//  Each bubble is a 48x48 rounded square with a random shape icon and colored
+//  glow. Hover expands inline to show response card. Draggable with physics.
 //
 
 import AppKit
 import SwiftUI
+
+// MARK: - Data Model
 
 struct AgentDockItem: Identifiable {
     let id: UUID
@@ -19,7 +20,33 @@ struct AgentDockItem: Identifiable {
     var caption: String?
     var responseText: String?
     var suggestedActions: [String]
+    /// Random shape assigned at session creation for visual variety
+    var iconShape: AgentIconShape
+    /// Random accent color for glow
+    var glowColor: Color
 }
+
+/// Random shapes for agent bubble icons
+enum AgentIconShape: String, CaseIterable {
+    case triangle, diamond, hexagon, star, circle, square
+
+    var systemImageName: String {
+        switch self {
+        case .triangle: return "triangle.fill"
+        case .diamond: return "diamond.fill"
+        case .hexagon: return "hexagon.fill"
+        case .star: return "star.fill"
+        case .circle: return "circle.fill"
+        case .square: return "square.fill"
+        }
+    }
+
+    static var random: AgentIconShape {
+        allCases.randomElement() ?? .triangle
+    }
+}
+
+// MARK: - Window Manager
 
 @MainActor
 final class LumaAgentDockWindowManager {
@@ -27,11 +54,8 @@ final class LumaAgentDockWindowManager {
 
     func show(
         items: [AgentDockItem],
-        expandedItemID: UUID?,
-        onSelect: @escaping (UUID) -> Void,
-        onDismissExpanded: @escaping () -> Void,
+        onDismissAgent: @escaping (UUID) -> Void,
         onRunSuggestedAction: @escaping (UUID, String) -> Void,
-        onTextFollowUp: @escaping (UUID) -> Void,
         onVoiceFollowUp: @escaping (UUID) -> Void
     ) {
         guard !items.isEmpty else {
@@ -41,17 +65,16 @@ final class LumaAgentDockWindowManager {
 
         let bubbleView = AgentBubbleStackView(
             items: items,
-            expandedItemID: expandedItemID,
-            onSelect: onSelect,
-            onDismissExpanded: onDismissExpanded,
+            onDismissAgent: onDismissAgent,
             onRunSuggestedAction: onRunSuggestedAction,
-            onTextFollowUp: onTextFollowUp,
             onVoiceFollowUp: onVoiceFollowUp
         )
 
         if window == nil {
+            let panelWidth: CGFloat = 420
+            let panelHeight: CGFloat = 600
             let panel = NSPanel(
-                contentRect: NSRect(x: 0, y: 0, width: 420, height: 600),
+                contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight),
                 styleMask: [.borderless, .nonactivatingPanel],
                 backing: .buffered,
                 defer: false
@@ -91,78 +114,87 @@ final class LumaAgentDockWindowManager {
 
 private struct AgentBubbleStackView: View {
     let items: [AgentDockItem]
-    let expandedItemID: UUID?
-    let onSelect: (UUID) -> Void
-    let onDismissExpanded: () -> Void
+    let onDismissAgent: (UUID) -> Void
     let onRunSuggestedAction: (UUID, String) -> Void
-    let onTextFollowUp: (UUID) -> Void
     let onVoiceFollowUp: (UUID) -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            // Expanded card appears to the left of the mini bubbles
-            if let expandedID = expandedItemID,
-               let expandedItem = items.first(where: { $0.id == expandedID }) {
-                ExpandedAgentBubbleView(
-                    item: expandedItem,
-                    onDismiss: onDismissExpanded,
-                    onRunSuggestedAction: { action in
-                        onRunSuggestedAction(expandedID, action)
-                    },
-                    onTextFollowUp: { onTextFollowUp(expandedID) },
-                    onVoiceFollowUp: { onVoiceFollowUp(expandedID) }
+        VStack(spacing: 10) {
+            ForEach(items) { item in
+                AgentBubbleItemView(
+                    item: item,
+                    onDismissAgent: { onDismissAgent(item.id) },
+                    onRunSuggestedAction: { action in onRunSuggestedAction(item.id, action) },
+                    onVoiceFollowUp: { onVoiceFollowUp(item.id) }
                 )
-                .transition(.opacity.combined(with: .move(edge: .trailing)))
-            }
-
-            // Mini bubble stack on the right edge
-            VStack(spacing: 10) {
-                ForEach(items) { item in
-                    MiniBubbleView(
-                        item: item,
-                        isExpanded: item.id == expandedItemID
-                    )
-                    .onTapGesture {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                            onSelect(item.id)
-                        }
-                    }
-                }
             }
         }
         .padding(8)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: expandedItemID)
     }
 }
 
-// MARK: - Mini Bubble (48x48 rounded square)
+// MARK: - Single Agent Bubble (hover-expandable)
 
-private struct MiniBubbleView: View {
+private struct AgentBubbleItemView: View {
     let item: AgentDockItem
-    var isExpanded: Bool = false
+    let onDismissAgent: () -> Void
+    let onRunSuggestedAction: (String) -> Void
+    let onVoiceFollowUp: () -> Void
+
     @State private var isHovered = false
+    @State private var dragOffset: CGSize = .zero
+    @State private var dragVelocity: CGSize = .zero
 
     var body: some View {
+        HStack(alignment: .top, spacing: 0) {
+            // Expanded card appears to the left when hovered
+            if isHovered {
+                expandedCard
+                    .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .trailing)))
+                    .padding(.trailing, 8)
+            }
+
+            // Mini bubble (always visible)
+            miniBubble
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
+        .offset(dragOffset)
+        .gesture(
+            DragGesture()
+                .onChanged { value in
+                    dragOffset = value.translation
+                }
+                .onEnded { value in
+                    dragVelocity = CGSize(
+                        width: value.predictedEndTranslation.width - value.translation.width,
+                        height: value.predictedEndTranslation.height - value.translation.height
+                    )
+                    withAnimation(.interpolatingSpring(stiffness: 200, damping: 18)) {
+                        dragOffset = .zero
+                    }
+                }
+        )
+        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: isHovered)
+    }
+
+    // MARK: Mini Bubble
+
+    private var miniBubble: some View {
         ZStack {
-            // Rounded square background
+            // Rounded square with glow
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(Color(red: 0.08, green: 0.08, blue: 0.10))
                 .overlay(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(
-                            isExpanded
-                                ? item.accentTheme.accent.opacity(0.6)
-                                : Color.white.opacity(isHovered ? 0.12 : 0.06),
-                            lineWidth: isExpanded ? 1.5 : 1
-                        )
+                        .stroke(item.glowColor.opacity(isHovered ? 0.5 : 0.15), lineWidth: isHovered ? 1.5 : 1)
                 )
+                .shadow(color: item.glowColor.opacity(isHovered ? 0.35 : 0.15), radius: isHovered ? 12 : 6, y: 0)
 
-            // Colored cursor arrow icon
-            Image(systemName: "cursorarrow")
+            // Random shape icon
+            Image(systemName: item.iconShape.systemImageName)
                 .font(.system(size: 18, weight: .heavy))
-                .foregroundColor(item.accentTheme.accent)
-                .rotationEffect(.degrees(-18))
+                .foregroundColor(item.glowColor)
 
             // Status dot — top right
             Circle()
@@ -173,37 +205,19 @@ private struct MiniBubbleView: View {
         }
         .frame(width: 48, height: 48)
         .shadow(color: .black.opacity(0.45), radius: 12, y: 4)
-        .shadow(color: .black.opacity(0.25), radius: 6, y: 2)
-        .scaleEffect(isHovered ? 1.06 : 1.0)
-        .animation(.easeOut(duration: DS.Animation.fast), value: isHovered)
-        .onHover { isHovered = $0 }
+        .scaleEffect(isHovered ? 1.08 : 1.0)
+        .onHover { hovering in
+            isHovered = hovering
+        }
         .pointerCursor()
     }
 
-    private var statusColor: Color {
-        switch item.status {
-        case .stopped: return DS.Colors.textTertiary
-        case .starting: return DS.Colors.warning
-        case .ready: return DS.Colors.success
-        case .running: return Color.yellow
-        case .failed: return DS.Colors.destructive
-        }
-    }
-}
+    // MARK: Expanded Card
 
-// MARK: - Expanded Agent Bubble (response card)
-
-private struct ExpandedAgentBubbleView: View {
-    let item: AgentDockItem
-    let onDismiss: () -> Void
-    let onRunSuggestedAction: (String) -> Void
-    let onTextFollowUp: () -> Void
-    let onVoiceFollowUp: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            // Header: title + status
-            HStack {
+    private var expandedCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Header: title + status + close button
+            HStack(spacing: 6) {
                 Text(item.title.uppercased())
                     .font(.system(size: 11, weight: .heavy))
                     .foregroundColor(DS.Colors.textPrimary)
@@ -213,109 +227,117 @@ private struct ExpandedAgentBubbleView: View {
                 Spacer()
 
                 Text(statusLabel)
-                    .font(.system(size: 11, weight: .bold))
+                    .font(.system(size: 10, weight: .bold))
                     .foregroundColor(statusLabelColor)
 
                 Circle()
-                    .fill(statusDotColor)
-                    .frame(width: 8, height: 8)
+                    .fill(statusColor)
+                    .frame(width: 7, height: 7)
+
+                // Close/terminate button
+                Button(action: onDismissAgent) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(DS.Colors.textTertiary)
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
             }
 
-            // Response text body
+            // Response text
             if let responseText = item.responseText, !responseText.isEmpty {
                 Text(responseText)
-                    .font(.system(size: 12.5, weight: .regular))
+                    .font(.system(size: 12, weight: .regular))
                     .foregroundColor(DS.Colors.textPrimary)
-                    .lineLimit(6)
+                    .lineLimit(5)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
             } else {
                 Text("Waiting for response...")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: 11.5))
                     .foregroundColor(DS.Colors.textTertiary)
                     .italic()
             }
 
-            // Suggested next actions
+            // Recommended follow-up (max 2)
             if !item.suggestedActions.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Suggested next:")
-                        .font(.system(size: 10, weight: .medium))
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Recommended")
+                        .font(.system(size: 9, weight: .semibold))
                         .foregroundColor(DS.Colors.textTertiary)
+                        .kerning(0.3)
 
-                    ForEach(item.suggestedActions, id: \.self) { action in
-                        Button(action: { onRunSuggestedAction(action) }) {
-                            Text(action)
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundColor(DS.Colors.textPrimary)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                        .fill(Color.white.opacity(0.08))
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                        .stroke(Color.white.opacity(0.10), lineWidth: 0.5)
-                                )
+                    HStack(spacing: 6) {
+                        ForEach(Array(item.suggestedActions.prefix(2)), id: \.self) { action in
+                            Button(action: { onRunSuggestedAction(action) }) {
+                                Text(action)
+                                    .font(.system(size: 10, weight: .medium))
+                                    .foregroundColor(DS.Colors.textPrimary)
+                                    .lineLimit(1)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 5)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                            .fill(Color.white.opacity(0.07))
+                                    )
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                            .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                            .pointerCursor()
                         }
-                        .buttonStyle(.plain)
-                        .pointerCursor()
                     }
                 }
             }
 
             // Follow up row
-            VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
                 Text("Follow up")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: 9, weight: .semibold))
                     .foregroundColor(DS.Colors.textTertiary)
+                    .kerning(0.3)
 
-                HStack(spacing: 8) {
-                    followUpButton(
-                        iconName: "character.cursor.ibeam",
-                        label: "Text",
-                        action: onTextFollowUp
-                    )
-                    followUpButton(
-                        iconName: "mic.fill",
-                        label: "Voice",
-                        action: onVoiceFollowUp
-                    )
-                }
+                Spacer()
+
+                followUpButton(iconName: "mic.fill", label: "Voice", action: onVoiceFollowUp)
             }
         }
-        .padding(14)
-        .frame(width: 280, alignment: .leading)
+        .padding(12)
+        .frame(width: 260, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color(red: 0.08, green: 0.08, blue: 0.10).opacity(0.96))
+                .fill(Color(red: 0.07, green: 0.07, blue: 0.09).opacity(0.96))
+                .shadow(color: item.glowColor.opacity(0.12), radius: 16, y: 0)
                 .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                .stroke(item.glowColor.opacity(0.12), lineWidth: 1)
         )
     }
 
+    // MARK: Helpers
+
     private func followUpButton(iconName: String, label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: 5) {
+            HStack(spacing: 4) {
                 Image(systemName: iconName)
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: 9, weight: .semibold))
                 Text(label)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 10, weight: .semibold))
             }
             .foregroundColor(DS.Colors.textPrimary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
             .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.white.opacity(0.08))
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(Color.white.opacity(0.07))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(Color.white.opacity(0.10), lineWidth: 0.5)
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
             )
         }
         .buttonStyle(.plain)
@@ -341,7 +363,7 @@ private struct ExpandedAgentBubbleView: View {
         }
     }
 
-    private var statusDotColor: Color {
+    private var statusColor: Color {
         switch item.status {
         case .stopped: return DS.Colors.textTertiary
         case .starting: return DS.Colors.warning
