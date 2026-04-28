@@ -53,7 +53,7 @@ final class AgentBubblePhysicsState: ObservableObject {
         if sessionIsRunning {
             // Violent shake: 12 pt in a random direction, updated at 25 Hz.
             let angle = Double.random(in: 0 ..< Double.pi * 2)
-            let shakeRadius = 12.0
+            let shakeRadius = 8.0
             physicsOffset = CGSize(
                 width: shakeRadius * cos(angle),
                 height: shakeRadius * sin(angle)
@@ -91,8 +91,8 @@ private final class KeyAcceptingPanel: NSPanel {
 // MARK: - AgentBubbleWindow
 
 /// Wraps a single floating NSPanel for one agent session.
-/// Owns drag handling (with screen clamping), panel resizing on hover,
-/// and the AgentBubblePhysicsState used by the SwiftUI view inside.
+/// Owns drag handling (with screen clamping) and the AgentBubblePhysicsState
+/// used by the SwiftUI view inside. Panel size is fixed — no resize on hover.
 @MainActor
 final class AgentBubbleWindow {
     let sessionID: UUID
@@ -105,18 +105,17 @@ final class AgentBubbleWindow {
     private var dragStartMouseScreenLocation: NSPoint = .zero
     private var dragStartWindowOrigin: NSPoint = .zero
     private var isDragging = false
-    /// The top-right corner of the orb panel (72×72), tracked independently of the
-    /// expanded panel frame so hover-expand/collapse always anchors to the correct position.
-    private var orbTopRightCorner: NSPoint = .zero
 
     private var positionUserDefaultsKey: String {
         "luma.agentBubble.\(sessionID.uuidString).origin"
     }
 
-    /// The screen-space center of this bubble's current panel frame.
-    /// Used by the coordinator to compute inter-bubble proximity distances.
+    /// The screen-space center of the orb in this bubble's panel.
+    /// The orb sits at the trailing (right) end of the fixed 340-pt panel with 12 pt right
+    /// padding, so its horizontal center is at panel.maxX − 12 pt padding − 24 pt half-orb.
     var screenCenter: NSPoint {
-        NSPoint(x: panel.frame.midX, y: panel.frame.midY)
+        let orbCenterX = panel.frame.maxX - 36   // 12 (right padding) + 24 (half of 48 pt orb)
+        return NSPoint(x: orbCenterX, y: panel.frame.midY)
     }
 
     /// Whether the session attached to this window is actively running.
@@ -138,9 +137,13 @@ final class AgentBubbleWindow {
         self.session = session
         self.physicsState = AgentBubblePhysicsState()
 
-        let orbDiameter: CGFloat = 72
+        // Panel is fixed at 340×300. The left ~268 pt is transparent when the card
+        // is hidden, so hover no longer needs to resize the panel — eliminating the
+        // onHover → setFrame → onHover feedback loop that caused the hover crash.
+        let fixedPanelWidth: CGFloat = 340
+        let fixedPanelHeight: CGFloat = 300
         let panel = KeyAcceptingPanel(
-            contentRect: NSRect(x: 0, y: 0, width: orbDiameter, height: orbDiameter),
+            contentRect: NSRect(x: 0, y: 0, width: fixedPanelWidth, height: fixedPanelHeight),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -160,7 +163,6 @@ final class AgentBubbleWindow {
             onDragStarted: { [weak self] in self?.handleDragStarted() },
             onDragUpdated: { [weak self] in self?.handleDragUpdated() },
             onDragEnded:   { [weak self] in self?.handleDragEnded() },
-            onHoverChanged: { [weak self] isHovered in self?.handleHoverChanged(isHovered: isHovered) },
             onDismiss: onDismiss,
             onRunSuggestedAction: onRunSuggestedAction,
             onSubmitText: onSubmitText,
@@ -171,9 +173,6 @@ final class AgentBubbleWindow {
 
         let clampedOrigin = Self.clampOriginToScreen(origin: initialOrigin, windowSize: panel.frame.size)
         panel.setFrameOrigin(clampedOrigin)
-        // Capture the orb's top-right corner using the clamped origin so hover-expand
-        // can anchor to this position correctly even if later clamps shift the frame.
-        orbTopRightCorner = NSPoint(x: clampedOrigin.x + orbDiameter, y: clampedOrigin.y + orbDiameter)
         panel.makeKeyAndOrderFront(nil)
     }
 
@@ -188,8 +187,6 @@ final class AgentBubbleWindow {
         let savedOrigin = NSPoint(x: values[0], y: values[1])
         let clampedOrigin = Self.clampOriginToScreen(origin: savedOrigin, windowSize: panel.frame.size)
         panel.setFrameOrigin(clampedOrigin)
-        let orbDiameter: CGFloat = 72
-        orbTopRightCorner = NSPoint(x: clampedOrigin.x + orbDiameter, y: clampedOrigin.y + orbDiameter)
     }
 
     // MARK: Drag callbacks (invoked by SwiftUI DragGesture in AgentBubbleRootView)
@@ -215,37 +212,7 @@ final class AgentBubbleWindow {
     private func handleDragEnded() {
         isDragging = false
         let origin = panel.frame.origin
-        // Keep orbTopRightCorner in sync so the next hover-expand anchors correctly.
-        let orbDiameter: CGFloat = 72
-        orbTopRightCorner = NSPoint(x: origin.x + orbDiameter, y: origin.y + orbDiameter)
         UserDefaults.standard.set([origin.x, origin.y], forKey: positionUserDefaultsKey)
-    }
-
-    // MARK: Hover-driven panel resize
-
-    /// Called by the SwiftUI view when hover state changes.
-    /// Resizes the NSPanel (anchoring the top-right corner so the orb stays put)
-    /// to fit the expanded card or collapse back to orb-only size.
-    func handleHoverChanged(isHovered: Bool) {
-        let orbDiameter: CGFloat = 72
-        let cardWidth: CGFloat = 260
-        let orbCardGap: CGFloat = 8
-        let expandedWidth = cardWidth + orbCardGap + orbDiameter
-        let expandedHeight: CGFloat = 280
-
-        let topRightX = orbTopRightCorner.x
-        let topRightY = orbTopRightCorner.y
-
-        let newSize: NSSize = isHovered
-            ? NSSize(width: expandedWidth, height: expandedHeight)
-            : NSSize(width: orbDiameter, height: orbDiameter)
-
-        let proposedOrigin = NSPoint(
-            x: topRightX - newSize.width,
-            y: topRightY - newSize.height
-        )
-        let clampedOrigin = Self.clampOriginToScreen(origin: proposedOrigin, windowSize: newSize)
-        panel.setFrame(NSRect(origin: clampedOrigin, size: newSize), display: true, animate: false)
     }
 
     // MARK: Screen clamping
@@ -351,15 +318,19 @@ final class LumaAgentDockWindowManager {
     }
 
     /// Computes a default spawn origin staggered from the bottom-right corner.
+    /// The fixed 340×300 panel is placed so its right edge is flush with the screen's
+    /// right edge — the orb (trailing end, 12 pt right padding) then appears ~12 pt
+    /// from the right screen edge. Orbs stack upward with 10 pt gaps between them.
     private func defaultSpawnOriginForNewBubble(existingCount: Int) -> NSPoint {
         guard let screen = NSScreen.main else { return .zero }
         let visibleFrame = screen.visibleFrame
-        let orbDiameter: CGFloat = 72
+        let fixedPanelWidth: CGFloat = 340
+        let orbViewDiameter: CGFloat = 48
         let spacingBetweenBubbles: CGFloat = 10
-        let rightEdgeX = visibleFrame.maxX - orbDiameter - 20
+        let originX = visibleFrame.maxX - fixedPanelWidth
         let baseY = visibleFrame.minY + 120
-        let stackedY = baseY + CGFloat(existingCount) * (orbDiameter + spacingBetweenBubbles)
-        return NSPoint(x: rightEdgeX, y: stackedY)
+        let stackedY = baseY + CGFloat(existingCount) * (orbViewDiameter + spacingBetweenBubbles)
+        return NSPoint(x: originX, y: stackedY)
     }
 
     // MARK: Physics timer
@@ -698,7 +669,7 @@ private struct AgentGlassyOrbView: View {
             OrbStatusDot(status: session.status)
                 .offset(x: 26, y: -26)
         }
-        .frame(width: 72, height: 72)
+        .frame(width: 48, height: 48)
         // Outer glow ring — intensity increases on hover
         .shadow(color: session.glowColor.opacity(isHovered ? 0.55 : 0.35), radius: isHovered ? 18 : 12)
         .shadow(color: Color.black.opacity(0.45), radius: 10, y: 4)
@@ -771,7 +742,14 @@ private struct OrbStatusDot: View {
 // MARK: - AgentBubbleRootView
 
 /// Root SwiftUI view hosted in each AgentBubbleWindow panel.
-/// Lays out: [expanded card] [orb] — card appears to the left of the orb on hover.
+/// The panel is a fixed 340×300 rect. The left ~268 pt is transparent when the card is
+/// hidden, so the panel never needs to resize on hover (eliminating the resize feedback loop).
+///
+/// Layout:
+///   ZStack(alignment: .trailing)
+///     Color.clear (passthrough — desktop clicks fall through the transparent region)
+///     HStack { [card (optional)] [orb + horizontal padding for shake buffer] }
+///       .onHover → animates isHovered, card appears/disappears
 private struct AgentBubbleRootView: View {
     @ObservedObject var session: AgentSession
     @ObservedObject var physicsState: AgentBubblePhysicsState
@@ -779,7 +757,6 @@ private struct AgentBubbleRootView: View {
     let onDragStarted: () -> Void
     let onDragUpdated: () -> Void
     let onDragEnded: () -> Void
-    let onHoverChanged: (Bool) -> Void
     let onDismiss: () -> Void
     let onRunSuggestedAction: (String) -> Void
     let onSubmitText: (String) -> Void
@@ -789,40 +766,48 @@ private struct AgentBubbleRootView: View {
     @State private var isHovered = false
 
     var body: some View {
-        HStack(alignment: .center, spacing: 0) {
-            if isHovered {
-                AgentBubbleExpandedRichCard(
+        ZStack(alignment: .trailing) {
+            // Fills the full fixed panel but passes all mouse events through to the
+            // desktop — only the HStack below captures hover/click events.
+            Color.clear.allowsHitTesting(false)
+
+            // Content: card (optional) + orb. Trailing-aligned so the orb stays at the
+            // right edge of the panel whether or not the card is visible.
+            HStack(alignment: .center, spacing: 0) {
+                if isHovered {
+                    AgentBubbleExpandedRichCard(
+                        session: session,
+                        physicsState: physicsState,
+                        onDismiss: onDismiss,
+                        onRunSuggestedAction: onRunSuggestedAction,
+                        onSubmitText: onSubmitText,
+                        onVoiceToggle: onVoiceToggle
+                    )
+                    .padding(.trailing, 8)
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .trailing).combined(with: .opacity),
+                        removal: .opacity
+                    ))
+                }
+                AgentGlassyOrbView(
                     session: session,
                     physicsState: physicsState,
-                    onDismiss: onDismiss,
-                    onRunSuggestedAction: onRunSuggestedAction,
-                    onSubmitText: onSubmitText,
-                    onVoiceToggle: onVoiceToggle
+                    isHovered: isHovered,
+                    onDragStarted: onDragStarted,
+                    onDragUpdated: onDragUpdated,
+                    onDragEnded: onDragEnded
                 )
-                .padding(.trailing, 8)
-                .transition(.asymmetric(
-                    insertion: .move(edge: .trailing).combined(with: .opacity),
-                    removal: .opacity
-                ))
+                // Horizontal padding provides a clipping buffer: physics shake is ±8 pt so
+                // 12 pt of padding on each side keeps the orb visible inside the panel.
+                .padding(.horizontal, 12)
             }
-            AgentGlassyOrbView(
-                session: session,
-                physicsState: physicsState,
-                isHovered: isHovered,
-                onDragStarted: onDragStarted,
-                onDragUpdated: onDragUpdated,
-                onDragEnded: onDragEnded
-            )
-        }
-        // Align content to trailing so orb stays on the right as the panel expands leftward.
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-        .onHover { hovering in
-            // Resize the NSPanel BEFORE animating SwiftUI so the panel is already
-            // the right size when SwiftUI starts the card transition.
-            onHoverChanged(hovering)
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                isHovered = hovering
+            .onHover { hovering in
+                // No panel resize needed — just toggle SwiftUI card state.
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                    isHovered = hovering
+                }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
