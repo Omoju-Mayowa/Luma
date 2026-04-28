@@ -396,6 +396,127 @@ final class LumaAgentDockWindowManager {
     }
 }
 
+// MARK: - AgentGlassyOrbView
+
+/// 72×72 circular bubble with glassy orb aesthetic:
+/// radial gradient fill, specular highlight, glow ring, pulsing status dot, icon.
+private struct AgentGlassyOrbView: View {
+    @ObservedObject var session: AgentSession
+    @ObservedObject var physicsState: AgentBubblePhysicsState
+    let isHovered: Bool
+    let onDragStarted: () -> Void
+    let onDragUpdated: () -> Void
+    let onDragEnded: () -> Void
+
+    @State private var isDragActive = false
+
+    var body: some View {
+        ZStack {
+            // Base circle — radial gradient from accent color at top-left to near-black center
+            Circle()
+                .fill(
+                    RadialGradient(
+                        gradient: Gradient(colors: [
+                            session.glowColor.opacity(0.55),
+                            Color(red: 0.03, green: 0.02, blue: 0.07)
+                        ]),
+                        center: UnitPoint(x: 0.35, y: 0.35),
+                        startRadius: 0,
+                        endRadius: 44
+                    )
+                )
+                .overlay(
+                    Circle()
+                        .stroke(session.glowColor.opacity(0.4), lineWidth: 1)
+                )
+
+            // Specular highlight — small white oval at top-left, simulates glass sheen
+            Ellipse()
+                .fill(Color.white.opacity(0.22))
+                .frame(width: 20, height: 9)
+                .rotationEffect(.degrees(-20))
+                .offset(x: -10, y: -17)
+                .blendMode(.screen)
+
+            // Agent icon shape, centered
+            Image(systemName: session.iconShape.systemImageName)
+                .font(.system(size: 24, weight: .heavy))
+                .foregroundColor(session.glowColor.opacity(0.9))
+
+            // Status dot — top-right corner, pulsing when running
+            OrbStatusDot(status: session.status)
+                .offset(x: 26, y: -26)
+        }
+        .frame(width: 72, height: 72)
+        // Outer glow ring — intensity increases on hover
+        .shadow(color: session.glowColor.opacity(isHovered ? 0.55 : 0.35), radius: isHovered ? 18 : 12)
+        .shadow(color: Color.black.opacity(0.45), radius: 10, y: 4)
+        // Scale slightly on hover
+        .scaleEffect(isHovered ? 1.06 : 1.0)
+        // Physics displacement — applied with fast linear animation so shake feels snappy
+        .offset(x: physicsState.physicsOffset.width, y: physicsState.physicsOffset.height)
+        .animation(.linear(duration: 0.04), value: physicsState.physicsOffset)
+        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: isHovered)
+        // Drag gesture moves the parent NSPanel via coordinator callbacks
+        .gesture(
+            DragGesture(minimumDistance: 4, coordinateSpace: .global)
+                .onChanged { _ in
+                    if !isDragActive {
+                        isDragActive = true
+                        onDragStarted()
+                    }
+                    onDragUpdated()
+                }
+                .onEnded { _ in
+                    isDragActive = false
+                    onDragEnded()
+                }
+        )
+        .pointerCursor()
+    }
+}
+
+// MARK: - OrbStatusDot
+
+/// Pulsing colored dot indicating agent session status.
+private struct OrbStatusDot: View {
+    let status: AgentSessionStatus
+    @State private var isPulsingLarge = false
+
+    private var dotColor: Color {
+        switch status {
+        case .stopped:              return Color.gray.opacity(0.5)
+        case .starting, .running:   return Color.yellow
+        case .ready:                return Color.green
+        case .failed:               return Color.red
+        }
+    }
+
+    private var isPulsing: Bool {
+        status == .running || status == .starting
+    }
+
+    var body: some View {
+        Circle()
+            .fill(dotColor)
+            .frame(width: 10, height: 10)
+            .shadow(color: dotColor.opacity(0.85), radius: 4)
+            .overlay(Circle().stroke(Color(red: 0.05, green: 0.04, blue: 0.08), lineWidth: 1.5))
+            .scaleEffect(isPulsing && isPulsingLarge ? 0.65 : 1.0)
+            .opacity(isPulsing && isPulsingLarge ? 0.35 : 1.0)
+            .animation(
+                isPulsing
+                    ? .easeInOut(duration: 0.6).repeatForever(autoreverses: true)
+                    : .default,
+                value: isPulsingLarge
+            )
+            .onAppear { isPulsingLarge = isPulsing }
+            .onChange(of: isPulsing) { active in
+                isPulsingLarge = active
+            }
+    }
+}
+
 // MARK: - AgentBubbleRootView
 
 /// Root SwiftUI view hosted in each AgentBubbleWindow panel.
@@ -415,29 +536,18 @@ private struct AgentBubbleRootView: View {
     let onVoiceToggle: () -> Void
 
     @State private var isHovered = false
-    @State private var isDragActive = false
 
     var body: some View {
         HStack(alignment: .center, spacing: 0) {
-            Circle()
-                .fill(session.glowColor.opacity(0.5))
-                .frame(width: 72, height: 72)
-                .offset(x: physicsState.physicsOffset.width, y: physicsState.physicsOffset.height)
-                .animation(.linear(duration: 0.04), value: physicsState.physicsOffset)
-                .gesture(
-                    DragGesture(minimumDistance: 4, coordinateSpace: .global)
-                        .onChanged { _ in
-                            if !isDragActive {
-                                isDragActive = true
-                                onDragStarted()
-                            }
-                            onDragUpdated()
-                        }
-                        .onEnded { _ in
-                            isDragActive = false
-                            onDragEnded()
-                        }
-                )
+            // Expanded card will be added here in Task 3
+            AgentGlassyOrbView(
+                session: session,
+                physicsState: physicsState,
+                isHovered: isHovered,
+                onDragStarted: onDragStarted,
+                onDragUpdated: onDragUpdated,
+                onDragEnded: onDragEnded
+            )
         }
         // Align content to trailing so orb stays on the right as the panel expands leftward.
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
