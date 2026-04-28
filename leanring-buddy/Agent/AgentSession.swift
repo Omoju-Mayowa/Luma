@@ -88,7 +88,9 @@ final class AgentSession: ObservableObject, Identifiable {
     }
 
     var latestActivitySummary: String? {
-        entries.last(where: { $0.role == .assistant })?.text
+        guard let raw = entries.last(where: { $0.role == .assistant })?.text else { return nil }
+        let normalized = LumaWriteEngine.normalizeForDisplay(raw)
+        return normalized.isEmpty ? nil : normalized
     }
 
     var hasVisibleActivity: Bool {
@@ -284,23 +286,24 @@ final class AgentSession: ObservableObject, Identifiable {
     static let taskCompletedNotificationName = Notification.Name("lumaAgentTaskCompleted")
 
     private func announceTaskCompletion() {
-        let completionSummary = entries.last(where: { $0.role == .assistant })?.text ?? "Task completed"
-        let truncatedSummary = completionSummary.count > 200
-            ? String(completionSummary.prefix(200)) + "..."
-            : completionSummary
+        let rawLastResponse = entries.last(where: { $0.role == .assistant })?.text ?? "Task completed."
+        // Strip control tags and enforce 150-char display limit before broadcasting.
+        // The system prompt already instructs Claude to stay under 25 words; this is
+        // a hard guardrail so nothing unexpected leaks to TTS or the overlay bubble.
+        let cleanedSummary = LumaWriteEngine.cleanAndTruncate(rawLastResponse, maxLength: 150)
 
-        // Post notification so overlay/pointer bubble can display the result
+        // Post notification — callers use "summary" only; "title" is kept for logging.
         NotificationCenter.default.post(
             name: Self.taskCompletedNotificationName,
             object: nil,
             userInfo: [
                 "sessionId": id,
                 "title": title,
-                "summary": truncatedSummary
+                "summary": cleanedSummary
             ]
         )
 
-        LumaLogger.log("[Luma] Agent '\(title)' completed task: \(truncatedSummary.prefix(80))...")
+        LumaLogger.log("[Luma] Agent '\(title)' completed: \(cleanedSummary.prefix(80))")
     }
 
     // MARK: - Task Summarization

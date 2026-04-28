@@ -362,7 +362,7 @@ private struct LumaHUDView: View {
                     }) {
                         Image(systemName: "xmark")
                             .font(.system(size: 8, weight: .bold))
-                            .foregroundColor(DS.Colors.textTertiary)
+                            .foregroundColor(DS.Colors.textPrimary)
                     }
                     .buttonStyle(.plain)
                     Button(action: {

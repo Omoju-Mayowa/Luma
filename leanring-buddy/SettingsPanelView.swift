@@ -55,6 +55,8 @@ struct SettingsPanelView: View {
                     .onHover { isHovering in
                         if isHovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
                     }
+                    .padding(.trailing, 24) //24 points for margin right
+
             }
         }
     }
@@ -66,12 +68,12 @@ struct SettingsPanelView: View {
 
     private var settingsSidebar: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Luma Settings")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundColor(DS.Colors.textPrimary)
-                .padding(.horizontal, 14)
-                .padding(.top, 18)
-                .padding(.bottom, 12)
+//            Text("Luma Settings")
+//                .font(.system(size: 18, weight: .semibold))
+//                .foregroundColor(DS.Colors.textPrimary)
+//                .padding(.horizontal, 14)
+//                .padding(.top, 18)
+//                .padding(.bottom, 12)
 
             ForEach(SettingsTab.allCases) { tab in
                 settingsSidebarButton(tab: tab)
@@ -114,8 +116,6 @@ struct SettingsPanelView: View {
             ModelTabView(profileManager: profileManager)
         case .voice:
             VoiceSettingsTabView()
-        case .cursor:
-            CursorCustomizerTabView()
         case .agents:
             AgentModeTabView()
         case .general:
@@ -158,7 +158,6 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
     case api
     case model
     case voice
-    case cursor
     case agents
     case general
 
@@ -170,7 +169,6 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
         case .api: return "API"
         case .model: return "Model"
         case .voice: return "Voice"
-        case .cursor: return "Luma Cursor"
         case .agents: return "Agents"
         case .general: return "General"
         }
@@ -182,7 +180,6 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
         case .api: return "key.horizontal"
         case .model: return "cpu"
         case .voice: return "waveform"
-        case .cursor: return "cursorarrow"
         case .agents: return "bubble.left.and.bubble.right"
         case .general: return "gearshape"
         }
@@ -198,8 +195,6 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
             return "Choose the active model for companion responses."
         case .voice:
             return "Adjust speech voice, pitch, rate, and volume."
-        case .cursor:
-            return "Customize the Luma floating cursor shape, color, and state behavior."
         case .agents:
             return "Set agent limits, defaults, and agent-mode options."
         case .general:
@@ -1352,224 +1347,6 @@ private struct VoiceSettingsTabView: View {
             // Preview is best-effort — swallow cancellation or other errors
         }
         isPreviewPlaying = false
-    }
-}
-
-// MARK: - Tab 5: Cursor Customizer
-
-/// Per-state cursor customization: shape, color, and size for Idle, Pointing,
-/// Listening, and Processing states. Includes a live preview canvas and reset button.
-@MainActor
-private struct CursorCustomizerTabView: View {
-
-    @State private var cursorProfile: CursorProfile = CursorProfile.loadFromKeychain()
-
-    /// Which state section is expanded for editing (nil = none).
-    @State private var selectedPreviewState: LumaCursorState = .idle
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: DS.Spacing.lg) {
-
-                Text("These settings customize the Luma floating cursor overlay, not your macOS system cursor.")
-                    .font(.system(size: 12))
-                    .foregroundColor(DS.Colors.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                // Live preview canvas at top
-                cursorPreviewCanvas
-
-                // One section per configurable state (hover shares idle settings)
-                cursorStateSection(state: .idle, appearance: $cursorProfile.idle)
-                Divider()
-                cursorStateSection(state: .pointing, appearance: $cursorProfile.pointing)
-                Divider()
-                cursorStateSection(state: .listening, appearance: $cursorProfile.listening)
-                Divider()
-                cursorStateSection(state: .processing, appearance: $cursorProfile.processing)
-
-                Divider()
-
-                // Reset to default
-                Button("Reset to Default") {
-                    cursorProfile = .defaultProfile
-                    cursorProfile.saveToKeychain()
-                    CustomCursorManager.shared.reloadCursorProfile()
-                }
-                .buttonStyle(.plain)
-                .font(.system(size: 13))
-                .foregroundColor(DS.Colors.destructive)
-                .onHover { isHovering in
-                    if isHovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                }
-            }
-            .padding(DS.Spacing.xl)
-        }
-        .onChange(of: cursorProfile) { newProfile in
-            newProfile.saveToKeychain()
-            CustomCursorManager.shared.reloadCursorProfile()
-        }
-    }
-
-    // MARK: Preview Canvas
-
-    private var cursorPreviewCanvas: some View {
-        VStack(spacing: DS.Spacing.sm) {
-            // State picker row for preview
-            HStack(spacing: DS.Spacing.sm) {
-                ForEach([LumaCursorState.idle, .pointing, .listening, .processing], id: \.self) { state in
-                    Button {
-                        selectedPreviewState = state
-                    } label: {
-                        Text(state.displayName)
-                            .font(.system(size: 11))
-                            .foregroundColor(selectedPreviewState == state
-                                             ? DS.Colors.textPrimary
-                                             : DS.Colors.textSecondary)
-                            .padding(.horizontal, DS.Spacing.sm)
-                            .padding(.vertical, 4)
-                            .background(selectedPreviewState == state
-                                        ? DS.Colors.surface2
-                                        : Color.clear)
-                            .cornerRadius(DS.CornerRadius.small)
-                    }
-                    .buttonStyle(.plain)
-                    .onHover { isHovering in
-                        if isHovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                    }
-                }
-            }
-
-            // Preview canvas
-            ZStack {
-                RoundedRectangle(cornerRadius: DS.CornerRadius.large)
-                    .fill(Color(red: 0.08, green: 0.08, blue: 0.10))
-                    .frame(height: 160)
-
-                let previewAppearance = cursorProfile.appearance(for: selectedPreviewState)
-                CursorShapePreview(
-                    shape: previewAppearance.shape,
-                    color: previewAppearance.color,
-                    size: previewAppearance.size
-                )
-            }
-        }
-    }
-
-    // MARK: Per-State Section
-
-    private func cursorStateSection(state: LumaCursorState, appearance: Binding<CursorStateAppearance>) -> some View {
-        VStack(alignment: .leading, spacing: DS.Spacing.sm) {
-            Text(state.displayName)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundColor(DS.Colors.textPrimary)
-
-            // Shape picker — grid of shape options
-            HStack(spacing: DS.Spacing.sm) {
-                Text("Shape")
-                    .font(.system(size: 13))
-                    .foregroundColor(DS.Colors.textSecondary)
-                    .frame(width: 50, alignment: .leading)
-
-                ForEach(CursorShape.allCases) { shape in
-                    Button {
-                        appearance.wrappedValue.shape = shape
-                    } label: {
-                        Image(systemName: shape.sfSymbolName)
-                            .font(.system(size: 16))
-                            .foregroundColor(appearance.wrappedValue.shape == shape
-                                             ? DS.Colors.textPrimary
-                                             : DS.Colors.textTertiary)
-                            .frame(width: 32, height: 32)
-                            .background(appearance.wrappedValue.shape == shape
-                                        ? DS.Colors.surface2
-                                        : Color.clear)
-                            .cornerRadius(DS.CornerRadius.small)
-                    }
-                    .buttonStyle(.plain)
-                    .onHover { isHovering in
-                        if isHovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                    }
-                }
-            }
-
-            // Color picker
-            HStack(spacing: DS.Spacing.sm) {
-                Text("Color")
-                    .font(.system(size: 13))
-                    .foregroundColor(DS.Colors.textSecondary)
-                    .frame(width: 50, alignment: .leading)
-
-                ColorPicker(
-                    "",
-                    selection: Binding(
-                        get: { appearance.wrappedValue.color },
-                        set: { newColor in
-                            appearance.wrappedValue.colorHex = newColor.hexString
-                        }
-                    ),
-                    supportsOpacity: false
-                )
-                .labelsHidden()
-
-                Text(appearance.wrappedValue.colorHex)
-                    .font(.system(size: 11))
-                    .foregroundColor(DS.Colors.textTertiary)
-                    .monospacedDigit()
-            }
-
-            // Size slider
-            HStack(spacing: DS.Spacing.sm) {
-                Text("Size")
-                    .font(.system(size: 13))
-                    .foregroundColor(DS.Colors.textSecondary)
-                    .frame(width: 50, alignment: .leading)
-
-                Slider(value: appearance.size, in: 8...32, step: 1)
-                    .frame(maxWidth: 200)
-
-                Text("\(Int(appearance.wrappedValue.size))pt")
-                    .font(.system(size: 13))
-                    .foregroundColor(DS.Colors.textSecondary)
-                    .monospacedDigit()
-                    .frame(width: 40, alignment: .trailing)
-            }
-        }
-    }
-}
-
-/// Small SwiftUI view that renders a preview of a cursor shape at the given size and color.
-private struct CursorShapePreview: View {
-    let shape: CursorShape
-    let color: Color
-    let size: CGFloat
-
-    var body: some View {
-        Group {
-            switch shape {
-            case .teardrop:
-                Image(systemName: "drop.fill")
-                    .font(.system(size: size))
-                    .rotationEffect(.degrees(180))
-            case .circle:
-                Circle()
-                    .frame(width: size, height: size)
-            case .roundedTriangle:
-                Image(systemName: "triangle.fill")
-                    .font(.system(size: size))
-            case .diamond:
-                Image(systemName: "diamond.fill")
-                    .font(.system(size: size))
-            case .cross:
-                Image(systemName: "plus")
-                    .font(.system(size: size, weight: .bold))
-            case .dot:
-                Circle()
-                    .frame(width: max(size * 0.5, 6), height: max(size * 0.5, 6))
-            }
-        }
-        .foregroundColor(color)
-        .shadow(color: color.opacity(0.6), radius: 8)
     }
 }
 

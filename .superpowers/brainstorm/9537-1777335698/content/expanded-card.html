@@ -1,0 +1,210 @@
+<h2>Expanded Card — Glassy Orb Style</h2>
+<p class="subtitle">Hover card that slides out left when you mouse over the bubble. Two layout options.</p>
+
+<style>
+body { background: #090910; }
+
+.preview-row {
+  display: flex;
+  gap: 40px;
+  justify-content: center;
+  align-items: flex-start;
+  margin: 28px 0;
+  flex-wrap: wrap;
+}
+
+/* ─── SHARED ORB ─── */
+.orb-wrap { display: flex; align-items: flex-start; gap: 10px; flex-direction: row-reverse; }
+.orb {
+  width: 60px; height: 60px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 24px;
+  position: relative;
+  cursor: pointer;
+}
+
+/* ─── CARD A: Compact Info Strip ─── */
+.card-a {
+  width: 240px;
+  background: rgba(10, 8, 22, 0.92);
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,0.07);
+  box-shadow: 0 2px 0 rgba(255,255,255,0.05) inset, 0 20px 48px rgba(0,0,0,0.7), 0 0 0 1px rgba(0,0,0,0.4);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  position: relative;
+  overflow: hidden;
+}
+.card-a::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.12) 50%, transparent 100%);
+}
+.glow-ring-a {
+  position: absolute;
+  top: -40px; right: -40px;
+  width: 120px; height: 120px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(124,111,247,0.15) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+/* ─── CARD B: Full Rich Card ─── */
+.card-b {
+  width: 260px;
+  background: rgba(8, 6, 18, 0.95);
+  border-radius: 20px;
+  padding: 0;
+  overflow: hidden;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.06);
+  position: relative;
+}
+.card-b-header {
+  padding: 14px 14px 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  background: rgba(255,255,255,0.02);
+  position: relative;
+  overflow: hidden;
+}
+.card-b-header::after {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(124,111,247,0.3), transparent);
+}
+.card-b-body { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 10px; }
+
+/* ─── SHARED COMPONENTS ─── */
+.row { display: flex; align-items: center; gap: 6px; }
+.agent-name { font-size: 11px; font-weight: 800; letter-spacing: 0.07em; text-transform: uppercase; }
+.status-chip {
+  font-size: 9px; font-weight: 700; letter-spacing: 0.05em;
+  padding: 2px 7px; border-radius: 20px;
+  text-transform: uppercase;
+}
+.chip-working { background: rgba(250,204,21,0.12); color: #fbbf24; border: 1px solid rgba(250,204,21,0.2); }
+.chip-ready { background: rgba(34,197,94,0.1); color: #4ade80; border: 1px solid rgba(34,197,94,0.2); }
+.pulse-dot { width: 6px; height: 6px; border-radius: 50%; background: #fbbf24; box-shadow: 0 0 6px rgba(251,191,36,0.8); animation: pulse 1.2s ease-in-out infinite; flex-shrink: 0; }
+@keyframes pulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(0.7); } }
+
+.response-text { font-size: 11.5px; color: rgba(255,255,255,0.65); line-height: 1.6; }
+
+.action-pills { display: flex; gap: 5px; flex-wrap: wrap; }
+.pill {
+  font-size: 9.5px; font-weight: 600; padding: 4px 10px; border-radius: 20px;
+  background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.55); cursor: pointer; white-space: nowrap;
+}
+.pill:hover { background: rgba(255,255,255,0.09); color: rgba(255,255,255,0.85); }
+
+.input-row {
+  display: flex; gap: 6px; align-items: center;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 10px; padding: 5px 8px 5px 10px;
+}
+.fake-input { font-size: 10.5px; color: rgba(255,255,255,0.25); flex: 1; font-style: italic; }
+.send-btn {
+  width: 24px; height: 24px; border-radius: 7px; display: flex; align-items: center; justify-content: center;
+  background: rgba(124,111,247,0.7); font-size: 10px; color: white; cursor: pointer; flex-shrink: 0;
+}
+
+.label-tiny { font-size: 9px; font-weight: 600; color: rgba(255,255,255,0.25); letter-spacing: 0.08em; text-transform: uppercase; }
+.close-btn { margin-left: auto; font-size: 13px; color: rgba(255,255,255,0.2); cursor: pointer; line-height: 1; }
+.close-btn:hover { color: rgba(255,255,255,0.6); }
+.spacer { flex: 1; }
+
+/* option wrapper */
+.opt-wrap { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.opt-label { font-size: 12px; font-weight: 700; color: rgba(255,255,255,0.6); }
+.opt-desc { font-size: 10.5px; color: rgba(255,255,255,0.35); text-align: center; max-width: 240px; line-height: 1.5; }
+
+.pick-row { display: flex; gap: 12px; margin-top: 4px; }
+.pick-btn {
+  padding: 8px 20px; border-radius: 10px; font-size: 11px; font-weight: 700; cursor: pointer;
+  border: 1.5px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.04);
+  color: rgba(255,255,255,0.6); transition: all 0.15s;
+}
+.pick-btn:hover, .pick-btn.selected { background: rgba(124,111,247,0.2); border-color: rgba(124,111,247,0.5); color: rgba(200,190,255,0.95); }
+</style>
+
+<div class="preview-row">
+
+  <!-- Option A: Compact -->
+  <div class="opt-wrap" data-choice="compact" onclick="toggleSelect(this)">
+    <div class="orb-wrap">
+      <div class="orb" style="background: radial-gradient(circle at 35% 35%, rgba(100,80,220,0.6), rgba(8,6,18,0.95)); border: 1px solid rgba(124,111,247,0.4); box-shadow: 0 0 22px rgba(124,111,247,0.35), inset 0 1px 0 rgba(255,255,255,0.18);">
+        ⬡
+        <div style="position:absolute;top:4px;left:8px;width:16px;height:7px;border-radius:50%;background:rgba(255,255,255,0.22);transform:rotate(-20deg);"></div>
+        <div style="position:absolute;top:-2px;right:-2px;width:10px;height:10px;border-radius:50%;background:#fbbf24;box-shadow:0 0 7px rgba(251,191,36,0.9);border:1.5px solid #090910;"></div>
+      </div>
+
+      <div class="card-a">
+        <div class="glow-ring-a"></div>
+        <div class="row">
+          <div class="pulse-dot"></div>
+          <span class="agent-name" style="color: rgba(180,160,255,0.9);">Research Task</span>
+          <span class="close-btn">✕</span>
+        </div>
+        <div class="response-text">Analysing market data across 5 regions. Found 3 key pricing patterns so far...</div>
+        <div class="action-pills">
+          <div class="pill">Summarise findings</div>
+          <div class="pill">Export as CSV</div>
+        </div>
+        <div class="input-row">
+          <span class="fake-input">Ask a follow-up...</span>
+          <div class="send-btn">↑</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="opt-label">A — Compact Strip</div>
+    <div class="opt-desc">Minimal card. Fast to scan. Status + text + actions + input. No dividers.</div>
+  </div>
+
+  <!-- Option B: Rich -->
+  <div class="opt-wrap" data-choice="rich" onclick="toggleSelect(this)">
+    <div class="orb-wrap">
+      <div class="orb" style="background: radial-gradient(circle at 35% 35%, rgba(20,170,150,0.5), rgba(8,6,18,0.95)); border: 1px solid rgba(20,210,180,0.35); box-shadow: 0 0 22px rgba(20,210,180,0.3), inset 0 1px 0 rgba(255,255,255,0.15);">
+        ◆
+        <div style="position:absolute;top:4px;left:8px;width:16px;height:7px;border-radius:50%;background:rgba(255,255,255,0.18);transform:rotate(-20deg);"></div>
+        <div style="position:absolute;top:-2px;right:-2px;width:10px;height:10px;border-radius:50%;background:#fbbf24;box-shadow:0 0 7px rgba(251,191,36,0.9);border:1.5px solid #090910;"></div>
+      </div>
+
+      <div class="card-b">
+        <div class="card-b-header">
+          <div class="row">
+            <div class="pulse-dot"></div>
+            <span class="agent-name" style="color: rgba(100,240,210,0.9);">Code Review</span>
+            <span class="spacer"></span>
+            <span class="status-chip chip-working">Working</span>
+            <span class="close-btn" style="margin-left:8px;">✕</span>
+          </div>
+        </div>
+        <div class="card-b-body">
+          <div class="response-text">Reviewing PR #47. Found potential SQL injection in auth middleware on line 84. Checking 3 more files...</div>
+          <div>
+            <div class="label-tiny" style="margin-bottom: 5px;">Next steps</div>
+            <div class="action-pills">
+              <div class="pill">View issues</div>
+              <div class="pill">Auto-fix</div>
+            </div>
+          </div>
+          <div class="input-row">
+            <span class="fake-input">Ask a follow-up...</span>
+            <div class="send-btn" style="background: rgba(20,210,180,0.6);">↑</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="opt-label">B — Rich Card</div>
+    <div class="opt-desc">Structured card with a header section and body. Status chip, accent gradient divider, clear sections.</div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="text-align:center;">Click A or B to pick the expanded card layout. Both use the Glassy Orb bubble.</p>

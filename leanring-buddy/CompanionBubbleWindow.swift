@@ -12,7 +12,7 @@
 //    whatever app the user is currently working in.
 //  - The bubble content is rendered via a SwiftUI BubbleContentView hosted in an
 //    NSHostingView, bridged into AppKit. This lets us use SwiftUI animations,
-//    modifiers, and LumaTheme tokens while still controlling the panel lifecycle in
+//    modifiers, and DS tokens while still controlling the panel lifecycle in
 //    AppKit where we need it (level, collection behavior, ignoresMouseEvents).
 //  - Mouse position tracking uses two NSEvent monitors: one global (fires while any
 //    other app is in front) and one local (fires while Luma itself is focused).
@@ -70,10 +70,10 @@ struct BubbleContentView: View {
 
     // MARK: - Layout Constants
 
-    /// Horizontal padding inside the bubble, matching LumaTheme spacing.
+    /// Horizontal padding inside the bubble, matching DS spacing.
     private let horizontalPaddingAmount: CGFloat = 14
 
-    /// Vertical padding inside the bubble, matching LumaTheme spacing.
+    /// Vertical padding inside the bubble, matching DS spacing.
     private let verticalPaddingAmount: CGFloat = 10
 
     /// Minimum width so the bubble doesn't collapse to just a few characters (PRD 7.4: 200pt).
@@ -85,8 +85,8 @@ struct BubbleContentView: View {
     /// Maximum height before content scrolls.
     private let maximumBubbleHeight: CGFloat = 300
 
-    /// Corner radius matching LumaTheme.CornerRadius.bubble.
-    private let bubbleCornerRadius: CGFloat = LumaTheme.CornerRadius.bubble
+    /// Corner radius matching DS.CornerRadius.extraLarge.
+    private let bubbleCornerRadius: CGFloat = DS.CornerRadius.extraLarge
 
     /// Gradient border line width — slightly thicker for the animated gradient to be visible.
     private let gradientBorderLineWidth: CGFloat = 1.0
@@ -183,14 +183,14 @@ struct BubbleContentView: View {
                                                             options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
                 Text(attributedString)
                     .font(.system(size: 13, weight: .regular))
-                    .foregroundColor(LumaTheme.textPrimary)
+                    .foregroundColor(DS.Colors.textPrimary)
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
             } else {
                 Text(contentState.bubbleText)
                     .font(.system(size: 13, weight: .regular))
-                    .foregroundColor(LumaTheme.textPrimary)
+                    .foregroundColor(DS.Colors.textPrimary)
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -205,8 +205,8 @@ struct BubbleContentView: View {
             ForEach(0..<contentState.walkthroughTotalSteps, id: \.self) { stepIndex in
                 Circle()
                     .fill(stepIndex <= contentState.walkthroughCurrentStep
-                          ? LumaTheme.companionColor
-                          : LumaTheme.textPrimary.opacity(0.2))
+                          ? LumaAccentTheme.current.cursorColor
+                          : DS.Colors.textPrimary.opacity(0.2))
                     .frame(width: 5, height: 5)
                     .animation(.easeInOut(duration: 0.2), value: contentState.walkthroughCurrentStep)
             }
@@ -214,7 +214,7 @@ struct BubbleContentView: View {
             if contentState.walkthroughTotalSteps > 0 {
                 Text("\(contentState.walkthroughCurrentStep + 1)/\(contentState.walkthroughTotalSteps)")
                     .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(LumaTheme.textSecondary)
+                    .foregroundColor(DS.Colors.textSecondary)
             }
         }
     }
@@ -387,13 +387,34 @@ final class CompanionBubbleWindow {
         // Update text first so the view is ready before we order it front.
         bubbleContentState.bubbleText = text
 
+        // Let SwiftUI complete its layout pass, then resize the NSPanel to fit
+        // the actual text content. This ensures single-line responses get a
+        // compact bubble and multi-line text grows the panel to match.
+        DispatchQueue.main.async { [weak self] in
+            self?.resizePanelToFitContent()
+        }
+
         // Position the bubble at the current cursor location before making it visible
         // so there's no frame-of-lag where it appears at (0,0).
         updateBubblePanelPositionToFollowCursor()
 
         if !isVisible {
-            bubblePanel.alphaValue = 1.0
+            bubblePanel.alphaValue = 0.0
+            let visibleFrame = bubblePanel.frame
+            let startFrame = NSRect(
+                x: visibleFrame.origin.x,
+                y: visibleFrame.origin.y - 6,
+                width: visibleFrame.width,
+                height: visibleFrame.height
+            )
+            bubblePanel.setFrame(startFrame, display: false)
             bubblePanel.orderFront(nil)
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.18
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                bubblePanel.animator().alphaValue = 1.0
+                bubblePanel.animator().setFrame(visibleFrame, display: true)
+            }
             isVisible = true
         }
     }
@@ -425,6 +446,20 @@ final class CompanionBubbleWindow {
         }
     }
 
+    // MARK: - Private Sizing
+
+    /// Resizes the NSPanel to match the SwiftUI content's natural size, clamped
+    /// between the same min/max values used by BubbleContentView.
+    /// Must be called after SwiftUI has had a layout pass (dispatch async to main).
+    private func resizePanelToFitContent() {
+        guard let contentView = bubblePanel.contentView else { return }
+        let naturalSize = contentView.fittingSize
+        // Clamp to the same bounds BubbleContentView uses
+        let clampedWidth  = max(200, min(naturalSize.width,  380))
+        let clampedHeight = max(30,  min(naturalSize.height, 300))
+        bubblePanel.setContentSize(CGSize(width: clampedWidth, height: clampedHeight))
+    }
+
     // MARK: - Private Positioning
 
     /// Reads the current global cursor position and repositions the bubble panel
@@ -441,17 +476,18 @@ final class CompanionBubbleWindow {
             screen.frame.contains(currentCursorLocation)
         } ?? NSScreen.main ?? NSScreen.screens[0]
 
-        let screenFrame = screenContainingCursor.frame
+        let screenFrame = screenContainingCursor.visibleFrame
+        let bubbleSize = bubblePanel.frame.size == .zero ? approximateBubbleSize : bubblePanel.frame.size
 
         // Start with the default position: right and below the cursor tip.
         var bubbleOriginX = currentCursorLocation.x + cursorRightOffsetPoints
-        var bubbleOriginY = currentCursorLocation.y - cursorBelowOffsetPoints - approximateBubbleSize.height
+        var bubbleOriginY = currentCursorLocation.y - cursorBelowOffsetPoints - bubbleSize.height
 
         // If the bubble would overflow the right edge of the screen, flip it to
         // the left of the cursor instead so it stays fully visible.
-        let wouldOverflowRightEdge = (bubbleOriginX + approximateBubbleSize.width) > screenFrame.maxX
+        let wouldOverflowRightEdge = (bubbleOriginX + bubbleSize.width) > screenFrame.maxX
         if wouldOverflowRightEdge {
-            bubbleOriginX = currentCursorLocation.x - cursorLeftOffsetPoints - approximateBubbleSize.width
+            bubbleOriginX = currentCursorLocation.x - cursorLeftOffsetPoints - bubbleSize.width
         }
 
         // If the bubble would overflow the bottom edge of the screen, flip it to
@@ -461,6 +497,15 @@ final class CompanionBubbleWindow {
             // Place the bubble above the cursor tip with the same vertical gap.
             bubbleOriginY = currentCursorLocation.y + cursorBelowOffsetPoints
         }
+
+        bubbleOriginX = min(
+            max(bubbleOriginX, screenFrame.minX),
+            screenFrame.maxX - bubbleSize.width
+        )
+        bubbleOriginY = min(
+            max(bubbleOriginY, screenFrame.minY),
+            screenFrame.maxY - bubbleSize.height
+        )
 
         let adjustedBubbleOrigin = CGPoint(x: bubbleOriginX, y: bubbleOriginY)
 

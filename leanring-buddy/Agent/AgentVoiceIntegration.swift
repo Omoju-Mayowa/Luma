@@ -15,11 +15,26 @@ enum AgentVoiceIntegration {
     // MARK: - Voice Command Detection
 
     /// Intent detection patterns for agent spawn commands.
-    /// Primary trigger: "hey luma agent, <task>"
-    /// Also matches: "open/create/spawn agent and <task>"
+    ///
+    /// Primary triggers:
+    ///   • "hey luma agent, <task>"   — explicit wake phrase
+    ///   • "luma agent, <task>"       — without "hey" prefix
+    ///   • "open/create/spawn agent and <task>"
+    ///
+    /// Regex notes:
+    ///   [\s,\.!?]* between words tolerates punctuation that ASR often inserts
+    ///   (e.g. "Hey, Luma Agent" → comma after "hey" would previously miss).
+    ///   Patterns with a capture group (.+) come before bare-command patterns so
+    ///   the inline task is extracted when present.
     private static let agentSpawnPatterns: [String] = [
-        #"(?i)hey\s+luma\s+agent[\s,]+(.+)"#,
-        #"(?i)hey\s+luma\s+agent"#,
+        // "hey luma agent <task>" — punctuation-tolerant between words
+        #"(?i)hey[\s,\.!?]*luma[\s,\.!?]*agent[\s,\.!?]+(.+)"#,
+        // "luma agent <task>" — no "hey" required
+        #"(?i)luma[\s,\.!?]*agent[\s,\.!?]+(.+)"#,
+        // bare "hey luma agent" / "luma agent" without an inline task
+        #"(?i)hey[\s,\.!?]*luma[\s,\.!?]*agent"#,
+        #"(?i)luma[\s,\.!?]*agent"#,
+        // explicit action verbs: "spawn/create/open an agent and do X"
         #"(?i)(?:open|create|spawn|start|launch)\s+(?:a\s+)?(?:new\s+)?agent\s+(?:and|to)\s+(.+)"#,
         #"(?i)(?:open|create|spawn|start|launch)\s+(?:a\s+)?(?:new\s+)?agent"#,
     ]

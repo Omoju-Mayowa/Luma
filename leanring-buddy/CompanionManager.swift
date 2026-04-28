@@ -321,8 +321,10 @@ final class CompanionManager: ObservableObject {
         ) { [weak self] notification in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                let title = notification.userInfo?["title"] as? String ?? "Agent"
-                let summary = notification.userInfo?["summary"] as? String ?? "Task completed"
+                // "title" is only used for logging; the summary is already clean (tags
+                // stripped, ≤150 chars) as produced by AgentSession.announceTaskCompletion.
+                let agentTitle = notification.userInfo?["title"] as? String ?? "Agent"
+                let summary = notification.userInfo?["summary"] as? String ?? "Task completed."
 
                 // Ensure the cursor overlay is visible so the bubble can be shown
                 if !self.isOverlayVisible {
@@ -331,28 +333,21 @@ final class CompanionManager: ObservableObject {
                     self.isOverlayVisible = true
                 }
 
-                // Show completion text in the cursor's navigation bubble (the blue pill
-                // next to the triangle cursor). Uses detectedElementBubbleText which the
-                // overlay's BlueCursorView picks up and streams character-by-character.
-                let truncatedSummaryForBubble = summary.count > 60
-                    ? String(summary.prefix(60)) + "..."
-                    : summary
-                let bubbleMessage = "\(title) done — \(truncatedSummaryForBubble)"
-                self.detectedElementBubbleText = bubbleMessage
+                // Speak the completion summary — no title prefix, just the one-liner.
+                // Do NOT trigger cursor pointing on agent completion. The cursor should
+                // stay in follow-cursor mode; pointing is only for UI element references.
+                self.nativeTTSClient.speak(summary)
 
-                // Trigger the pointing animation at the current cursor position so the
-                // navigation bubble appears. Using the cursor's current location means
-                // the bubble shows right where the user is looking.
-                let currentCursorLocation = NSEvent.mouseLocation
-                let containingScreen = NSScreen.screens.first { $0.frame.contains(currentCursorLocation) }
-                    ?? NSScreen.main
-                self.detectedElementDisplayFrame = containingScreen?.frame
-                self.detectedElementScreenLocation = currentCursorLocation
-
-                // Speak the completion summary so the user is notified even when
-                // they're not looking at the screen
-                let spokenText = "\(title) done. \(summary)"
-                self.nativeTTSClient.speak(spokenText)
+                // Show the completion summary in the companion bubble so the user
+                // sees the result even if they aren't watching the agent dock.
+                let bubbleContent = LumaWriteEngine.shared.content(for: .response, text: summary)
+                CompanionBubbleWindow.shared.show(text: bubbleContent.text)
+                if let duration = bubbleContent.displayDuration {
+                    Task {
+                        try? await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
+                        CompanionBubbleWindow.shared.hide()
+                    }
+                }
 
                 // If the summary references a file path that exists on disk, open
                 // it automatically so the user sees the result immediately
@@ -368,7 +363,7 @@ final class CompanionManager: ObservableObject {
                 // Persist updated session state
                 self.persistAllAgentSessions()
 
-                LumaLogger.log("[Luma] Agent task completed — \(title): \(summary.prefix(80))...")
+                LumaLogger.log("[Luma] Agent task completed — \(agentTitle): \(summary.prefix(80))")
             }
         }
     }

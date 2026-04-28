@@ -89,10 +89,11 @@ final class LumaWriteEngine {
         switch bubbleType {
 
         case .response:
+            let cleanedText = stripMarkdownFormatting(text)
             return BubbleContent(
-                text: text,
+                text: cleanedText,
                 bubbleType: .response,
-                displayDuration: displayDuration(for: text),
+                displayDuration: displayDuration(for: cleanedText),
                 accentColor: nil,
                 backgroundOverride: nil
             )
@@ -104,7 +105,7 @@ final class LumaWriteEngine {
                 bubbleType: .error(errorType),
                 displayDuration: 5.0,
                 accentColor: nil,
-                backgroundOverride: LumaTheme.destructive.opacity(0.9)
+                backgroundOverride: DS.Colors.destructive.opacity(0.9)
             )
 
         case .guide(let steps):
@@ -135,7 +136,7 @@ final class LumaWriteEngine {
                 text: nudgeText,
                 bubbleType: .nudge(text: nudgeText),
                 displayDuration: 4.0,
-                accentColor: LumaTheme.warning,
+                accentColor: DS.Colors.warning,
                 backgroundOverride: nil
             )
 
@@ -144,7 +145,7 @@ final class LumaWriteEngine {
                 text: successText,
                 bubbleType: .success(text: successText),
                 displayDuration: 3.0,
-                accentColor: LumaTheme.success,
+                accentColor: DS.Colors.success,
                 backgroundOverride: nil
             )
         }
@@ -182,6 +183,74 @@ final class LumaWriteEngine {
     }
 
     // MARK: - Internal Helpers
+
+    // MARK: - Agent Control Tag Stripping
+
+    /// Removes any `<NEXT_ACTIONS>…</NEXT_ACTIONS>` block from agent response text.
+    /// Called before any text reaches the bubble, TTS, or write engine — the XML
+    /// control structure is never shown to the user.
+    static func stripAgentControlTags(_ text: String) -> String {
+        var result = text
+        // Loop to handle multiple blocks (edge case where model emits more than one)
+        while let startRange = result.range(of: "<NEXT_ACTIONS>"),
+              let endRange = result.range(of: "</NEXT_ACTIONS>"),
+              startRange.lowerBound <= endRange.lowerBound {
+            result.removeSubrange(startRange.lowerBound..<endRange.upperBound)
+        }
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Strips agent control tags and normalizes newlines to spaces so any text
+    /// flows as one continuous line in the bubble or panel. The display component
+    /// wraps at its own max width — newlines in source text should never force breaks.
+    static func normalizeForDisplay(_ text: String) -> String {
+        let stripped = stripAgentControlTags(text)
+        let noNewlines = stripped.replacingOccurrences(of: #"\n+"#, with: " ", options: .regularExpression)
+        return noNewlines.trimmingCharacters(in: .whitespaces)
+    }
+
+    /// Strips agent control tags then truncates to `maxLength` characters,
+    /// breaking at the nearest word boundary.
+    static func cleanAndTruncate(_ text: String, maxLength: Int = 150) -> String {
+        let stripped = stripAgentControlTags(text)
+        guard stripped.count > maxLength else { return stripped }
+        let prefix = String(stripped.prefix(maxLength))
+        if let lastSpace = prefix.lastIndex(of: " ") {
+            return String(prefix[..<lastSpace])
+        }
+        return prefix
+    }
+
+    // MARK: - Markdown Stripping
+
+    /// Strips markdown formatting characters from AI response text so plain-text
+    /// rendering in the bubble doesn't show raw symbols like **, *, _, ##, ``.
+    private func stripMarkdownFormatting(_ text: String) -> String {
+        // Strip agent control tags first so they never leak through to display
+        var result = Self.stripAgentControlTags(text)
+        // Bold: **text** → text
+        result = result.replacingOccurrences(of: #"\*\*([^*\n]+)\*\*"#, with: "$1", options: .regularExpression)
+        // Italic: *text* → text  (after bold to avoid partial matches)
+        result = result.replacingOccurrences(of: #"\*([^*\n]+)\*"#, with: "$1", options: .regularExpression)
+        // Bold underscore: __text__ → text
+        result = result.replacingOccurrences(of: #"__([^_\n]+)__"#, with: "$1", options: .regularExpression)
+        // Italic underscore: _text_ → text
+        result = result.replacingOccurrences(of: #"_([^_\n]+)_"#, with: "$1", options: .regularExpression)
+        // Strikethrough: ~~text~~ → text
+        result = result.replacingOccurrences(of: #"~~([^~\n]+)~~"#, with: "$1", options: .regularExpression)
+        // Inline code: `code` → code
+        result = result.replacingOccurrences(of: #"`([^`\n]+)`"#, with: "$1", options: .regularExpression)
+        // Headings: ### text → text  (anchored to line start)
+        result = result.replacingOccurrences(of: #"(?m)^#{1,6}\s+"#, with: "", options: .regularExpression)
+        // Block quotes: > text → text
+        result = result.replacingOccurrences(of: #"(?m)^>\s?"#, with: "", options: .regularExpression)
+        // Collapse any run of newlines (paragraph breaks, line breaks) into a single
+        // space so the response flows as one continuous line in the bubble. The bubble
+        // itself wraps at its max width, so multi-line layout is driven by available
+        // width, not by newline characters in the source text.
+        result = result.replacingOccurrences(of: #"\n+"#, with: " ", options: .regularExpression)
+        return result.trimmingCharacters(in: .whitespaces)
+    }
 
     /// Extracts the most meaningful part of a raw API error string, capped at 8 words.
     private func summarizeError(_ rawMessage: String) -> String {

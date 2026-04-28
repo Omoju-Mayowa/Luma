@@ -33,7 +33,7 @@ final class CompanionResponseOverlayManager {
     /// The vertical offset from the cursor downward to the top edge of the overlay panel.
     private let cursorOffsetY: CGFloat = 6
     /// Maximum width of the overlay panel.
-    private let overlayMaxWidth: CGFloat = 340
+    private let overlayMaxWidth: CGFloat = 380
 
     func showOverlayAndBeginStreaming() {
         autoHideWorkItem?.cancel()
@@ -159,18 +159,46 @@ final class CompanionResponseOverlayManager {
         guard let overlayPanel, let contentView = overlayPanel.contentView else { return }
 
         let fittingSize = contentView.fittingSize
-        let newWidth = min(fittingSize.width, overlayMaxWidth)
-        let newHeight = fittingSize.height
+        let newSize = CGSize(
+            width: min(fittingSize.width, overlayMaxWidth),
+            height: fittingSize.height
+        )
 
-        // Keep the panel origin relative to the cursor (the timer handles that),
-        // but update the frame size so the content fits.
-        var frame = overlayPanel.frame
-        let heightDelta = newHeight - frame.height
-        frame.size = CGSize(width: newWidth, height: newHeight)
-        // Adjust origin Y so the panel grows upward (toward the cursor), not downward
-        frame.origin.y -= heightDelta
-        overlayPanel.setFrame(frame, display: true)
-        contentView.frame = NSRect(origin: .zero, size: frame.size)
+        // Resize and reposition atomically: compute the screen-clamped origin for
+        // the new size so the bubble never clips off any screen edge.
+        contentView.frame = NSRect(origin: .zero, size: newSize)
+        repositionPanelNearCursor(overrideSize: newSize)
+    }
+
+    /// Positions the panel near the cursor using `overrideSize` for layout calculations
+    /// when the panel has just been resized (so we use the new size, not the stale frame).
+    private func repositionPanelNearCursor(overrideSize: CGSize? = nil) {
+        guard let overlayPanel else { return }
+
+        let mouseLocation = NSEvent.mouseLocation
+        let panelSize = overrideSize ?? overlayPanel.frame.size
+
+        var panelOriginX = mouseLocation.x + cursorOffsetX
+        var panelOriginY = mouseLocation.y - cursorOffsetY - panelSize.height
+
+        if let currentScreen = screenContainingPoint(mouseLocation) {
+            let visibleFrame = currentScreen.visibleFrame
+
+            if panelOriginX + panelSize.width > visibleFrame.maxX {
+                panelOriginX = mouseLocation.x - cursorOffsetX - panelSize.width
+            }
+            if panelOriginY < visibleFrame.minY {
+                panelOriginY = mouseLocation.y + cursorOffsetY
+            }
+            // Hard clamp so the bubble never bleeds off any screen edge
+            panelOriginX = max(visibleFrame.minX, min(panelOriginX, visibleFrame.maxX - panelSize.width))
+            panelOriginY = max(visibleFrame.minY, min(panelOriginY, visibleFrame.maxY - panelSize.height))
+        }
+
+        overlayPanel.setFrame(
+            NSRect(origin: CGPoint(x: panelOriginX, y: panelOriginY), size: panelSize),
+            display: true
+        )
     }
 
     private func fadeOutAndHide() {
@@ -197,26 +225,73 @@ final class CompanionResponseOverlayManager {
 
 private struct CompanionResponseOverlayView: View {
     @ObservedObject var viewModel: CompanionResponseOverlayViewModel
+    @State private var borderHueRotation: Double = 0
 
     var body: some View {
         if viewModel.isShowingResponse {
-            Text(viewModel.streamingResponseText.isEmpty ? "..." : viewModel.streamingResponseText)
+            ScrollView(.vertical, showsIndicators: false) {
+                markdownResponseText
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(minWidth: 200, maxWidth: 380)
+            .frame(maxHeight: 280)
+            .background(
+                ZStack {
+                    VisualEffectBlurView()
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    Color(red: 10/255, green: 10/255, blue: 15/255, opacity: 0.85)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(
+                        AngularGradient(
+                            gradient: Gradient(colors: [
+                                Color(hex: "#0A84FF"),
+                                Color(hex: "#BF5AF2"),
+                                Color(hex: "#FF375F"),
+                                Color(hex: "#FF9F0A"),
+                                Color(hex: "#30D158"),
+                                Color(hex: "#0A84FF"),
+                            ]),
+                            center: .center
+                        ),
+                        lineWidth: 1.0
+                    )
+                    .hueRotation(.degrees(borderHueRotation))
+                    .opacity(0.58)
+            )
+            .shadow(color: Color.black.opacity(0.4), radius: 14, x: 0, y: 9)
+            .onAppear {
+                withAnimation(.linear(duration: 8.0).repeatForever(autoreverses: false)) {
+                    borderHueRotation = 360
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var markdownResponseText: some View {
+        let safeText = viewModel.streamingResponseText.isEmpty ? "..." : viewModel.streamingResponseText
+        if let attributedString = try? AttributedString(
+            markdown: safeText,
+            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        ) {
+            Text(attributedString)
                 .font(.system(size: 13, weight: .regular))
-                .foregroundColor(LumaTheme.Colors.textPrimary)
+                .foregroundColor(DS.Colors.textPrimary)
                 .lineSpacing(3)
                 .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: 300, alignment: .leading)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(LumaTheme.Colors.panelBackground.opacity(0.95))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .stroke(LumaTheme.Colors.borderSubtle.opacity(0.5), lineWidth: 0.8)
-                        )
-                        .shadow(color: LumaTheme.background.opacity(0.35), radius: 16, x: 0, y: 8)
-                )
+                .textSelection(.enabled)
+        } else {
+            Text(safeText)
+                .font(.system(size: 13, weight: .regular))
+                .foregroundColor(DS.Colors.textPrimary)
+                .lineSpacing(3)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }

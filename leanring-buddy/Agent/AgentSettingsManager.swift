@@ -25,7 +25,14 @@ final class AgentSettingsManager: ObservableObject {
 
     /// Maximum number of agents allowed simultaneously (1–10, default 3).
     @Published var maxAgentCount: Int {
-        didSet { UserDefaults.standard.set(maxAgentCount, forKey: Self.maxAgentCountKey) }
+        didSet {
+            let normalizedMaxAgentCount = max(1, min(10, maxAgentCount))
+            if normalizedMaxAgentCount != maxAgentCount {
+                maxAgentCount = normalizedMaxAgentCount
+                return
+            }
+            UserDefaults.standard.set(normalizedMaxAgentCount, forKey: Self.maxAgentCountKey)
+        }
     }
 
     /// Whether agent mode is globally enabled.
@@ -45,18 +52,13 @@ final class AgentSettingsManager: ObservableObject {
 
         // Max agent count — default to 3 if never set
         let storedMaxCount = defaults.object(forKey: Self.maxAgentCountKey) as? Int
-        self.maxAgentCount = storedMaxCount ?? 3
+        self.maxAgentCount = max(1, min(10, storedMaxCount ?? 3))
 
         // Agent mode toggle
         self.isAgentModeEnabled = defaults.bool(forKey: Self.agentModeEnabledKey)
 
         // Load persisted agent profiles
-        if let profileData = defaults.data(forKey: Self.agentProfilesKey),
-           let decoded = try? JSONDecoder().decode([AgentProfile].self, from: profileData) {
-            self.agentProfiles = decoded
-        } else {
-            self.agentProfiles = []
-        }
+        self.agentProfiles = Self.loadAgentProfiles(from: defaults)
     }
 
     // MARK: - Profile Management
@@ -99,8 +101,8 @@ final class AgentSettingsManager: ObservableObject {
 
     private func sendAgentLimitNotification() {
         let content = UNMutableNotificationContent()
-        content.title = "Agent limit reached"
-        content.body = "Removed idle agent to make room."
+        content.title = "Agent limit reached. Removed idle agent."
+        content.body = "Luma removed the oldest idle agent."
         content.sound = .default
 
         let request = UNNotificationRequest(
@@ -121,5 +123,39 @@ final class AgentSettingsManager: ObservableObject {
         if let encoded = try? JSONEncoder().encode(agentProfiles) {
             UserDefaults.standard.set(encoded, forKey: Self.agentProfilesKey)
         }
+    }
+
+    private struct LegacyAgentProfile: Decodable {
+        let id: UUID?
+        let name: String?
+        let model: String?
+    }
+
+    private static func loadAgentProfiles(from defaults: UserDefaults) -> [AgentProfile] {
+        guard let profileData = defaults.data(forKey: Self.agentProfilesKey) else { return [] }
+
+        if let decodedProfiles = try? JSONDecoder().decode([AgentProfile].self, from: profileData) {
+            return decodedProfiles
+        }
+
+        if let legacyProfiles = try? JSONDecoder().decode([LegacyAgentProfile].self, from: profileData) {
+            let migratedProfiles = legacyProfiles.map { legacyProfile -> AgentProfile in
+                let legacyModelRawValue = legacyProfile.model ?? AgentModel.claudeSonnet.rawValue
+                let resolvedModel = AgentModel(rawValue: legacyModelRawValue) ?? .claudeSonnet
+                let resolvedName = legacyProfile.name ?? "Agent"
+                return AgentProfile(
+                    id: legacyProfile.id ?? UUID(),
+                    name: resolvedName,
+                    model: resolvedModel
+                )
+            }
+            if let encodedMigratedProfiles = try? JSONEncoder().encode(migratedProfiles) {
+                defaults.set(encodedMigratedProfiles, forKey: Self.agentProfilesKey)
+            }
+            return migratedProfiles
+        }
+
+        defaults.removeObject(forKey: Self.agentProfilesKey)
+        return []
     }
 }

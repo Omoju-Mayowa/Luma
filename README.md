@@ -6,14 +6,14 @@
 
 **Light by Darkness**
 
-A native macOS AI teaching assistant that lives beside your cursor.  
+A native macOS AI teaching assistant that lives beside your cursor.
 Watches your screen, guides you step by step, and teaches you anything — right where you work.
 
 ![macOS](https://img.shields.io/badge/macOS-14.0%2B-black?style=flat-square)
 ![Swift](https://img.shields.io/badge/Swift-5.9-black?style=flat-square)
 ![Claude](https://img.shields.io/badge/Powered%20by-Claude%20AI-black?style=flat-square)
 ![License](https://img.shields.io/badge/License-MIT-black?style=flat-square)
-![Status](https://img.shields.io/badge/Status-v2.2.1-green?style=flat-square)
+![Status](https://img.shields.io/badge/Status-v3.0-green?style=flat-square)
 
 <img src="assets/1024-mac.png" alt="Luma/Click Logo" width="480" />
 
@@ -26,6 +26,8 @@ Watches your screen, guides you step by step, and teaches you anything — right
 Luma is a native macOS AI companion built for learners, developers, creatives, and everyone in between. It sits in your menu bar, follows your cursor with a floating companion bubble, and uses the macOS Accessibility API alongside real-time screen analysis to watch what's happening on your screen.
 
 Tell Luma what you want to do. It breaks the task into steps, points at exactly what to click, watches for your actions, validates each one, and corrects you if you go off track — until the task is complete. Like having a senior developer or designer sitting right next to you, except it's always there, it never judges you, and it works with your own API keys so your data stays yours.
+
+v3.0 adds **Luma Agent** — a full autonomous multi-agent system. Spawn named agents that run long tasks in the background using the Claude CLI or Claude API, each with its own transcript, accent theme, and status. Manage them from a floating dock and HUD panel while you keep working.
 
 The entire system is built to be frugal with API calls. Most of what Luma does — nudging you, detecting elements, compressing your voice input — runs completely on-device with zero API cost. Claude is reserved for reasoning: planning your steps, verifying progress, and locating elements when on-device methods fall short.
 
@@ -58,8 +60,26 @@ The entire system is built to be frugal with API calls. Most of what Luma does �
 - **Bundle ID Normalisation** — All app bundle ID comparisons use `.lowercased()` on both sides. `com.apple.Notes` and `com.apple.notes` are treated identically.
 - **Frontmost App Validation** — Before taking a validation screenshot, Luma checks that the target app is frontmost. If it isn't, validation is skipped and logged rather than sending a screenshot of the wrong screen to Claude.
 
+### Luma Agent (v3.0)
+
+A full autonomous multi-agent system built into the menu bar. Agents run independently in the background — you can have multiple working simultaneously, each on a different task.
+
+- **Multi-Agent Sessions** — Spawn up to 3 agents concurrently (configurable up to 10). Each agent has its own transcript, accent colour theme, random icon shape, and independent status. The oldest idle agent is auto-dismissed when the limit is reached, with a macOS notification.
+- **Dual Runtime Architecture** — Agents use whichever runtime is available:
+  - **Claude CLI Runtime** (default) — Spawns the `claude` CLI as a subprocess with `--output-format stream-json`. Streams assistant messages, tool use, and results in real time. One process per session.
+  - **Claude API Runtime** (fallback) — Runs a full tool-use loop via OpenRouter when the CLI isn't installed. Supports 7 tools: `bash`, `screenshot`, `click`, `type`, `key_press`, `open_app`, `wait`. Auto-detected on launch.
+- **Floating Agent Dock** — A persistent strip at the bottom of the screen shows all active agents as circular icons with accent colour gradients and live status dots. Click any to switch focus.
+- **Agent HUD Dashboard** — A floating panel with the full agent team strip, searchable transcript viewer with role-coloured entries (user / assistant / system / command / plan), response card display, and a composer with run button.
+- **Inline Agent Panel** — Agent controls are also embedded directly in the companion menu bar panel for quick access without opening the HUD.
+- **Voice Spawning** — Say "spawn agent and research X" or "create an agent to do Y" — Luma detects the pattern and spawns an agent with a generated title automatically.
+- **Response Cards** — Each agent's final output is parsed into a compact response card. Cards extract `<NEXT_ACTIONS>` tags for suggested follow-up tasks and show a truncated preview in the dock.
+- **Auto-Title Generation** — On the first prompt, a cheap model generates a 3–5 word session title in the background so the dock and HUD always show meaningful labels instead of "New Agent".
+- **Memory Persistence** — Agent conversation history and a global `memory.md` are written to `~/Library/Application Support/Luma/`. Summarised memory is prepended to the system context of new agent sessions so agents have continuity across launches.
+- **Task Completion Notifications** — When an agent finishes a task (status transitions from running → ready), a macOS notification fires with the session title and a truncated summary of what was done.
+- **Token-Optimised Context** — Agent sessions use several techniques to keep API costs low across long tasks and follow-up prompts (see Cost Profile below).
+
 ### API & Cost Management
-- **Request Queue** — All Claude API calls go through a single queue with a minimum 15-second gap between requests. No concurrent calls, ever. Costs dropped from ~$0.04 to ~$0.02 per walkthrough after this fix.
+- **Request Queue** — All Claude API calls go through a single queue with a minimum 15-second gap between requests. No concurrent calls, ever.
 - **429 Retry Logic** — On a rate limit response, Luma waits 60 seconds then retries once. If the retry also fails, the call is skipped gracefully — no crash, no loop.
 - **Bring Your Own Keys** — Connect directly to OpenRouter, Anthropic, Google AI, or any custom OpenAI-compatible endpoint. No Luma servers involved in your conversations. Keys are never transmitted to Luma's infrastructure.
 - **Multi-Profile System** — Create multiple API profiles for different providers or use cases. Set a default, switch instantly, manage everything from settings.
@@ -93,7 +113,7 @@ Hit `⌘R` to build and run. The onboarding wizard walks you through everything:
 
 No Cloudflare worker, no backend deployment, no terminal commands beyond the clone.
 
-**MobileNetV2 setup:**  
+**MobileNetV2 setup:**
 Download `MobileNetV2.mlmodel` from [Apple's Core ML model gallery](https://developer.apple.com/machine-learning/models/) and drag it into the Xcode project under `Resources/Models/`, ensuring it's added to the app target. Xcode compiles it to `.mlmodelc` on first build automatically. Without it, visual detection is disabled and Luma falls back to AX-only element finding — everything still works, just with lower confidence.
 
 ---
@@ -163,6 +183,41 @@ isTypingStepActive = false → advance step normally
 Timeout = max(30s, charCount × 1.5s) if text never appears
 ```
 
+### Luma Agent Flow
+
+```
+User spawns agent (hotkey, voice, or panel button)
+  ↓
+AgentRuntimeManager detects claude CLI availability
+  → CLI available  → ClaudeCodeAgentRuntime (subprocess)
+  → CLI missing    → ClaudeAPIAgentRuntime  (tool-use loop via OpenRouter)
+  ↓
+User submits prompt
+  ↓
+AgentSession.buildContextualPrompt()
+  → Prior completed task? → use cheap-model summary (~200 tokens)
+  → No summary yet?       → include last 6 transcript entries (capped)
+  ↓
+Runtime executes task
+  [CLI]  claude --output-format stream-json
+         streams assistant / tool_use / result / error events
+  [API]  tool-use loop (max 50 iterations)
+         sliding window: first message + last 4 (max 5 messages/call)
+         tool outputs capped at 1200 chars each
+         max_tokens: 2048 per call
+  ↓
+Task completes (status: running → ready)
+  ↓
+Cheap model summarizes session in background
+  Claude family  → claude-haiku-4-5-20251001
+  OpenAI family  → gpt-4o-mini
+  Google family  → gemini-2.5-flash:free
+  Custom model   → same model as configured
+  ↓
+macOS notification fires with title + truncated summary
+Summary stored for use in next follow-up prompt
+```
+
 ---
 
 ## Supported Providers
@@ -189,6 +244,22 @@ Luma/
 │   ├── KeychainManager.swift                # macOS Keychain wrapper
 │   ├── PINManager.swift                     # 6-digit PIN security
 │   └── VaultManager.swift                   # Single Keychain vault for all sensitive data
+│
+├── Agent/
+│   ├── AgentSession.swift                   # Core session model — transcript, status, summarization
+│   ├── AgentRuntime.swift                   # Protocol + auto-detection manager
+│   ├── ClaudeCodeAgentRuntime.swift         # Claude CLI subprocess runtime (default)
+│   ├── ClaudeAPIAgentRuntime.swift          # Tool-use loop fallback via OpenRouter (7 tools)
+│   ├── AgentModePanelSection.swift          # Inline agent controls in companion panel
+│   ├── LumaAgentHUDWindowManager.swift      # Floating dashboard NSPanel
+│   ├── LumaAgentDockWindowManager.swift     # Floating bottom dock with session icons
+│   ├── AgentHotkeyHandler.swift             # Global hotkeys: spawn, cycle, switch
+│   ├── AgentVoiceIntegration.swift          # Voice command detection for agent spawning
+│   ├── AgentMemoryIntegration.swift         # Bridges sessions with LumaMemoryManager
+│   ├── AgentSettingsManager.swift           # Max count, profiles, mode toggle
+│   ├── AgentProfile.swift                   # AgentModel enum + AgentProfile struct
+│   ├── AgentTranscriptEntry.swift           # Transcript entry model with role enum
+│   └── ResponseCard.swift                   # Response card with NEXT_ACTIONS parsing
 │
 ├── ML/
 │   ├── LumaMLEngine.swift                   # Prompt compression + MobileNetV2 coordinate validation
@@ -238,6 +309,9 @@ Luma/
 |---|---|
 | `Ctrl + Option` | Activate voice input / start walkthrough |
 | `Ctrl + Option` (again while active) | Cancel active walkthrough |
+| `Ctrl + Cmd + N` | Spawn a new agent |
+| `Ctrl + Option + Tab` | Cycle to the next active agent |
+| `Ctrl + Option + 1–9` | Switch directly to agent by position |
 | Click menu bar icon | Toggle companion panel |
 
 ---
@@ -245,6 +319,8 @@ Luma/
 ## Cost Profile
 
 Luma is engineered to minimise API spend without sacrificing capability. Most operations are free.
+
+### Walkthrough Mode
 
 | Operation | Runs on | API cost |
 |---|---|---|
@@ -257,6 +333,57 @@ Luma is engineered to minimise API spend without sacrificing capability. Most op
 | Coordinate fallback | Claude screenshot — rare | ~$0.005 |
 | Periodic verification | Claude — every 5 steps | ~$0.005 |
 | **Typical walkthrough total** | | **~$0.02** |
+
+### Companion Voice Mode
+
+Every voice request captures a screenshot of all connected screens and sends it to the model alongside the compressed transcript. The screenshot dominates input cost.
+
+| Component | Tokens (1 monitor) | Cost (Claude Sonnet) |
+|---|---|---|
+| System prompt | ~570 | ~$0.0017 |
+| Screenshot (1280×800 JPEG) | ~1,500 | ~$0.0045 |
+| Compressed voice prompt | ~35 | ~$0.0001 |
+| Conversation history (grows +~100/exchange, max 10) | 0–1,000 | up to $0.003 |
+| Response (2–4 sentences) | ~100 output | ~$0.0015 |
+| **Per request total** | **~2,200–3,200 input** | **~$0.007–0.012** |
+
+> The screenshot accounts for ~70% of companion's input cost on every request, including queries that have nothing to do with the screen. Each additional monitor adds roughly another ~1,500 tokens.
+
+**Typical session estimate (15 voice requests):** ~$0.10–0.18
+
+### Luma Agent Mode (API Runtime)
+
+Agent mode is text-only — no screenshots. Costs are driven by conversation context length across tool-use iterations. Several optimisations are applied automatically to prevent unbounded growth:
+
+| Optimisation | Detail |
+|---|---|
+| Sliding window | Each API call sends only the first message + last 4 messages (max 5 total) |
+| Tool output cap | Bash command output truncated to 1,200 characters |
+| Max tokens | Capped at 2,048 per call |
+| Follow-up summarisation | After each task, a cheap model writes a 2–3 sentence summary. Follow-up prompts use the summary instead of raw transcript history, keeping cost flat regardless of prior session length |
+
+| Task complexity | Total input tokens | Total output tokens | Estimated cost |
+|---|---|---|---|
+| Simple (3–5 tool steps) | ~4,500–6,000 | ~400–800 | ~$0.02–0.04 |
+| Moderate (6–10 steps) | ~6,000–9,000 | ~600–1,500 | ~$0.03–0.05 |
+| Complex (10–15 steps) | ~8,000–12,000 | ~800–2,000 | ~$0.04–0.07 |
+| Follow-up prompt (any complexity) | ~800–1,500 | ~200–600 | ~$0.005–0.012 |
+
+> The follow-up cost stays flat because the prior session is replaced by a compact summary (~200 tokens) generated by a cheap model (Haiku / gemini-flash / gpt-4o-mini). Without this, follow-up cost would grow linearly with session length.
+
+**Summarisation model cost** (fires once per completed task): ~$0.0001–0.0003
+
+### Cost Comparison Summary
+
+| Mode | Per interaction | Typical session |
+|---|---|---|
+| Walkthrough | ~$0.02 | ~$0.02–0.06 |
+| Companion voice | ~$0.007–0.012 | ~$0.10–0.18 (15 requests) |
+| Agent — simple task | ~$0.02–0.04 | ~$0.04–0.08 (2 tasks) |
+| Agent — complex task | ~$0.04–0.07 | ~$0.08–0.14 (2 tasks) |
+| Agent — follow-up prompt | ~$0.005–0.012 | flat per prompt |
+
+> All figures assume Claude Sonnet 4.6 via OpenRouter ($3/1M input, $15/1M output). Switching companion or agent to a free model (e.g. `google/gemini-2.5-flash:free`) reduces these to zero.
 
 ---
 
@@ -285,13 +412,32 @@ Luma is engineered to minimise API spend without sacrificing capability. Most op
 - [x] Keychain `kSecAttrAccessibleAfterFirstUnlock` — no repeated OS prompts
 - [x] Permissions recovery — overlay reappears after grant without restart
 
-**v2.0 — Accounts**
+**v3.0 — Agent** ✅ Complete
+- [x] Multi-agent session system — up to 10 concurrent agents, auto-dismiss oldest idle
+- [x] Claude CLI runtime — subprocess with `--output-format stream-json`, streaming events
+- [x] Claude API runtime — tool-use loop fallback (bash, click, type, key_press, open_app, screenshot, wait)
+- [x] Auto-detection of runtime — prefers CLI, falls back to API seamlessly
+- [x] Floating agent dock — bottom-of-screen strip with accent icons and status dots
+- [x] Agent HUD dashboard — floating panel with team strip, transcript, response card, composer
+- [x] Inline agent panel — agent controls embedded in companion menu bar panel
+- [x] Voice spawning — regex-detected "spawn agent" phrases trigger automatic agent creation
+- [x] Response cards — parse `<NEXT_ACTIONS>` tags, show compact preview in dock
+- [x] Auto-title generation — cheap model generates 3–5 word title from first prompt
+- [x] Memory persistence — `memory.md` + per-agent JSON history in `~/Library/Application Support/Luma/`
+- [x] Task completion notifications — macOS notification on running → ready transition
+- [x] Global hotkeys — `Ctrl+Cmd+N` spawn, `Ctrl+Option+Tab` cycle, `Ctrl+Option+1-9` switch
+- [x] Sliding window context pruning — max 5 messages per API call in tool-use loop
+- [x] Tool output truncation — bash results capped at 1,200 chars
+- [x] Cheap-model summarisation — Haiku / gemini-flash / gpt-4o-mini writes session summary on completion
+- [x] Flat follow-up cost — subsequent prompts use summary instead of raw transcript history
+
+**v2.0 — Accounts** *(planned)*
 - [ ] Go backend (JWT auth, argon2id hashing)
 - [ ] Cross-device profile sync
 - [ ] Plan-based profile limits
 - [ ] Full on-device STT via WhisperKit (encoder + decoder)
 
-**v3.0 — SaaS**
+**v4.0 — SaaS** *(planned)*
 - [ ] Stripe billing integration
 - [ ] Free + Pro tiers
 - [ ] Public release
@@ -312,7 +458,7 @@ Contributions are welcome. Fork the repo, make your changes, and open a pull req
 
 ## Developer
 
-**Omoju Oluwamayowa** (Nox) — Full-stack developer & UI/UX designer, Lagos, Nigeria.  
+**Omoju Oluwamayowa** (Nox) — Full-stack developer & UI/UX designer, Lagos, Nigeria.
 Built solo in Swift for the Claude AI Hackathon at UNILAG, April 2026.
 
 ---

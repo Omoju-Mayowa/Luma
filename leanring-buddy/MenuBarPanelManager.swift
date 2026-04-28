@@ -32,8 +32,8 @@ final class MenuBarPanelManager: NSObject {
     private var dismissPanelObserver: NSObjectProtocol?
 
     private let companionManager: CompanionManager
-    private let panelWidth: CGFloat = 320
-    private let panelHeight: CGFloat = 380
+    private let panelWidth: CGFloat = 356
+    private let panelHeight: CGFloat = 420
 
     init(companionManager: CompanionManager) {
         self.companionManager = companionManager
@@ -69,7 +69,7 @@ final class MenuBarPanelManager: NSObject {
 
         guard let button = statusItem?.button else { return }
 
-        button.image = NSImage(systemSymbolName: LumaTheme.menuBarIconName, accessibilityDescription: "Luma")
+        button.image = NSImage(systemSymbolName: LumaMenuBar.iconName, accessibilityDescription: "Luma")
         button.image?.isTemplate = true  // adapts to light/dark menu bar automatically
         button.toolTip = "Luma"
         button.action = #selector(statusItemClicked)

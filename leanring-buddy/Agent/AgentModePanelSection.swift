@@ -145,14 +145,18 @@ struct AgentModePanelSection: View {
     }
 
     private var inlineAgentResponseText: String? {
-        session.entries.last(where: { entry in
+        guard let raw = session.entries.last(where: { entry in
             switch entry.role {
             case .assistant, .plan, .command, .system:
                 return !entry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             case .user:
                 return false
             }
-        })?.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        })?.text.trimmingCharacters(in: .whitespacesAndNewlines) else { return nil }
+        // Strip control tags and normalize newlines so text flows as one line,
+        // wrapping only at the panel's max width.
+        let normalized = LumaWriteEngine.normalizeForDisplay(raw)
+        return normalized.isEmpty ? nil : normalized
     }
 
     private var inlineAgentResponse: some View {

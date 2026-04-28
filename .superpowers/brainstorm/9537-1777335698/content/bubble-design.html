@@ -1,0 +1,227 @@
+<h2>Agent Bubble Design Direction</h2>
+<p class="subtitle">Each style applies to the mini bubble AND the expanded hover card. Pick the one that feels right for Luma's dark aesthetic.</p>
+
+<style>
+  .bubble-showcase {
+    display: flex;
+    gap: 32px;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin: 24px 0;
+  }
+  .bubble-option {
+    border: 1.5px solid rgba(255,255,255,0.08);
+    border-radius: 20px;
+    padding: 24px 20px;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: rgba(255,255,255,0.03);
+    width: 220px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    position: relative;
+  }
+  .bubble-option:hover { border-color: rgba(255,255,255,0.2); background: rgba(255,255,255,0.05); }
+  .bubble-option.selected { border-color: #7c6ff7; background: rgba(124,111,247,0.08); }
+
+  .bubble-letter {
+    position: absolute;
+    top: 12px;
+    left: 16px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    color: rgba(255,255,255,0.3);
+  }
+
+  /* Style A — Glassy Orb */
+  .mini-a {
+    width: 56px; height: 56px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 35%, rgba(100,80,220,0.5), rgba(10,10,20,0.9));
+    border: 1px solid rgba(124,111,247,0.4);
+    box-shadow: 0 0 20px rgba(124,111,247,0.35), inset 0 1px 0 rgba(255,255,255,0.15);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+    position: relative;
+  }
+  .mini-a::after {
+    content: '';
+    position: absolute;
+    top: 6px; left: 10px;
+    width: 18px; height: 8px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.2);
+    transform: rotate(-20deg);
+  }
+
+  /* Style B — Glassmorphism Pill */
+  .mini-b {
+    width: 56px; height: 56px;
+    border-radius: 16px;
+    background: rgba(15,12,30,0.85);
+    border: 1px solid rgba(255,255,255,0.1);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.05) inset;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+    backdrop-filter: blur(12px);
+    position: relative;
+    overflow: hidden;
+  }
+  .mini-b::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 50%;
+    background: linear-gradient(180deg, rgba(255,255,255,0.07) 0%, transparent 100%);
+    border-radius: 16px 16px 0 0;
+  }
+
+  /* Style C — Neon Ring */
+  .mini-c {
+    width: 56px; height: 56px;
+    border-radius: 14px;
+    background: rgba(8,8,14,0.95);
+    border: 2px solid transparent;
+    background-clip: padding-box;
+    box-shadow: 0 0 0 2px #7c3aed, 0 0 16px rgba(124,58,237,0.6), inset 0 0 12px rgba(124,58,237,0.1);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+    position: relative;
+  }
+
+  /* Style D — Soft Gradient Card */
+  .mini-d {
+    width: 56px; height: 56px;
+    border-radius: 18px;
+    background: linear-gradient(145deg, rgba(30,20,60,0.95), rgba(10,8,20,0.98));
+    border: 1px solid rgba(255,255,255,0.06);
+    box-shadow: 0 4px 24px rgba(0,0,0,0.6), 0 1px 0 rgba(255,255,255,0.08) inset;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+    position: relative;
+  }
+  .mini-d::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 8px; right: 8px; height: 2px;
+    background: linear-gradient(90deg, transparent, rgba(124,111,247,0.6), transparent);
+    border-radius: 0 0 2px 2px;
+  }
+
+  .status-dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    position: absolute; top: -3px; right: -3px;
+    border: 1.5px solid #0a0a10;
+  }
+  .dot-working { background: #facc15; box-shadow: 0 0 6px rgba(250,204,21,0.7); }
+  .dot-idle { background: #22c55e; box-shadow: 0 0 6px rgba(34,197,94,0.6); }
+
+  .style-label {
+    font-size: 13px;
+    font-weight: 700;
+    color: rgba(255,255,255,0.85);
+    letter-spacing: 0.02em;
+  }
+  .style-desc {
+    font-size: 11px;
+    color: rgba(255,255,255,0.4);
+    text-align: center;
+    line-height: 1.5;
+  }
+
+  /* Mini card preview */
+  .card-preview {
+    width: 100%;
+    background: rgba(10,8,20,0.7);
+    border-radius: 12px;
+    padding: 10px;
+    border: 1px solid rgba(255,255,255,0.06);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .card-preview-title { font-size: 10px; font-weight: 700; color: rgba(255,255,255,0.7); letter-spacing: 0.05em; }
+  .card-preview-text { font-size: 9.5px; color: rgba(255,255,255,0.4); line-height: 1.4; }
+  .card-preview-tag {
+    font-size: 9px; font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 5px;
+    background: rgba(124,111,247,0.15);
+    color: rgba(180,160,255,0.9);
+    display: inline-block;
+    align-self: flex-start;
+  }
+</style>
+
+<div class="bubble-showcase">
+
+  <!-- Option A: Glassy Orb -->
+  <div class="bubble-option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="bubble-letter">A</div>
+    <div class="mini-a" style="color: #c084fc;">
+      ⬡
+      <div class="status-dot dot-working"></div>
+    </div>
+    <div class="style-label">Glassy Orb</div>
+    <div class="style-desc">Circular bubble with inner radial glow, specular highlight, and translucent depth. Floats like a living thing.</div>
+    <div class="card-preview">
+      <div class="card-preview-title">RESEARCH TASK</div>
+      <div class="card-preview-text">Analysing market data and competitor pricing across 5 regions...</div>
+      <div class="card-preview-tag">Working</div>
+    </div>
+  </div>
+
+  <!-- Option B: Glassmorphism -->
+  <div class="bubble-option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="bubble-letter">B</div>
+    <div class="mini-b" style="color: #67e8f9; z-index: 1;">
+      ◆
+      <div class="status-dot dot-working"></div>
+    </div>
+    <div class="style-label">Frosted Glass</div>
+    <div class="style-desc">Rounded square with backdrop blur, inner top-edge highlight, and deep shadow. Clean, modern, legible.</div>
+    <div class="card-preview" style="border-color: rgba(103,232,249,0.12);">
+      <div class="card-preview-title">CODE REVIEW</div>
+      <div class="card-preview-text">Reviewing PR #47, found 3 potential issues in auth middleware...</div>
+      <div class="card-preview-tag" style="background: rgba(103,232,249,0.1); color: rgba(150,240,255,0.9);">Working</div>
+    </div>
+  </div>
+
+  <!-- Option C: Neon Ring -->
+  <div class="bubble-option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="bubble-letter">C</div>
+    <div class="mini-c" style="color: #f472b6;">
+      ★
+      <div class="status-dot dot-idle" style="background: #f472b6; box-shadow: 0 0 6px rgba(244,114,182,0.7);"></div>
+    </div>
+    <div class="style-label">Neon Ring</div>
+    <div class="style-desc">Dark pill with animated glowing border that pulses in the agent's accent color. High energy, cyberpunk feel.</div>
+    <div class="card-preview" style="border-color: rgba(244,114,182,0.12);">
+      <div class="card-preview-title">DEPLOY AGENT</div>
+      <div class="card-preview-text">Deployment complete. All health checks passing. Uptime 100%.</div>
+      <div class="card-preview-tag" style="background: rgba(34,197,94,0.1); color: rgba(100,255,150,0.9);">Ready</div>
+    </div>
+  </div>
+
+  <!-- Option D: Soft Gradient Card -->
+  <div class="bubble-option" data-choice="d" onclick="toggleSelect(this)">
+    <div class="bubble-letter">D</div>
+    <div class="mini-d" style="color: #fb923c;">
+      ▲
+      <div class="status-dot dot-working" style="background: #fb923c; box-shadow: 0 0 6px rgba(251,146,60,0.7);"></div>
+    </div>
+    <div class="style-label">Gradient Slab</div>
+    <div class="style-desc">Rounded square with a subtle gradient fill, bottom accent line in the agent color. Structured, sophisticated.</div>
+    <div class="card-preview" style="border-color: rgba(251,146,60,0.12);">
+      <div class="card-preview-title">FILE ORGANISER</div>
+      <div class="card-preview-text">Moved 847 files, created 12 folders, cleaned up 3.2 GB...</div>
+      <div class="card-preview-tag" style="background: rgba(251,146,60,0.1); color: rgba(255,180,100,0.9);">Working</div>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="text-align:center; margin-top: 8px;">Click a style to select it, then let me know in the chat.</p>

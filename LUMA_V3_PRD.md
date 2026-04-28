@@ -14,13 +14,14 @@ Rebuild Luma's UI and agent system to match OpenClicky exactly. This is a clean 
 ---
 
 ## PHASE 1 — Design System Overhaul
-
 ### 1.1 Replace LumaTheme with OpenClicky Design System
 **Progress:** `[x]` — DesignSystem.swift complete (1,462 lines)
 
 Replace `LumaTheme.swift` with a new `DesignSystem.swift` (alias `DS`) containing these exact tokens:
 
 **Color Palette**
+
+NLP
 
 | Token | Hex | Usage |
 |-------|-----|-------|

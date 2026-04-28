@@ -932,6 +932,503 @@ extension View {
     }
 }
 
+// MARK: - Noise Texture View
+
+/// A subtle procedural grain texture overlay generated via Core Image.
+/// Renders at low opacity to add visual depth to dark surfaces.
+struct NoiseTextureView: View {
+    var opacity: Double = 0.03
+
+    var body: some View {
+        GeometryReader { geometry in
+            if let noiseImage = Self.generateNoiseImage(
+                width: Int(geometry.size.width),
+                height: Int(geometry.size.height)
+            ) {
+                Image(nsImage: noiseImage)
+                    .resizable()
+                    .opacity(opacity)
+                    .blendMode(.screen)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    /// Generates a grain noise pattern using CIRandomGenerator + CIColorMatrix.
+    private static func generateNoiseImage(width: Int, height: Int) -> NSImage? {
+        guard width > 0, height > 0 else { return nil }
+
+        let context = CIContext()
+        guard let noiseFilter = CIFilter(name: "CIRandomGenerator") else { return nil }
+        guard let noiseOutput = noiseFilter.outputImage else { return nil }
+
+        // Reduce the noise to a subtle monochrome grain
+        guard let monoFilter = CIFilter(name: "CIColorMatrix") else { return nil }
+        monoFilter.setValue(noiseOutput, forKey: kCIInputImageKey)
+        monoFilter.setValue(CIVector(x: 0, y: 0, z: 0, w: 0), forKey: "inputRVector")
+        monoFilter.setValue(CIVector(x: 0, y: 0, z: 0, w: 0), forKey: "inputGVector")
+        monoFilter.setValue(CIVector(x: 0, y: 0, z: 0, w: 0), forKey: "inputBVector")
+        monoFilter.setValue(CIVector(x: 0, y: 0, z: 0, w: 0.1), forKey: "inputAVector")
+        monoFilter.setValue(CIVector(x: 0.5, y: 0.5, z: 0.5, w: 0), forKey: "inputBiasVector")
+
+        guard let monoOutput = monoFilter.outputImage else { return nil }
+
+        let croppedOutput = monoOutput.cropped(to: CGRect(x: 0, y: 0, width: width, height: height))
+
+        guard let cgImage = context.createCGImage(croppedOutput, from: croppedOutput.extent) else { return nil }
+
+        let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: width, height: height))
+        return nsImage
+    }
+}
+
+// MARK: - Button Glow Hover Modifier
+
+/// Adds a subtle accent-colored glow behind a button when hovered.
+struct ButtonGlowHoverModifier: ViewModifier {
+    var glowColor: Color = LumaAccentTheme.current.accent
+    var glowRadius: CGFloat = 8
+    @State private var isHovering = false
+
+    func body(content: Content) -> some View {
+        content
+            .background(
+                RoundedRectangle(cornerRadius: DS.CornerRadius.small)
+                    .fill(glowColor.opacity(isHovering ? 0.12 : 0))
+                    .blur(radius: glowRadius)
+                    .animation(.easeInOut(duration: 0.2), value: isHovering)
+            )
+            .onHover { hovering in
+                isHovering = hovering
+                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+            }
+    }
+}
+
+extension View {
+    /// Applies a subtle glow on hover with a pointing hand cursor.
+    func glowOnHover(color: Color = LumaAccentTheme.current.accent, radius: CGFloat = 8) -> some View {
+        modifier(ButtonGlowHoverModifier(glowColor: color, glowRadius: radius))
+    }
+}
+
+// MARK: - Companion Triangle Shape
+
+/// Equilateral triangle used for the companion cursor.
+/// Tip points upward at 0° — OverlayWindow rotates it to a cursor-like -35°.
+struct CompanionTriangle: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let size   = min(rect.width, rect.height)
+        let height = size * sqrt(3.0) / 2.0
+        path.move(to:     CGPoint(x: rect.midX,           y: rect.midY - height / 1.5))
+        path.addLine(to:  CGPoint(x: rect.midX - size / 2, y: rect.midY + height / 3))
+        path.addLine(to:  CGPoint(x: rect.midX + size / 2, y: rect.midY + height / 3))
+        path.closeSubpath()
+        return path
+    }
+}
+
+// MARK: - Companion Shape
+
+/// Defines the shape of the floating companion cursor.
+enum CompanionShape {
+    /// Default arrow-like cursor — rotates to face its direction of travel.
+    case triangle
+    /// Simple round dot — ignores rotation during flight.
+    case circle
+    /// Horizontal pill — ignores rotation during flight.
+    case capsule
+
+    /// Returns the shape as an AnyShape so it can be used with .fill() and
+    /// other Shape modifiers at the call site without knowing the concrete type.
+    var asAnyShape: AnyShape {
+        switch self {
+        case .triangle: return AnyShape(CompanionTriangle())
+        case .circle:   return AnyShape(Circle())
+        case .capsule:  return AnyShape(Capsule())
+        }
+    }
+}
+
+// MARK: - Companion Configuration
+
+/// All configuration values for the floating companion overlay cursor.
+/// These were previously in LumaTheme and are referenced primarily from OverlayWindow.swift.
+enum CompanionConfig {
+
+    // MARK: Size
+
+    /// Width of the companion shape in points.
+    static let width:  CGFloat = 14
+    static let height: CGFloat = 14
+
+    // MARK: Shape
+
+    /// Shape of the companion while idle / following the cursor.
+    static let shape: CompanionShape = .capsule
+
+    // MARK: Color
+
+    /// Color of the floating companion, waveform bars, and glow.
+    static let color = Color(hex: "#0A84FF")
+
+    // MARK: Border (idle state)
+
+    /// Stroke color drawn around the companion in its idle / cursor-following state.
+    static let borderColor: Color  = .white.opacity(0.5)
+    static let borderWidth: CGFloat = 1.0
+
+    // MARK: Morph Target
+
+    /// Shape the companion morphs INTO when navigating to or pointing at a UI element.
+    static let morphTargetShape: CompanionShape = .triangle
+
+    /// Size of the companion in its morph target (pointing) state.
+    static let morphTargetWidth:  CGFloat = 32
+    static let morphTargetHeight: CGFloat = 32
+
+    /// Fill color after fully morphing into the target shape.
+    static let morphTargetColor: Color = Color(hex: "#0A84FF")
+
+    /// Border in the morph target state.
+    static let morphTargetBorderColor: Color  = .white.opacity(0.25)
+    static let morphTargetBorderWidth: CGFloat = 1.5
+
+    // MARK: Corner Radius
+
+    /// Corner radius for the companion in its idle state (only affects triangle/polygon).
+    static let cornerRadius: CGFloat = 0
+
+    /// Corner radius for the companion when morphed to its target shape.
+    static let morphTargetCornerRadius: CGFloat = 6
+
+    // MARK: Morph Animation
+
+    /// Spring response for the morph animation. Lower = faster / snappier.
+    static let morphSpringResponse: Double = 0.72
+    /// Spring damping for the morph animation. Lower = more bounce. 1.0 = no bounce.
+    static let morphSpringDamping: Double = 0.36
+    /// Number of outline sample points used to interpolate between shapes.
+    static let morphPointCount: Int = 36
+}
+
+// MARK: - Morphing Companion Shape
+
+/// A SwiftUI Shape that smoothly morphs between CompanionConfig.shape and a
+/// triangle by sampling N evenly-spaced points along each shape's perimeter and
+/// linearly interpolating between corresponding points.
+///
+/// progress = 0  ->  CompanionConfig.shape (idle / following cursor)
+/// progress = 1  ->  triangle (navigating to / pointing at a UI element)
+struct MorphingCompanionShape: Shape {
+
+    /// 0 = companion's idle shape, 1 = triangle pointer.
+    var progress: Double
+
+    var animatableData: Double {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        let n = CompanionConfig.morphPointCount
+        let fromPoints = Self.sampleShapePoints(CompanionConfig.shape,           in: rect, count: n,
+                                                cornerRadius: CompanionConfig.cornerRadius)
+        let toPoints   = Self.sampleShapePoints(CompanionConfig.morphTargetShape, in: rect, count: n,
+                                                cornerRadius: CompanionConfig.morphTargetCornerRadius)
+
+        let interpolated = zip(fromPoints, toPoints).map { (from, to) -> CGPoint in
+            CGPoint(
+                x: from.x + (to.x - from.x) * progress,
+                y: from.y + (to.y - from.y) * progress
+            )
+        }
+
+        var path = Path()
+        guard let first = interpolated.first else { return path }
+        path.move(to: first)
+        interpolated.dropFirst().forEach { path.addLine(to: $0) }
+        path.closeSubpath()
+        return path
+    }
+
+    // MARK: Shape Sampling
+
+    private static func sampleShapePoints(_ shape: CompanionShape, in rect: CGRect, count: Int,
+                                          cornerRadius: CGFloat = 0) -> [CGPoint] {
+        switch shape {
+        case .triangle: return sampleTrianglePoints(in: rect, count: count, cornerRadius: cornerRadius)
+        case .circle:   return sampleCirclePoints(in: rect, count: count)
+        case .capsule:  return sampleCapsulePoints(in: rect, count: count)
+        }
+    }
+
+    /// N points evenly distributed along the triangle perimeter, starting near the top vertex.
+    static func sampleTrianglePoints(in rect: CGRect, count: Int, cornerRadius: CGFloat = 0) -> [CGPoint] {
+        let size   = min(rect.width, rect.height)
+        let height = size * sqrt(3.0) / 2.0
+        let top         = CGPoint(x: rect.midX,            y: rect.midY - height / 1.5)
+        let bottomRight = CGPoint(x: rect.midX + size / 2, y: rect.midY + height / 3)
+        let bottomLeft  = CGPoint(x: rect.midX - size / 2, y: rect.midY + height / 3)
+
+        guard cornerRadius > 0 else {
+            return samplePolygonPerimeter([top, bottomRight, bottomLeft], totalCount: count)
+        }
+
+        let vertices: [CGPoint] = [top, bottomRight, bottomLeft]
+        let vertexCount = vertices.count
+        let inradius = height / 3.0
+        let clampedRadius = min(Double(cornerRadius), inradius * 0.85)
+
+        let cgPath = CGMutablePath()
+        for i in 0..<vertexCount {
+            let prevVertex = vertices[(i + vertexCount - 1) % vertexCount]
+            let currVertex = vertices[i]
+            let nextVertex = vertices[(i + 1) % vertexCount]
+
+            let dx = currVertex.x - prevVertex.x
+            let dy = currVertex.y - prevVertex.y
+            let edgeLength = sqrt(dx * dx + dy * dy)
+            let inDirX = edgeLength > 0 ? dx / edgeLength : 0
+            let inDirY = edgeLength > 0 ? dy / edgeLength : 0
+
+            let tangentStartPoint = CGPoint(x: currVertex.x - inDirX * clampedRadius,
+                                            y: currVertex.y - inDirY * clampedRadius)
+
+            if i == 0 {
+                cgPath.move(to: tangentStartPoint)
+            } else {
+                cgPath.addLine(to: tangentStartPoint)
+            }
+
+            cgPath.addArc(tangent1End: currVertex, tangent2End: nextVertex, radius: clampedRadius)
+        }
+        cgPath.closeSubpath()
+
+        return sampleCGPathPoints(cgPath, count: count)
+    }
+
+    /// N points evenly distributed around the circle, starting at the top (12 o'clock).
+    private static func sampleCirclePoints(in rect: CGRect, count: Int) -> [CGPoint] {
+        let cx = rect.midX
+        let cy = rect.midY
+        let radius = min(rect.width, rect.height) / 2.0
+        return (0..<count).map { i in
+            let angle = 2.0 * .pi * Double(i) / Double(count) - .pi / 2.0
+            return CGPoint(x: cx + radius * cos(angle), y: cy + radius * sin(angle))
+        }
+    }
+
+    /// N points evenly distributed around the capsule perimeter, starting at the top center.
+    private static func sampleCapsulePoints(in rect: CGRect, count: Int) -> [CGPoint] {
+        let w = rect.width
+        let h = rect.height
+        let radius = min(w, h) / 2.0
+        let isHorizontal = w >= h
+        let straightLength = max(w, h) - 2.0 * radius
+        let totalPerimeter = 2.0 * straightLength + 2.0 * .pi * radius
+
+        return (0..<count).map { i in
+            let distance = totalPerimeter * Double(i) / Double(count)
+            return capsulePoint(
+                atDistance: distance,
+                isHorizontal: isHorizontal,
+                straightLength: straightLength,
+                radius: radius,
+                midX: Double(rect.midX),
+                midY: Double(rect.midY)
+            )
+        }
+    }
+
+    private static func capsulePoint(
+        atDistance distance: Double,
+        isHorizontal: Bool,
+        straightLength: Double,
+        radius: Double,
+        midX: Double,
+        midY: Double
+    ) -> CGPoint {
+        let half = straightLength / 2.0
+
+        if isHorizontal {
+            let seg1End = straightLength
+            let seg2End = seg1End + .pi * radius
+            let seg3End = seg2End + straightLength
+
+            if distance < seg1End {
+                return CGPoint(x: midX - half + distance, y: midY - radius)
+            } else if distance < seg2End {
+                let angle = (distance - seg1End) / radius - .pi / 2.0
+                return CGPoint(x: midX + half + radius * cos(angle), y: midY + radius * sin(angle))
+            } else if distance < seg3End {
+                return CGPoint(x: midX + half - (distance - seg2End), y: midY + radius)
+            } else {
+                let angle = (distance - seg3End) / radius + .pi / 2.0
+                return CGPoint(x: midX - half + radius * cos(angle), y: midY + radius * sin(angle))
+            }
+        } else {
+            let seg1End = Double.pi * radius
+            let seg2End = seg1End + straightLength
+            let seg3End = seg2End + .pi * radius
+
+            if distance < seg1End {
+                let angle = distance / radius - .pi / 2.0
+                return CGPoint(x: midX + radius * cos(angle), y: midY - half + radius * sin(angle))
+            } else if distance < seg2End {
+                return CGPoint(x: midX + radius, y: midY - half + (distance - seg1End))
+            } else if distance < seg3End {
+                let angle = (distance - seg2End) / radius + .pi / 2.0
+                return CGPoint(x: midX + radius * cos(angle), y: midY + half + radius * sin(angle))
+            } else {
+                return CGPoint(x: midX - radius, y: midY + half - (distance - seg3End))
+            }
+        }
+    }
+
+    private static func sampleCGPathPoints(_ cgPath: CGPath, count: Int) -> [CGPoint] {
+        var lineSegments: [(start: CGPoint, end: CGPoint)] = []
+        var currentPoint = CGPoint.zero
+        var pathStartPoint = CGPoint.zero
+
+        cgPath.applyWithBlock { elementPointer in
+            let element = elementPointer.pointee
+            switch element.type {
+
+            case .moveToPoint:
+                currentPoint   = element.points[0]
+                pathStartPoint = currentPoint
+
+            case .addLineToPoint:
+                let endPoint = element.points[0]
+                lineSegments.append((start: currentPoint, end: endPoint))
+                currentPoint = endPoint
+
+            case .addQuadCurveToPoint:
+                let controlPoint = element.points[0]
+                let endPoint     = element.points[1]
+                let subdivisionCount = 8
+                for j in 0..<subdivisionCount {
+                    let t0 = Double(j)     / Double(subdivisionCount)
+                    let t1 = Double(j + 1) / Double(subdivisionCount)
+                    let segStart = quadraticBezierPoint(from: currentPoint, control: controlPoint,
+                                                        to: endPoint, t: t0)
+                    let segEnd   = quadraticBezierPoint(from: currentPoint, control: controlPoint,
+                                                        to: endPoint, t: t1)
+                    lineSegments.append((start: segStart, end: segEnd))
+                }
+                currentPoint = endPoint
+
+            case .addCurveToPoint:
+                let cp1      = element.points[0]
+                let cp2      = element.points[1]
+                let endPoint = element.points[2]
+                let subdivisionCount = 8
+                for j in 0..<subdivisionCount {
+                    let t0 = Double(j)     / Double(subdivisionCount)
+                    let t1 = Double(j + 1) / Double(subdivisionCount)
+                    let segStart = cubicBezierPoint(from: currentPoint, cp1: cp1, cp2: cp2,
+                                                    to: endPoint, t: t0)
+                    let segEnd   = cubicBezierPoint(from: currentPoint, cp1: cp1, cp2: cp2,
+                                                    to: endPoint, t: t1)
+                    lineSegments.append((start: segStart, end: segEnd))
+                }
+                currentPoint = endPoint
+
+            case .closeSubpath:
+                if currentPoint != pathStartPoint {
+                    lineSegments.append((start: currentPoint, end: pathStartPoint))
+                }
+                currentPoint = pathStartPoint
+
+            default:
+                break
+            }
+        }
+
+        let segmentLengths = lineSegments.map { hypot($0.end.x - $0.start.x, $0.end.y - $0.start.y) }
+        let totalPerimeter = segmentLengths.reduce(0.0, +)
+        guard totalPerimeter > 0 else { return Array(repeating: .zero, count: count) }
+
+        return (0..<count).map { sampleIndex in
+            var remainingDistance = totalPerimeter * Double(sampleIndex) / Double(count)
+            for (segIndex, segment) in lineSegments.enumerated() {
+                let segmentLength = segmentLengths[segIndex]
+                if remainingDistance <= segmentLength || segIndex == lineSegments.count - 1 {
+                    let t = segmentLength > 0 ? min(1.0, remainingDistance / segmentLength) : 0.0
+                    return CGPoint(
+                        x: segment.start.x + (segment.end.x - segment.start.x) * t,
+                        y: segment.start.y + (segment.end.y - segment.start.y) * t
+                    )
+                }
+                remainingDistance -= segmentLength
+            }
+            return lineSegments.last?.end ?? .zero
+        }
+    }
+
+    private static func quadraticBezierPoint(from p0: CGPoint, control p1: CGPoint,
+                                             to p2: CGPoint, t: Double) -> CGPoint {
+        let u = 1.0 - t
+        return CGPoint(
+            x: u * u * p0.x + 2.0 * u * t * p1.x + t * t * p2.x,
+            y: u * u * p0.y + 2.0 * u * t * p1.y + t * t * p2.y
+        )
+    }
+
+    private static func cubicBezierPoint(from p0: CGPoint, cp1 p1: CGPoint,
+                                         cp2 p2: CGPoint, to p3: CGPoint, t: Double) -> CGPoint {
+        let u   = 1.0 - t
+        let uu  = u * u
+        let uuu = uu * u
+        let tt  = t * t
+        let ttt = tt * t
+        return CGPoint(
+            x: uuu * p0.x + 3.0 * uu * t * p1.x + 3.0 * u * tt * p2.x + ttt * p3.x,
+            y: uuu * p0.y + 3.0 * uu * t * p1.y + 3.0 * u * tt * p2.y + ttt * p3.y
+        )
+    }
+
+    private static func samplePolygonPerimeter(_ vertices: [CGPoint], totalCount: Int) -> [CGPoint] {
+        let vertexCount = vertices.count
+        var edgeLengths = [Double]()
+        var totalPerimeter = 0.0
+        for i in 0..<vertexCount {
+            let next = (i + 1) % vertexCount
+            let length = hypot(
+                Double(vertices[next].x - vertices[i].x),
+                Double(vertices[next].y - vertices[i].y)
+            )
+            edgeLengths.append(length)
+            totalPerimeter += length
+        }
+
+        return (0..<totalCount).map { sampleIndex in
+            var remaining = totalPerimeter * Double(sampleIndex) / Double(totalCount)
+            var edgeIndex = 0
+            while edgeIndex < vertexCount - 1 && remaining > edgeLengths[edgeIndex] {
+                remaining -= edgeLengths[edgeIndex]
+                edgeIndex += 1
+            }
+            let fraction = edgeLengths[edgeIndex] > 0 ? remaining / edgeLengths[edgeIndex] : 0.0
+            let a = vertices[edgeIndex]
+            let b = vertices[(edgeIndex + 1) % vertexCount]
+            return CGPoint(
+                x: a.x + (b.x - a.x) * CGFloat(fraction),
+                y: a.y + (b.y - a.y) * CGFloat(fraction)
+            )
+        }
+    }
+}
+
+// MARK: - Menu Bar Configuration
+
+enum LumaMenuBar {
+    /// SF Symbol name for the Luma menu bar icon. e.g. "sparkles", "brain", "eye.fill"
+    static let iconName = "lightbulb.fill"
+}
+
 // MARK: - Color Utilities
 
 extension Color {
@@ -961,5 +1458,14 @@ extension Color {
         let blue = nsColor.blueComponent + (1.0 - nsColor.blueComponent) * fraction
 
         return Color(red: red, green: green, blue: blue)
+    }
+
+    /// Extracts the red, green, blue components as Doubles (0.0–1.0).
+    /// Falls back to zero if the color space conversion fails.
+    var cgColorComponents: (red: Double, green: Double, blue: Double) {
+        guard let nsColor = NSColor(self).usingColorSpace(.sRGB) else {
+            return (red: 0, green: 0, blue: 0)
+        }
+        return (red: nsColor.redComponent, green: nsColor.greenComponent, blue: nsColor.blueComponent)
     }
 }

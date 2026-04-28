@@ -126,8 +126,31 @@ final class ClaudeCodeAgentRuntime: AgentRuntime {
     }
 
     func submitPrompt(sessionId: UUID, prompt: String) async throws {
-        let systemContext = AgentMemoryIntegration.loadSummarizedMemoryForSystemContext()
+        var systemContext = AgentMemoryIntegration.loadSummarizedMemoryForSystemContext()
         let workingDirectory = UserDefaults.standard.string(forKey: "luma.agent.workingDirectory") ?? NSHomeDirectory()
+
+        // Append persona and completion format so the CLI agent responds warmly
+        // and its final message is always clean, short, and tag-safe for display.
+        let completionFormat = """
+        You are Luma, a helpful macOS assistant. Be warm, direct, and conversational — \
+        like a knowledgeable colleague, not a robot.
+
+        COMPLETION FORMAT (strictly enforced): When you finish a task, your final message \
+        must be one conversational sentence, 150 characters maximum. No title prefix like \
+        "Task Complete —". Just state what you did and ask if there's anything else. \
+        Example: "Cleaned up your Downloads folder by moving old files to Archive. Anything \
+        else?" Then immediately append (tags at end only, never in body text):
+        <NEXT_ACTIONS>
+        [Short follow-up phrase 1]
+        [Short follow-up phrase 2]
+        </NEXT_ACTIONS>
+        """
+
+        if systemContext.isEmpty {
+            systemContext = completionFormat
+        } else {
+            systemContext += "\n\n\(completionFormat)"
+        }
 
         try await startSession(
             id: sessionId,
