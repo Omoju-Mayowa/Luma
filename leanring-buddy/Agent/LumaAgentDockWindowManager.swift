@@ -140,11 +140,10 @@ final class AgentBubbleWindow {
         self.session = session
         self.physicsState = AgentBubblePhysicsState()
 
-        // Panel is fixed at 340×300. The left ~268 pt is transparent when the card
-        // is hidden, so hover no longer needs to resize the panel — eliminating the
-        // onHover → setFrame → onHover feedback loop that caused the hover crash.
-        let fixedPanelWidth: CGFloat = 340
-        let fixedPanelHeight: CGFloat = 300
+        // Panel is fixed at 300×200. The morphing view is a single element that
+        // expands from 56×56 orb to 280×160 card — no separate card view.
+        let fixedPanelWidth: CGFloat = 300
+        let fixedPanelHeight: CGFloat = 200
         let panel = KeyAcceptingPanel(
             contentRect: NSRect(x: 0, y: 0, width: fixedPanelWidth, height: fixedPanelHeight),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -220,39 +219,43 @@ final class AgentBubbleWindow {
 
     // MARK: Hover hit-testing (driven by coordinator's physics timer)
 
-    /// Screen rect for the orb's collapsed hit zone — the mouse must enter this area to
-    /// trigger hover. Generous size (right 100 pt × 130 pt) accounts for physics shake,
-    /// the satellite dots, and the status dot that extend beyond the 56 pt orb frame.
-    private var orbHitRect: NSRect {
-        NSRect(
-            x: panel.frame.maxX - 100,
-            y: panel.frame.midY - 65,
-            width: 100,
-            height: 130
+    /// Screen rect for the collapsed orb hit zone. Generous margins account for
+    /// physics shake and the accent dot that extends above the 56 pt orb frame.
+    /// Internal (not private) so the coordinator can access it for one-at-a-time logic.
+    var orbHitRect: NSRect {
+        let orbSize: CGFloat = 56
+        let rightPad: CGFloat = 12
+        let margin: CGFloat = 12
+        return NSRect(
+            x: panel.frame.maxX - rightPad - orbSize - margin,
+            y: panel.frame.midY - orbSize / 2 - margin,
+            width: orbSize + margin * 2,
+            height: orbSize + margin * 2
         )
     }
 
-    /// Screen rect for the full expanded hit zone — mouse must leave this area to collapse
-    /// the card once it is already open. Covers the full panel width so the user can
-    /// interact with the card's text fields and buttons without losing hover.
-    private var expandedHitRect: NSRect {
-        NSRect(
-            x: panel.frame.minX,
-            y: panel.frame.minY + 5,
-            width: panel.frame.width,
-            height: panel.frame.height - 10
+    /// Screen rect for the expanded card hit zone. Mouse must leave this to collapse.
+    /// Internal so the coordinator can use it for one-at-a-time enforcement.
+    var expandedHitRect: NSRect {
+        let cardWidth: CGFloat = 280
+        let cardHeight: CGFloat = 160
+        let inset: CGFloat = 8
+        return NSRect(
+            x: panel.frame.maxX - 12 - cardWidth - inset,
+            y: panel.frame.midY - cardHeight / 2 - inset,
+            width: cardWidth + inset * 2,
+            height: cardHeight + inset * 2
         )
     }
 
-    /// Called by the coordinator on every physics tick (25 Hz).
-    /// Uses hysteresis: enter on orb zone, exit only when mouse leaves the full card area.
-    /// This approach prevents competing NSTrackingArea events from adjacent bubble panels.
-    func updateHoverState(mouseScreenLocation: NSPoint) {
-        if physicsState.isOrbHovered {
-            physicsState.isOrbHovered = expandedHitRect.contains(mouseScreenLocation)
-        } else {
-            physicsState.isOrbHovered = orbHitRect.contains(mouseScreenLocation)
-        }
+    /// Returns true if the mouse is within the collapsed orb's enter zone.
+    func isMouseInOrbZone(_ mouseScreenLocation: NSPoint) -> Bool {
+        orbHitRect.contains(mouseScreenLocation)
+    }
+
+    /// Returns true if the mouse is within the expanded card's stay zone.
+    func isMouseInCardZone(_ mouseScreenLocation: NSPoint) -> Bool {
+        expandedHitRect.contains(mouseScreenLocation)
     }
 
     // MARK: Screen clamping
@@ -364,7 +367,7 @@ final class LumaAgentDockWindowManager {
     private func defaultSpawnOriginForNewBubble(existingCount: Int) -> NSPoint {
         guard let screen = NSScreen.main else { return .zero }
         let visibleFrame = screen.visibleFrame
-        let fixedPanelWidth: CGFloat = 340
+        let fixedPanelWidth: CGFloat = 300
         let orbViewDiameter: CGFloat = 56
         let spacingBetweenBubbles: CGFloat = 10
         let originX = visibleFrame.maxX - fixedPanelWidth
@@ -389,20 +392,45 @@ final class LumaAgentDockWindowManager {
 
     private func tickPhysics() {
         let currentTime = Date.timeIntervalSinceReferenceDate
-        // Snapshot mouse position once per tick — shared across all bubble updates.
         let mouseScreenLocation = NSEvent.mouseLocation
 
-        // Collect screen centers of running bubbles for proximity computation
+        // ── One-at-a-time hover enforcement ──────────────────────────────────
+        // Only one bubble may be hovered at any moment. The coordinator decides
+        // which one wins — per-bubble SwiftUI onHover is not used at all.
+        //
+        // Step 1: If a bubble is already expanded, keep it hovered only while
+        //         the mouse remains inside its card zone.
+        var activelyHoveredID: UUID? = nil
+        for (id, window) in bubbleWindows where window.physicsState.isOrbHovered {
+            if window.isMouseInCardZone(mouseScreenLocation) {
+                activelyHoveredID = id  // Mouse still inside card — stay expanded
+            } else {
+                window.physicsState.isOrbHovered = false  // Mouse left — collapse
+            }
+        }
+
+        // Step 2: If nothing is expanded, check if mouse enters any orb zone.
+        if activelyHoveredID == nil {
+            for (id, window) in bubbleWindows where !window.physicsState.isOrbHovered {
+                if window.isMouseInOrbZone(mouseScreenLocation) {
+                    window.physicsState.isOrbHovered = true
+                    activelyHoveredID = id
+                    break  // First match wins — enforces one at a time
+                }
+            }
+        }
+
+        // Step 3: Safety net — collapse any bubble that isn't the active one.
+        for (id, window) in bubbleWindows where id != activelyHoveredID {
+            window.physicsState.isOrbHovered = false
+        }
+
+        // ── Proximity shake + physics update ─────────────────────────────────
         let runningBubbleCenters: [NSPoint] = bubbleWindows.values
             .filter { $0.sessionIsRunning }
             .map { $0.screenCenter }
 
         for (_, window) in bubbleWindows {
-            // Update hover state via exact rect hit-testing instead of NSTrackingArea,
-            // preventing interference when adjacent bubble panels overlap.
-            window.updateHoverState(mouseScreenLocation: mouseScreenLocation)
-
-            // Compute proximity factor for non-running bubbles
             if !window.sessionIsRunning && !runningBubbleCenters.isEmpty {
                 let center = window.screenCenter
                 let minimumDistanceToRunningBubble = runningBubbleCenters
@@ -424,428 +452,355 @@ final class LumaAgentDockWindowManager {
     }
 }
 
-// MARK: - AgentBubbleExpandedRichCard
+// MARK: - OrbAccentStatusDot
 
-/// Rich card that slides in to the left of the orb on hover.
-/// Layout: header strip (title + status chip + close) / body (text + actions + input + voice).
-private struct AgentBubbleExpandedRichCard: View {
+/// Single status-aware accent dot that floats at the top-right of the collapsed orb.
+/// Idle/stopped → grey, working/starting → pulsing orange, ready → green, failed → red.
+/// Fades to transparent as the orb morphs into the card.
+private struct OrbAccentStatusDot: View {
+    let status: AgentSessionStatus
+    let isHovered: Bool
+    @State private var isPulsingLarge = false
+
+    private var dotColor: Color {
+        switch status {
+        case .stopped:            return Color.gray.opacity(0.55)
+        case .ready:              return Color(red: 0.35, green: 0.78, blue: 0.45)
+        case .starting, .running: return Color(red: 1.0, green: 0.62, blue: 0.22)
+        case .failed:             return Color(red: 1.0, green: 0.30, blue: 0.30)
+        }
+    }
+
+    private var isPulsing: Bool { status == .running || status == .starting }
+
+    var body: some View {
+        Circle()
+            .fill(dotColor)
+            .frame(width: 11, height: 11)
+            .overlay(Circle().stroke(Color.white.opacity(0.22), lineWidth: 1))
+            .shadow(color: dotColor.opacity(0.80), radius: 5)
+            .scaleEffect(isPulsing && isPulsingLarge ? 0.72 : 1.0)
+            .opacity(isHovered ? 0.0 : (isPulsing && isPulsingLarge ? 0.6 : 1.0))
+            .animation(
+                isPulsing ? .easeInOut(duration: 0.85).repeatForever(autoreverses: true) : .default,
+                value: isPulsingLarge
+            )
+            .animation(.easeOut(duration: 0.15), value: isHovered)
+            .onAppear { isPulsingLarge = isPulsing }
+            .onChange(of: isPulsing) { active in isPulsingLarge = active }
+    }
+}
+
+// MARK: - MorphingAgentBubbleView
+
+/// A single SwiftUI view that IS both the orb and the card.
+///
+/// Collapsed state (isHovered = false):
+///   • 56×56 circle, corner radius = 28 (full circle)
+///   • Rich radial gradient with inner shadow for glassy depth
+///   • Icon + specular highlights visible
+///
+/// Expanded state (isHovered = true):
+///   • 280×160 rounded rect, corner radius = 20
+///   • Dark card background with agent info
+///   • Icon hidden, card content fades in after morph starts
+///
+/// The width, height, and corner radius all animate with a spring curve that
+/// matches the CSS cubic-bezier(0.34, 1.56, 0.64, 1) springy overshoot feel.
+private struct MorphingAgentBubbleView: View {
     @ObservedObject var session: AgentSession
     @ObservedObject var physicsState: AgentBubblePhysicsState
 
+    let isHovered: Bool
+    let onDragStarted: () -> Void
+    let onDragUpdated: () -> Void
+    let onDragEnded: () -> Void
     let onDismiss: () -> Void
     let onRunSuggestedAction: (String) -> Void
     let onSubmitText: (String) -> Void
     let onVoiceToggle: () -> Void
 
+    // Cross-fade state — driven by onChange(of: isHovered) with staggered timing
+    @State private var showCardContent = false
+    @State private var showOrbIcon = true
+    @State private var isDragActive = false
     @State private var followUpInputText: String = ""
 
+    private let collapsedSize: CGFloat = 56
+    private let expandedWidth: CGFloat = 280
+    private let expandedHeight: CGFloat = 160
+
+    private var currentWidth: CGFloat { isHovered ? expandedWidth : collapsedSize }
+    private var currentHeight: CGFloat { isHovered ? expandedHeight : collapsedSize }
+    // Full circle when collapsed; gentle rounded rect when expanded
+    private var currentCornerRadius: CGFloat { isHovered ? 20 : collapsedSize / 2 }
+
     var body: some View {
-        VStack(spacing: 0) {
-            cardHeader
-            cardBody
+        ZStack {
+            // ── Card background (expanded state) ─────────────────────────────
+            // Always rendered; fades in as the orb collapses
+            Color(red: 0.04, green: 0.03, blue: 0.09)
+                .opacity(showCardContent ? 1 : 0)
+                .animation(.easeIn(duration: 0.18), value: showCardContent)
+
+            // ── Orb gradient background (collapsed state) ─────────────────────
+            // Vibrant radial gradient with light source at upper-left.
+            // Fades out as the card background fades in.
+            RadialGradient(
+                gradient: Gradient(stops: [
+                    .init(color: session.glowColor.opacity(0.95), location: 0.0),
+                    .init(color: session.glowColor.opacity(0.75), location: 0.48),
+                    .init(color: Color(red: 0.05, green: 0.02, blue: 0.12), location: 1.0),
+                ]),
+                center: UnitPoint(x: 0.30, y: 0.26),
+                startRadius: 2,
+                endRadius: 36
+            )
+            .opacity(showOrbIcon ? 1 : 0)
+            .animation(.easeOut(duration: 0.12), value: showOrbIcon)
+
+            // ── Inner shadow / dark rim ──────────────────────────────────────
+            // Dark vignette at the orb edge creates glassy depth — like looking
+            // into a bowl lit from above. The outer rim is near-black while the
+            // center stays vibrant. Fades with the orb gradient.
+            RadialGradient(
+                gradient: Gradient(stops: [
+                    .init(color: Color.clear, location: 0.44),
+                    .init(color: Color.black.opacity(0.55), location: 1.0)
+                ]),
+                center: .center,
+                startRadius: 0,
+                endRadius: 30
+            )
+            .opacity(showOrbIcon ? 1 : 0)
+            .animation(.easeOut(duration: 0.12), value: showOrbIcon)
+
+            // ── Specular highlights (orb state only) ──────────────────────────
+            // Primary soft highlight — large, blurred, upper-left
+            Ellipse()
+                .fill(Color.white.opacity(0.28))
+                .frame(width: 24, height: 11)
+                .rotationEffect(.degrees(-22))
+                .offset(x: -12, y: -17)
+                .blur(radius: 2)
+                .blendMode(.screen)
+                .opacity(showOrbIcon ? 1 : 0)
+                .animation(.easeOut(duration: 0.10), value: showOrbIcon)
+
+            // Secondary pin-point catch light — sharp, crisp
+            Ellipse()
+                .fill(Color.white.opacity(0.72))
+                .frame(width: 7, height: 4)
+                .offset(x: -14, y: -20)
+                .blendMode(.screen)
+                .opacity(showOrbIcon ? 1 : 0)
+                .animation(.easeOut(duration: 0.10), value: showOrbIcon)
+
+            // ── Agent icon (collapsed state) ──────────────────────────────────
+            Image(systemName: session.iconShape.systemImageName)
+                .font(.system(size: 22, weight: .heavy))
+                .foregroundColor(Color.white.opacity(0.95))
+                .shadow(color: Color.black.opacity(0.35), radius: 3)
+                .opacity(showOrbIcon ? 1 : 0)
+                .animation(.easeOut(duration: 0.12), value: showOrbIcon)
+
+            // ── Card content (expanded state) ─────────────────────────────────
+            cardContentView
+                .opacity(showCardContent ? 1 : 0)
+                .animation(.easeIn(duration: 0.18), value: showCardContent)
         }
-        .frame(width: 260)
-        .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color(red: 0.03, green: 0.024, blue: 0.07).opacity(0.96))
-        )
+        .frame(width: currentWidth, height: currentHeight)
+        .clipShape(RoundedRectangle(cornerRadius: currentCornerRadius, style: .continuous))
+        // Glass border — bright at top-left, subtle at bottom-right
         .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(Color.white.opacity(0.06), lineWidth: 1)
+            RoundedRectangle(cornerRadius: currentCornerRadius, style: .continuous)
+                .stroke(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(isHovered ? 0.09 : 0.38),
+                            Color.white.opacity(0.04)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 1.5
+                )
         )
-        .shadow(color: Color.black.opacity(0.8), radius: 24, y: 8)
-        .shadow(color: session.glowColor.opacity(0.08), radius: 16)
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        // Outer glow — stronger on collapsed orb, subtler on expanded card
+        .shadow(color: session.glowColor.opacity(isHovered ? 0.20 : 0.50), radius: isHovered ? 10 : 18)
+        .shadow(color: Color.black.opacity(0.50), radius: 12, y: 5)
+        // Physics offset — disabled when expanded so the card is stable
+        .offset(
+            x: isHovered ? 0 : physicsState.physicsOffset.width,
+            y: isHovered ? 0 : physicsState.physicsOffset.height
+        )
+        .animation(.linear(duration: 0.04), value: physicsState.physicsOffset)
+        // Drag gesture — only active when collapsed (drag while expanded is ignored)
+        .gesture(
+            DragGesture(minimumDistance: 4, coordinateSpace: .global)
+                .onChanged { _ in
+                    guard !isHovered else { return }
+                    if !isDragActive { isDragActive = true; onDragStarted() }
+                    onDragUpdated()
+                }
+                .onEnded { _ in isDragActive = false; onDragEnded() }
+        )
+        // Staggered cross-fade: icon fades first, card reveals after morph is underway
+        .onChange(of: isHovered) { nowHovered in
+            if nowHovered {
+                withAnimation(.easeOut(duration: 0.10)) { showOrbIcon = false }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) {
+                    withAnimation(.easeIn(duration: 0.18)) { showCardContent = true }
+                }
+            } else {
+                withAnimation(.easeOut(duration: 0.12)) { showCardContent = false }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
+                    withAnimation(.easeIn(duration: 0.10)) { showOrbIcon = true }
+                }
+            }
+        }
     }
 
-    // MARK: Header strip
+    // MARK: - Card content
+
+    private var cardContentView: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            cardHeader
+            Rectangle()
+                .fill(session.glowColor.opacity(0.22))
+                .frame(height: 1)
+            cardBody
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
 
     private var cardHeader: some View {
         HStack(spacing: 6) {
-            OrbStatusDot(status: session.status)
-                .frame(width: 6, height: 6)
-                .scaleEffect(6.0 / 10.0)
+            // Inline status dot matching the accent dot color
+            Circle()
+                .fill(statusAccentColor)
+                .frame(width: 7, height: 7)
+                .shadow(color: statusAccentColor.opacity(0.8), radius: 3)
 
             Text(session.title.uppercased())
                 .font(.system(size: 11, weight: .heavy))
                 .foregroundColor(session.glowColor.opacity(0.9))
-                .kerning(0.07 * 11)
+                .kerning(0.77)
                 .lineLimit(1)
 
             Spacer()
 
-            statusChip
+            statusChipView
 
             Button(action: onDismiss) {
                 Text("✕")
-                    .font(.system(size: 13))
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(Color.white.opacity(0.85))
             }
             .buttonStyle(.plain)
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(Color.white.opacity(0.02))
-        .overlay(
-            // Accent gradient divider at the bottom of the header strip
-            LinearGradient(
-                colors: [.clear, session.glowColor.opacity(0.3), .clear],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
-            .frame(height: 1),
-            alignment: .bottom
-        )
+        .padding(.vertical, 9)
+        .background(Color.white.opacity(0.03))
     }
 
-    // MARK: Body
-
     private var cardBody: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            // Latest response text (max 3 lines)
+        VStack(alignment: .leading, spacing: 8) {
             Text(session.latestActivitySummary ?? "Waiting for response...")
-                .font(.system(size: 11.5))
-                .foregroundColor(Color.white.opacity(session.latestActivitySummary != nil ? 0.65 : 0.3))
-                .lineLimit(3)
+                .font(.system(size: 11))
+                .foregroundColor(
+                    Color.white.opacity(session.latestActivitySummary != nil ? 0.60 : 0.28)
+                )
+                .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
                 .italic(session.latestActivitySummary == nil)
 
-            // Suggested next-step action pills (from ResponseCard, max 2)
-            let suggestedActions = session.latestResponseCard?.suggestedActions ?? []
-            if !suggestedActions.isEmpty {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("Next steps")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundColor(Color.white.opacity(0.25))
-                        .kerning(0.08 * 9)
-                        .textCase(.uppercase)
-
-                    HStack(spacing: 5) {
-                        ForEach(Array(suggestedActions.prefix(2)), id: \.self) { action in
-                            Button(action: { onRunSuggestedAction(action) }) {
-                                Text(action)
-                                    .font(.system(size: 9.5, weight: .semibold))
-                                    .foregroundColor(Color.white.opacity(0.55))
-                                    .lineLimit(1)
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 4)
-                                    .background(Color.white.opacity(0.05))
-                                    .clipShape(Capsule())
-                                    .overlay(Capsule().stroke(Color.white.opacity(0.08), lineWidth: 1))
-                            }
-                            .buttonStyle(.plain)
-                                        }
-                    }
-                }
-            }
-
-            // Follow-up text input + send button
+            // Follow-up text input
             HStack(spacing: 6) {
                 TextField("Ask a follow-up...", text: $followUpInputText)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 10.5))
-                    .foregroundColor(Color.white.opacity(0.85))
-                    .onSubmit { submitFollowUpInput() }
+                    .font(.system(size: 10))
+                    .foregroundColor(Color.white.opacity(0.80))
+                    .onSubmit { submitFollowUp() }
 
-                Button(action: submitFollowUpInput) {
+                Button(action: submitFollowUp) {
                     Text("↑")
                         .font(.system(size: 10, weight: .bold))
                         .foregroundColor(.white)
-                        .frame(width: 24, height: 24)
+                        .frame(width: 20, height: 20)
                         .background(
-                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
                                 .fill(session.glowColor.opacity(
-                                    followUpInputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.25 : 0.7
+                                    followUpInputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                        ? 0.25 : 0.70
                                 ))
                         )
                 }
-                .buttonStyle(.plain)                .disabled(followUpInputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .buttonStyle(.plain)
+                .disabled(followUpInputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
             .background(Color.white.opacity(0.04))
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
                     .stroke(Color.white.opacity(0.07), lineWidth: 1)
             )
-
-            // Voice toggle button — trailing aligned
-            HStack {
-                Spacer()
-                Button(action: onVoiceToggle) {
-                    HStack(spacing: 4) {
-                        Image(systemName: physicsState.isVoiceRecording ? "mic.fill" : "mic")
-                            .font(.system(size: 9, weight: .semibold))
-                        Text(physicsState.isVoiceRecording ? "Stop" : "Voice")
-                            .font(.system(size: 10, weight: .semibold))
-                    }
-                    .foregroundColor(physicsState.isVoiceRecording ? Color.red.opacity(0.9) : Color.white.opacity(0.55))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 5)
-                    .background(
-                        physicsState.isVoiceRecording ? Color.red.opacity(0.15) : Color.white.opacity(0.05)
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .stroke(
-                                physicsState.isVoiceRecording ? Color.red.opacity(0.3) : Color.white.opacity(0.08),
-                                lineWidth: 0.5
-                            )
-                    )
-                }
-                .buttonStyle(.plain)            }
         }
         .padding(.horizontal, 14)
-        .padding(.top, 12)
-        .padding(.bottom, 14)
+        .padding(.top, 10)
+        .padding(.bottom, 12)
     }
 
-    // MARK: Helpers
-
-    private func submitFollowUpInput() {
+    private func submitFollowUp() {
         let trimmedText = followUpInputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedText.isEmpty else { return }
         onSubmitText(trimmedText)
         followUpInputText = ""
     }
 
-    private var statusChip: some View {
+    // MARK: Status helpers
+
+    private var statusAccentColor: Color {
+        switch session.status {
+        case .stopped:            return Color.gray.opacity(0.50)
+        case .ready:              return Color(red: 0.35, green: 0.78, blue: 0.45)
+        case .starting, .running: return Color(red: 1.0, green: 0.62, blue: 0.22)
+        case .failed:             return Color(red: 1.0, green: 0.30, blue: 0.30)
+        }
+    }
+
+    private var statusChipColor: Color {
+        switch session.status {
+        case .running, .starting: return Color.orange
+        case .ready:              return Color.green
+        case .failed:             return Color.red
+        case .stopped:            return Color.white.opacity(0.40)
+        }
+    }
+
+    private var statusChipView: some View {
         Text(session.status.displayLabel)
             .font(.system(size: 9, weight: .bold))
-            .foregroundColor(statusChipTextColor)
-            .kerning(0.05 * 9)
+            .foregroundColor(statusChipColor)
             .textCase(.uppercase)
             .padding(.horizontal, 7)
             .padding(.vertical, 2)
-            .background(statusChipBackground)
+            .background(Capsule().fill(statusChipColor.opacity(0.12)))
+            .overlay(Capsule().stroke(statusChipColor.opacity(0.22), lineWidth: 1))
             .clipShape(Capsule())
-    }
-
-    private var statusChipTextColor: Color {
-        switch session.status {
-        case .running, .starting: return Color.yellow
-        case .ready:              return Color.green
-        case .failed:             return Color.red
-        case .stopped:            return Color.white.opacity(0.4)
-        }
-    }
-
-    @ViewBuilder
-    private var statusChipBackground: some View {
-        Capsule()
-            .fill(statusChipFillColor)
-            .overlay(Capsule().stroke(statusChipBorderColor, lineWidth: 1))
-    }
-
-    private var statusChipFillColor: Color {
-        switch session.status {
-        case .running, .starting: return Color.yellow.opacity(0.12)
-        case .ready:              return Color.green.opacity(0.1)
-        case .failed:             return Color.red.opacity(0.1)
-        case .stopped:            return Color.white.opacity(0.05)
-        }
-    }
-
-    private var statusChipBorderColor: Color {
-        switch session.status {
-        case .running, .starting: return Color.yellow.opacity(0.2)
-        case .ready:              return Color.green.opacity(0.2)
-        case .failed:             return Color.red.opacity(0.2)
-        case .stopped:            return Color.white.opacity(0.08)
-        }
-    }
-}
-
-// MARK: - AgentGlassyOrbView
-
-/// 72×72 circular bubble with glassy orb aesthetic:
-/// radial gradient fill, specular highlight, glow ring, pulsing status dot, icon.
-private struct AgentGlassyOrbView: View {
-    @ObservedObject var session: AgentSession
-    @ObservedObject var physicsState: AgentBubblePhysicsState
-    let isHovered: Bool
-    let onDragStarted: () -> Void
-    let onDragUpdated: () -> Void
-    let onDragEnded: () -> Void
-
-    @State private var isDragActive = false
-
-    var body: some View {
-        ZStack {
-            // ── Base sphere ──────────────────────────────────────────────────
-            // Radial gradient with light source at upper-left creates a 3D sphere
-            // appearance: bright vibrant accent color near the highlight, fading to
-            // deep near-black at the bottom-right rim.
-            Circle()
-                .fill(
-                    RadialGradient(
-                        gradient: Gradient(stops: [
-                            .init(color: session.glowColor.opacity(0.95), location: 0.0),
-                            .init(color: session.glowColor.opacity(0.78), location: 0.50),
-                            .init(color: Color(red: 0.04, green: 0.02, blue: 0.10), location: 1.0),
-                        ]),
-                        center: UnitPoint(x: 0.3, y: 0.25),
-                        startRadius: 2,
-                        endRadius: 38
-                    )
-                )
-                .frame(width: 56, height: 56)
-
-            // Rim-light accent — subtle bright fringe at lower-right, adds
-            // the illusion of a secondary reflected light source.
-            Circle()
-                .fill(
-                    RadialGradient(
-                        gradient: Gradient(colors: [
-                            session.glowColor.opacity(0.3),
-                            Color.clear
-                        ]),
-                        center: UnitPoint(x: 0.78, y: 0.82),
-                        startRadius: 0,
-                        endRadius: 26
-                    )
-                )
-                .frame(width: 56, height: 56)
-                .blendMode(.screen)
-
-            // Glass border — bright at top-left, fades to near-invisible at bottom-right
-            Circle()
-                .stroke(
-                    LinearGradient(
-                        colors: [Color.white.opacity(0.40), Color.white.opacity(0.04)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    lineWidth: 1.5
-                )
-                .frame(width: 56, height: 56)
-
-            // ── Specular highlights ─────────────────────────────────────────
-            // Large primary highlight — soft glow at upper-left
-            Ellipse()
-                .fill(Color.white.opacity(0.30))
-                .frame(width: 26, height: 12)
-                .rotationEffect(.degrees(-22))
-                .offset(x: -13, y: -19)
-                .blur(radius: 2)
-                .blendMode(.screen)
-
-            // Small pin-point catch-light — sharp bright dot for glassy feel
-            Ellipse()
-                .fill(Color.white.opacity(0.75))
-                .frame(width: 7, height: 4)
-                .offset(x: -15, y: -21)
-                .blendMode(.screen)
-
-            // ── Icon ────────────────────────────────────────────────────────
-            Image(systemName: session.iconShape.systemImageName)
-                .font(.system(size: 22, weight: .heavy))
-                .foregroundColor(Color.white.opacity(0.95))
-                .shadow(color: Color.black.opacity(0.35), radius: 3)
-
-            // ── Status dot ──────────────────────────────────────────────────
-            OrbStatusDot(status: session.status)
-                .offset(x: 31, y: -31)
-
-            // ── Satellite accent dots ───────────────────────────────────────
-            // Two small decorative dots that float near the orb — orange and blue —
-            // inspired by the reference design. They stay within the 340 pt panel.
-            Circle()
-                .fill(Color(red: 1.0, green: 0.62, blue: 0.22))
-                .frame(width: 10, height: 10)
-                .overlay(Circle().stroke(Color.white.opacity(0.25), lineWidth: 1))
-                .shadow(color: Color.orange.opacity(0.65), radius: 5)
-                .offset(x: 18, y: -34)
-
-            Circle()
-                .fill(Color(red: 0.25, green: 0.65, blue: 1.0))
-                .frame(width: 7, height: 7)
-                .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 0.5))
-                .shadow(color: Color(red: 0.25, green: 0.65, blue: 1.0).opacity(0.65), radius: 4)
-                .offset(x: 26, y: -24)
-        }
-        .frame(width: 56, height: 56)
-        // Outer glow ring — intensity increases on hover
-        .shadow(color: session.glowColor.opacity(isHovered ? 0.65 : 0.40), radius: isHovered ? 22 : 14)
-        .shadow(color: Color.black.opacity(0.5), radius: 12, y: 5)
-        // Scale slightly on hover
-        .scaleEffect(isHovered ? 1.08 : 1.0)
-        // Physics displacement — applied with fast linear animation so shake feels snappy
-        .offset(x: physicsState.physicsOffset.width, y: physicsState.physicsOffset.height)
-        .animation(.linear(duration: 0.04), value: physicsState.physicsOffset)
-        .animation(.spring(response: 0.4, dampingFraction: 0.75), value: isHovered)
-        // Drag gesture moves the parent NSPanel via coordinator callbacks
-        .gesture(
-            DragGesture(minimumDistance: 4, coordinateSpace: .global)
-                .onChanged { _ in
-                    if !isDragActive {
-                        isDragActive = true
-                        onDragStarted()
-                    }
-                    onDragUpdated()
-                }
-                .onEnded { _ in
-                    isDragActive = false
-                    onDragEnded()
-                }
-        )
-    }
-}
-
-// MARK: - OrbStatusDot
-
-/// Pulsing colored dot indicating agent session status.
-private struct OrbStatusDot: View {
-    let status: AgentSessionStatus
-    @State private var isPulsingLarge = false
-
-    private var dotColor: Color {
-        switch status {
-        case .stopped:              return Color.gray.opacity(0.5)
-        case .starting, .running:   return Color.yellow
-        case .ready:                return Color.green
-        case .failed:               return Color.red
-        }
-    }
-
-    private var isPulsing: Bool {
-        status == .running || status == .starting
-    }
-
-    var body: some View {
-        Circle()
-            .fill(dotColor)
-            .frame(width: 10, height: 10)
-            .shadow(color: dotColor.opacity(0.85), radius: 4)
-            .overlay(Circle().stroke(Color(red: 0.05, green: 0.04, blue: 0.08), lineWidth: 1.5))
-            .scaleEffect(isPulsing && isPulsingLarge ? 0.65 : 1.0)
-            .opacity(isPulsing && isPulsingLarge ? 0.35 : 1.0)
-            .animation(
-                isPulsing
-                    ? .easeInOut(duration: 0.6).repeatForever(autoreverses: true)
-                    : .default,
-                value: isPulsingLarge
-            )
-            .onAppear { isPulsingLarge = isPulsing }
-            .onChange(of: isPulsing) { active in
-                isPulsingLarge = active
-            }
     }
 }
 
 // MARK: - AgentBubbleRootView
 
-/// Root SwiftUI view hosted in each AgentBubbleWindow panel.
-/// The panel is a fixed 340×300 rect. The left ~268 pt is transparent when the card is
-/// hidden, so the panel never needs to resize on hover (eliminating the resize feedback loop).
+/// Root SwiftUI view hosted in each AgentBubbleWindow panel (300×200 fixed rect).
+/// A clear passthrough background fills the panel; the morphing orb/card sits at
+/// the trailing edge with an accent status dot overlaid at its top-right.
 ///
-/// Layout:
-///   ZStack(alignment: .trailing)
-///     Color.clear (passthrough — desktop clicks fall through the transparent region)
-///     HStack { [card (optional)] [orb + horizontal padding for shake buffer] }
-///       .onHover → animates isHovered, card appears/disappears
+/// Hover state is driven by the coordinator's 25 Hz physics timer (physicsState.isOrbHovered),
+/// not by SwiftUI onHover, preventing NSTrackingArea interference between adjacent panels.
 private struct AgentBubbleRootView: View {
     @ObservedObject var session: AgentSession
     @ObservedObject var physicsState: AgentBubblePhysicsState
@@ -859,55 +814,41 @@ private struct AgentBubbleRootView: View {
     let onVoiceFollowUp: () -> Void
     let onVoiceToggle: () -> Void
 
-    /// Local copy of hover state, animated via onChange from physicsState.isOrbHovered.
-    /// Driven by the coordinator's physics timer rather than SwiftUI onHover, which
-    /// prevents NSTrackingArea interference between adjacent bubble panels.
+    /// Animated local copy of physicsState.isOrbHovered.
+    /// Updated with a spring so the morph animation is driven by withAnimation context.
     @State private var isHovered = false
 
     var body: some View {
         ZStack(alignment: .trailing) {
-            // Fills the full fixed panel but passes all mouse events through to the
-            // desktop — only interactive SwiftUI views below capture clicks.
+            // Transparent fill — passes all mouse events through to desktop except
+            // where interactive SwiftUI views below capture them.
             Color.clear.allowsHitTesting(false)
 
-            // Content: card (optional) + orb. Trailing-aligned so the orb stays at the
-            // right edge of the panel whether or not the card is visible.
-            HStack(alignment: .center, spacing: 0) {
-                if isHovered {
-                    AgentBubbleExpandedRichCard(
-                        session: session,
-                        physicsState: physicsState,
-                        onDismiss: onDismiss,
-                        onRunSuggestedAction: onRunSuggestedAction,
-                        onSubmitText: onSubmitText,
-                        onVoiceToggle: onVoiceToggle
-                    )
-                    .padding(.trailing, 8)
-                    // Scale from the orb's position (trailing anchor) so the card
-                    // appears to morph outward from the bubble rather than sliding in.
-                    .transition(.asymmetric(
-                        insertion: .scale(scale: 0.05, anchor: .trailing).combined(with: .opacity),
-                        removal: .scale(scale: 0.05, anchor: .trailing).combined(with: .opacity)
-                    ))
-                }
-                AgentGlassyOrbView(
-                    session: session,
-                    physicsState: physicsState,
-                    isHovered: isHovered,
-                    onDragStarted: onDragStarted,
-                    onDragUpdated: onDragUpdated,
-                    onDragEnded: onDragEnded
-                )
-                // Horizontal padding provides a clipping buffer: physics shake is ±8 pt so
-                // 12 pt of padding on each side keeps the orb visible inside the panel.
-                .padding(.horizontal, 12)
-                // No .onHover — hover is driven by the coordinator's 25 Hz physics timer
-                // checking NSEvent.mouseLocation against each bubble's orbHitRect.
+            // The morphing element — orb or card, one unified view
+            MorphingAgentBubbleView(
+                session: session,
+                physicsState: physicsState,
+                isHovered: isHovered,
+                onDragStarted: onDragStarted,
+                onDragUpdated: onDragUpdated,
+                onDragEnded: onDragEnded,
+                onDismiss: onDismiss,
+                onRunSuggestedAction: onRunSuggestedAction,
+                onSubmitText: onSubmitText,
+                onVoiceToggle: onVoiceToggle
+            )
+            .padding(.trailing, 12)
+            // Status accent dot floats above the orb's top-right corner.
+            // Uses overlay so it is not clipped by the morphing view's clipShape.
+            .overlay(alignment: .topTrailing) {
+                OrbAccentStatusDot(status: session.status, isHovered: isHovered)
+                    .offset(x: 4, y: -4)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Spring drives the morph — response/damping match CSS cubic-bezier(0.34,1.56,0.64,1)
         .onChange(of: physicsState.isOrbHovered) { nowHovered in
-            withAnimation(.spring(response: 0.5, dampingFraction: 0.72)) {
+            withAnimation(.spring(response: 0.55, dampingFraction: 0.72)) {
                 isHovered = nowHovered
             }
         }
