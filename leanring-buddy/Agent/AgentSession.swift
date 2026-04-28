@@ -21,9 +21,9 @@ enum AgentSessionStatus: Equatable {
 
     var displayLabel: String {
         switch self {
-        case .stopped: return "OFFLINE"
+        case .stopped: return "IDLE"
         case .starting: return "STARTING"
-        case .ready: return "AGENT"
+        case .ready: return "READY"
         case .running: return "WORKING"
         case .failed: return "NEEDS ATTENTION"
         }
@@ -50,6 +50,10 @@ final class AgentSession: ObservableObject, Identifiable {
     @Published private(set) var entries: [AgentTranscriptEntry] = []
     @Published private(set) var lastErrorMessage: String?
     @Published private(set) var latestResponseCard: ResponseCard?
+    /// A cheap-model summary of the most recently completed task. Used by
+    /// buildContextualPrompt to replace raw transcript history in follow-up prompts,
+    /// keeping multi-session token cost flat instead of growing linearly.
+    @Published private(set) var completedTaskSummary: String?
     @Published var model: String
     @Published var workingDirectoryPath: String
 
@@ -75,7 +79,7 @@ final class AgentSession: ObservableObject, Identifiable {
 
     var statusSummaryLine: String {
         switch status {
-        case .stopped: return "Agent is offline"
+        case .stopped: return "Agent is idle"
         case .starting: return "Starting up..."
         case .ready: return "Ready for tasks"
         case .running: return "Working on task..."
@@ -96,15 +100,25 @@ final class AgentSession: ObservableObject, Identifiable {
         title: String = "New Agent",
         accentTheme: LumaAccentTheme = .blue,
         model: String = UserDefaults.standard.string(forKey: "luma.agent.defaultModel") ?? "claude-sonnet-4-6",
-        workingDirectoryPath: String = UserDefaults.standard.string(forKey: "luma.agent.workingDirectory") ?? NSHomeDirectory()
+        workingDirectoryPath: String = UserDefaults.standard.string(forKey: "luma.agent.workingDirectory") ?? NSHomeDirectory(),
+        restoredIconShape: AgentIconShape? = nil,
+        restoredGlowColor: Color? = nil
     ) {
         self.id = id
         self.title = title
         self.accentTheme = accentTheme
         self.model = model
         self.workingDirectoryPath = workingDirectoryPath
-        self.iconShape = AgentIconShape.random
-        self.glowColor = Self.randomGlowColors.randomElement() ?? Color.blue
+        self.iconShape = restoredIconShape ?? AgentIconShape.random
+        self.glowColor = restoredGlowColor ?? Self.randomGlowColors.randomElement() ?? Color.blue
+    }
+
+    /// Restores a transcript entry from persisted data (does not trigger memory recording).
+    func restoreTranscriptEntry(_ entry: AgentTranscriptEntry) {
+        entries.append(entry)
+        if entry.role == .assistant {
+            latestResponseCard = ResponseCard(source: .agent, rawText: entry.text)
+        }
     }
 
     func bind(to runtime: any AgentRuntime) {
@@ -156,6 +170,9 @@ final class AgentSession: ObservableObject, Identifiable {
                 // Detect task completion: running → ready
                 if case .running = previousStatus, case .ready = newStatus {
                     self.announceTaskCompletion()
+                    // Summarize the completed session in the background so follow-up
+                    // prompts can use a compact summary instead of the raw transcript.
+                    self.triggerTaskCompletionSummarization()
                 }
             }
             .store(in: &cancellables)
@@ -197,15 +214,38 @@ final class AgentSession: ObservableObject, Identifiable {
         }
     }
 
-    /// Builds a prompt string that includes prior conversation history so each
+    /// Builds a prompt string that includes prior conversation context so each
     /// CLI invocation has full context (Claude CLI spawns a new process per prompt).
+    /// Uses a completed-task summary when available to keep follow-up cost flat,
+    /// otherwise falls back to the last 6 raw transcript entries.
     private func buildContextualPrompt(latestPrompt: String) -> String {
-        // If this is the first message, just return the prompt as-is
+        // If we have a summary of the previous completed task, use it instead of
+        // raw history. This keeps follow-up cost flat regardless of session length.
+        if let summary = completedTaskSummary {
+            return """
+            [Previous task summary: \(summary)]
+
+            [New request:]
+            \(latestPrompt)
+            """
+        }
+
+        // No summary yet — include the last 6 raw transcript entries for context.
+        // Capped to prevent linear cost growth across the first few exchanges.
         let priorEntries = entries.dropLast() // everything except the one we just appended
         guard !priorEntries.isEmpty else { return latestPrompt }
 
-        var contextLines: [String] = ["[Previous conversation for context:]"]
-        for entry in priorEntries {
+        let maximumPriorEntriesToInclude = 6
+        let cappedPriorEntries = priorEntries.suffix(maximumPriorEntriesToInclude)
+        let didOmitEarlierEntries = priorEntries.count > maximumPriorEntriesToInclude
+
+        var contextLines: [String] = []
+        if didOmitEarlierEntries {
+            contextLines.append("[Earlier context omitted for brevity]")
+        }
+        contextLines.append("[Previous conversation for context:]")
+
+        for entry in cappedPriorEntries {
             let roleLabel: String
             switch entry.role {
             case .user: roleLabel = "User"
@@ -263,42 +303,210 @@ final class AgentSession: ObservableObject, Identifiable {
         LumaLogger.log("[Luma] Agent '\(title)' completed task: \(truncatedSummary.prefix(80))...")
     }
 
+    // MARK: - Task Summarization
+
+    /// Maps the session's configured model to the cheapest equivalent for summarization calls.
+    /// Claude → Haiku, OpenAI → gpt-4o-mini, Google → gemini-flash, custom → as-is.
+    static func cheapSummaryModelID(for agentModel: String) -> String {
+        switch agentModel {
+        case "claude-sonnet-4-6", "claude-opus-4-6":
+            return "anthropic/claude-haiku-4-5-20251001"
+        case "gpt-4o", "gpt-4o-mini":
+            return "openai/gpt-4o-mini"
+        default:
+            if agentModel.hasPrefix("google/") {
+                return "google/gemini-2.5-flash:free"
+            }
+            // Custom or OpenRouter model — use as-is (user already chose it)
+            return agentModel
+        }
+    }
+
+    /// Reads session state on the main actor, then fires a background Task to call the
+    /// cheap summary model. Stores the result back in `completedTaskSummary` on main.
+    private func triggerTaskCompletionSummarization() {
+        let entriesToSummarize = Array(entries.suffix(20))
+        guard !entriesToSummarize.isEmpty else { return }
+
+        let cheapModel = Self.cheapSummaryModelID(for: model)
+        let apiKey = ProfileManager.shared.loadActiveAPIKey()?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !apiKey.isEmpty else { return }
+
+        Task {
+            await performTaskSummarization(
+                entriesToSummarize: entriesToSummarize,
+                cheapModel: cheapModel,
+                apiKey: apiKey
+            )
+        }
+    }
+
+    /// Calls the cheap model on OpenRouter to produce a 2–3 sentence summary of the
+    /// completed session. Stores the result in `completedTaskSummary` for use in
+    /// follow-up prompts. Max 200 tokens keeps the call cheap.
+    private func performTaskSummarization(
+        entriesToSummarize: [AgentTranscriptEntry],
+        cheapModel: String,
+        apiKey: String
+    ) async {
+        let transcriptText = entriesToSummarize.map { entry -> String in
+            let roleLabel: String
+            switch entry.role {
+            case .user:      roleLabel = "User"
+            case .assistant: roleLabel = "Assistant"
+            case .system:    roleLabel = "System"
+            case .command:   roleLabel = "Command"
+            case .plan:      roleLabel = "Plan"
+            }
+            return "\(roleLabel): \(entry.text)"
+        }.joined(separator: "\n")
+
+        let summaryPrompt = """
+        Summarize this agent session in 2-3 sentences. Be factual and specific. \
+        Include: what was requested, the key steps taken, and the outcome.
+
+        \(transcriptText)
+        """
+
+        var request = URLRequest(url: URL(string: "https://openrouter.ai/api/v1/chat/completions")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+
+        let requestBody: [String: Any] = [
+            "model": cheapModel,
+            "messages": [["role": "user", "content": summaryPrompt]],
+            "max_tokens": 200
+        ]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: requestBody)
+
+        do {
+            let (data, _) = try await URLSession.shared.data(for: request)
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let choices = json["choices"] as? [[String: Any]],
+               let message = choices.first?["message"] as? [String: Any],
+               let content = message["content"] as? String,
+               !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                let trimmedSummary = content.trimmingCharacters(in: .whitespacesAndNewlines)
+                await MainActor.run {
+                    self.completedTaskSummary = trimmedSummary
+                }
+                LumaLogger.log("[Luma] Agent '\(title)' session summarized: \(trimmedSummary.prefix(80))...")
+            }
+        } catch {
+            LumaLogger.log("[Luma] Agent session summarization failed: \(error.localizedDescription)")
+        }
+    }
+
     // MARK: - Title Generation
 
     private func generateTitleIfNeeded(from prompt: String) {
         guard !hasGeneratedTitle else { return }
         hasGeneratedTitle = true
 
+        // Read profile settings on the main actor (safe here — @MainActor function).
+        // The active profile determines which API endpoint and auth format to use.
+        // Previously this always called OpenRouter, which broke for Anthropic profiles.
+        guard let activeProfile = ProfileManager.shared.activeProfile else { return }
+        let apiKey = ProfileManager.shared.loadActiveAPIKey()?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !apiKey.isEmpty else { return }
+
+        let provider = activeProfile.provider
+        let baseURL = activeProfile.effectiveBaseURL
+
         Task {
-            guard let apiKey = ProfileManager.shared.loadActiveAPIKey(), !apiKey.isEmpty else { return }
-
             let titlePrompt = "Generate a 3-5 word title for this task: \(prompt). Return only the title, nothing else."
-
-            var request = URLRequest(url: URL(string: "https://openrouter.ai/api/v1/chat/completions")!)
-            request.httpMethod = "POST"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-
-            let requestBody: [String: Any] = [
-                "model": "google/gemini-2.5-flash:free",
-                "messages": [["role": "user", "content": titlePrompt]],
-                "max_tokens": 20
-            ]
-            request.httpBody = try? JSONSerialization.data(withJSONObject: requestBody)
-
             do {
-                let (data, _) = try await URLSession.shared.data(for: request)
-                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let choices = json["choices"] as? [[String: Any]],
-                   let message = choices.first?["message"] as? [String: Any],
-                   let content = message["content"] as? String {
-                    await MainActor.run {
-                        self.title = content.trimmingCharacters(in: .whitespacesAndNewlines)
-                    }
+                let generatedTitle: String?
+                if provider == .anthropic {
+                    // Anthropic uses a different API path and request/response format than OpenAI.
+                    generatedTitle = try await fetchTitleFromAnthropicAPI(
+                        prompt: titlePrompt, apiKey: apiKey, baseURL: baseURL
+                    )
+                } else {
+                    // OpenRouter, Google, and Custom all use OpenAI-compatible chat completions.
+                    generatedTitle = try await fetchTitleFromOpenAICompatibleAPI(
+                        prompt: titlePrompt, apiKey: apiKey, baseURL: baseURL, provider: provider
+                    )
+                }
+                if let title = generatedTitle, !title.isEmpty {
+                    await MainActor.run { self.title = title }
+                    LumaLogger.log("[Luma] Agent '\(title)' title generated.")
                 }
             } catch {
                 LumaLogger.log("[Luma] Title generation failed: \(error)")
             }
+        }
+    }
+
+    /// Generates a title via any OpenAI-compatible endpoint (OpenRouter, Google, Custom).
+    private func fetchTitleFromOpenAICompatibleAPI(
+        prompt: String,
+        apiKey: String,
+        baseURL: String,
+        provider: LumaAPIProvider
+    ) async throws -> String? {
+        guard let url = URL(string: "\(baseURL)/chat/completions") else { return nil }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let authValue = provider.requiresBearerPrefix ? "Bearer \(apiKey)" : apiKey
+        request.setValue(authValue, forHTTPHeaderField: provider.authHeaderName)
+
+        let requestBody: [String: Any] = [
+            "model": cheapTitleModelID(for: provider),
+            "messages": [["role": "user", "content": prompt]],
+            "max_tokens": 20
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+
+        let (data, _) = try await URLSession.shared.data(for: request)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let choices = json["choices"] as? [[String: Any]],
+              let message = choices.first?["message"] as? [String: Any],
+              let content = message["content"] as? String else { return nil }
+        return content.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Generates a title via the Anthropic messages API (different path and schema from OpenAI).
+    private func fetchTitleFromAnthropicAPI(
+        prompt: String,
+        apiKey: String,
+        baseURL: String
+    ) async throws -> String? {
+        // Anthropic's endpoint is /messages, not /chat/completions.
+        guard let url = URL(string: "\(baseURL)/messages") else { return nil }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+
+        let requestBody: [String: Any] = [
+            "model": "claude-haiku-4-5-20251001",
+            "messages": [["role": "user", "content": prompt]],
+            "max_tokens": 20
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+
+        let (data, _) = try await URLSession.shared.data(for: request)
+        // Anthropic response: { "content": [{ "type": "text", "text": "..." }] }
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let contentArray = json["content"] as? [[String: Any]],
+              let firstBlock = contentArray.first,
+              let text = firstBlock["text"] as? String else { return nil }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Returns the cheapest model suitable for title generation for a given provider.
+    private func cheapTitleModelID(for provider: LumaAPIProvider) -> String {
+        switch provider {
+        case .openRouter: return "google/gemini-2.5-flash:free"
+        case .google:     return "gemini-2.5-flash"
+        case .anthropic:  return "claude-haiku-4-5-20251001"   // fallback; Anthropic handled separately
+        case .custom:     return Self.cheapSummaryModelID(for: self.model)
         }
     }
 }
