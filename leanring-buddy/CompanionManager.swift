@@ -134,6 +134,12 @@ final class CompanionManager: ObservableObject {
     @Published var isAgentModeEnabled: Bool = UserDefaults.standard.bool(forKey: "luma.agentMode.enabled")
 
     private var agentDockManager = LumaAgentDockWindowManager()
+    /// Cancellables for observing each agent session's status/transcript changes.
+    private var agentSessionObservationCancellables: [UUID: Set<AnyCancellable>] = [:]
+    /// Whether an agent is currently recording voice via toggle (not push-to-talk).
+    @Published var agentVoiceRecordingSessionID: UUID?
+    /// Task for the active agent voice recording session.
+    private var agentVoiceRecordingTask: Task<Void, Never>?
 
     /// The currently active agent session. Non-optional — start() guarantees
     /// at least one session exists via ensureDefaultAgentSession().
@@ -149,21 +155,6 @@ final class CompanionManager: ObservableObject {
         return first
     }
 
-    var agentDockItems: [AgentDockItem] {
-        agentSessions.map { session in
-            AgentDockItem(
-                id: session.id,
-                title: session.title,
-                accentTheme: session.accentTheme,
-                status: session.status,
-                caption: session.latestActivitySummary.flatMap { String($0.prefix(40)) },
-                responseText: session.latestResponseCard?.truncatedText,
-                suggestedActions: session.latestResponseCard?.suggestedActions ?? [],
-                iconShape: session.iconShape,
-                glowColor: session.glowColor
-            )
-        }
-    }
 
     /// Legacy property kept for backwards compatibility — CompanionManager.selectedModel
     /// is no longer used for API calls (APIClient reads the model from ProfileManager.activeProfile).
@@ -316,7 +307,11 @@ final class CompanionManager: ObservableObject {
 
         // Initialize agent session system only if agent mode is enabled
         if isAgentModeEnabled {
-            ensureDefaultAgentSession()
+            // Restore persisted sessions from previous app launch, or create a default one
+            restorePersistedAgentSessions()
+            if agentSessions.isEmpty {
+                ensureDefaultAgentSession()
+            }
         }
         AgentHotkeyHandler.shared.startMonitoring(companionManager: self)
 
@@ -331,16 +326,77 @@ final class CompanionManager: ObservableObject {
                 let title = notification.userInfo?["title"] as? String ?? "Agent"
                 let summary = notification.userInfo?["summary"] as? String ?? "Task completed"
 
-                // Speak the completion summary via TTS
-                let spokenText = "\(title) finished. \(summary)"
+                // Ensure the cursor overlay is visible so the bubble can be shown
+                if !self.isOverlayVisible {
+                    self.overlayWindowManager.hasShownOverlayBefore = true
+                    self.overlayWindowManager.showOverlay(onScreens: NSScreen.screens, companionManager: self)
+                    self.isOverlayVisible = true
+                }
+
+                // Show completion text in the cursor's navigation bubble (the blue pill
+                // next to the triangle cursor). Uses detectedElementBubbleText which the
+                // overlay's BlueCursorView picks up and streams character-by-character.
+                let truncatedSummaryForBubble = summary.count > 60
+                    ? String(summary.prefix(60)) + "..."
+                    : summary
+                let bubbleMessage = "\(title) done — \(truncatedSummaryForBubble)"
+                self.detectedElementBubbleText = bubbleMessage
+
+                // Trigger the pointing animation at the current cursor position so the
+                // navigation bubble appears. Using the cursor's current location means
+                // the bubble shows right where the user is looking.
+                let currentCursorLocation = NSEvent.mouseLocation
+                let containingScreen = NSScreen.screens.first { $0.frame.contains(currentCursorLocation) }
+                    ?? NSScreen.main
+                self.detectedElementDisplayFrame = containingScreen?.frame
+                self.detectedElementScreenLocation = currentCursorLocation
+
+                // Speak the completion summary so the user is notified even when
+                // they're not looking at the screen
+                let spokenText = "\(title) done. \(summary)"
                 self.nativeTTSClient.speak(spokenText)
+
+                // If the summary references a file path that exists on disk, open
+                // it automatically so the user sees the result immediately
+                if let filePath = Self.extractFilePathFromAgentSummary(summary),
+                   FileManager.default.fileExists(atPath: filePath) {
+                    NSWorkspace.shared.open(URL(fileURLWithPath: filePath))
+                    LumaLogger.log("[Luma] Auto-opened result file: \(filePath)")
+                }
 
                 // Update dock to show new status
                 self.updateAgentDock()
 
+                // Persist updated session state
+                self.persistAllAgentSessions()
+
                 LumaLogger.log("[Luma] Agent task completed — \(title): \(summary.prefix(80))...")
             }
         }
+    }
+
+    /// Scans an agent completion summary for a file path that can be opened.
+    /// Checks quoted paths first ("~/foo.txt"), then bare paths starting with / or ~.
+    /// Returns the first path whose file actually exists on disk.
+    private static func extractFilePathFromAgentSummary(_ summary: String) -> String? {
+        let patterns = [
+            #"[\"'`]([~\/][^\s\"'`\n]+)[\"'`]"#,   // quoted: "/path" or '~/path'
+            #"(?:^|\s)(\/[^\s\n]+)"#,                // bare absolute: /some/path
+            #"(?:^|\s)(~\/[^\s\n]+)"#                // bare tilde: ~/some/path
+        ]
+
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
+            let range = NSRange(summary.startIndex..., in: summary)
+            guard let match = regex.firstMatch(in: summary, range: range),
+                  let captureRange = Range(match.range(at: 1), in: summary) else { continue }
+            let rawPath = String(summary[captureRange])
+            let expandedPath = (rawPath as NSString).expandingTildeInPath
+            if FileManager.default.fileExists(atPath: expandedPath) {
+                return expandedPath
+            }
+        }
+        return nil
     }
 
     /// Called by BlueCursorView after the buddy finishes its pointing
@@ -465,9 +521,13 @@ final class CompanionManager: ObservableObject {
         accessibilityCheckTimer?.invalidate()
         accessibilityCheckTimer = nil
 
+        // Persist agent sessions before tearing them down so they can be restored on next launch
+        persistAllAgentSessions()
+
         // Tear down agent sessions
         AgentHotkeyHandler.shared.stopMonitoring()
         agentDockManager.hide()
+        agentSessionObservationCancellables.removeAll()
         for session in agentSessions {
             Task { await session.stop() }
         }
@@ -1590,6 +1650,9 @@ final class CompanionManager: ObservableObject {
         agentSessions.append(session)
         activeAgentSessionID = session.id
 
+        // Observe this session's status changes so the dock refreshes automatically
+        observeAgentSessionStatus(session)
+
         LumaLogger.log("[Luma] Spawned agent session: \(session.id)")
         updateAgentDock()
 
@@ -1601,12 +1664,39 @@ final class CompanionManager: ObservableObject {
         await session.stop()
         agentSessions.removeAll(where: { $0.id == id })
 
+        // Stop observing status for this session
+        agentSessionObservationCancellables.removeValue(forKey: id)
+
+        // Erase persisted data for the terminated agent
+        erasePersistedAgentSession(id: id)
+
         if activeAgentSessionID == id {
             activeAgentSessionID = agentSessions.first?.id
         }
 
         updateAgentDock()
         LumaLogger.log("[Luma] Dismissed agent session: \(id)")
+    }
+
+    /// Subscribes to a session's status and transcript publishers so the dock auto-refreshes on state changes.
+    private func observeAgentSessionStatus(_ session: AgentSession) {
+        var cancellables = Set<AnyCancellable>()
+
+        session.$status
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.updateAgentDock()
+            }
+            .store(in: &cancellables)
+
+        session.$entries
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.updateAgentDock()
+            }
+            .store(in: &cancellables)
+
+        agentSessionObservationCancellables[session.id] = cancellables
     }
 
     func selectAgentSession(_ id: UUID) {
@@ -1627,7 +1717,14 @@ final class CompanionManager: ObservableObject {
     }
 
     func submitAgentPromptFromUI(_ prompt: String) {
-        guard let session = agentSessions.first(where: { $0.id == activeAgentSessionID }) ?? agentSessions.first else { return }
+        // If no session exists (e.g., all were dismissed), create one automatically
+        // so the user doesn't need to manually spawn an agent before typing.
+        let session: AgentSession
+        if let existingSession = agentSessions.first(where: { $0.id == activeAgentSessionID }) ?? agentSessions.first {
+            session = existingSession
+        } else {
+            session = createAndSelectNewAgentSession()
+        }
         let systemContext = AgentMemoryIntegration.loadSummarizedMemoryForSystemContext()
         Task {
             await session.submitPrompt(prompt, systemContext: systemContext)
@@ -1642,7 +1739,7 @@ final class CompanionManager: ObservableObject {
             agentDockManager.hide()
         } else {
             agentDockManager.show(
-                items: agentDockItems,
+                sessions: agentSessions,
                 onDismissAgent: { [weak self] sessionID in
                     Task { await self?.dismissAgentSession(id: sessionID) }
                 },
@@ -1653,8 +1750,219 @@ final class CompanionManager: ObservableObject {
                 onVoiceFollowUp: { [weak self] sessionID in
                     self?.activeAgentSessionID = sessionID
                     self?.buddyDictationManager.cancelCurrentDictation()
+                },
+                onSubmitTextFromDock: { [weak self] sessionID, text in
+                    self?.submitAgentPromptForSession(sessionID: sessionID, prompt: text)
+                },
+                onVoiceToggle: { [weak self] sessionID in
+                    self?.toggleAgentVoiceRecording(sessionID: sessionID)
                 }
             )
         }
+    }
+
+    /// Submits a prompt to a specific agent session (used from dock expanded card text input).
+    func submitAgentPromptForSession(sessionID: UUID, prompt: String) {
+        guard let session = agentSessions.first(where: { $0.id == sessionID }) else { return }
+        let systemContext = AgentMemoryIntegration.loadSummarizedMemoryForSystemContext()
+        Task {
+            await session.submitPrompt(prompt, systemContext: systemContext)
+        }
+        updateAgentDock()
+    }
+
+    /// Toggles voice recording for a specific agent session. Click once to start, click again to stop.
+    func toggleAgentVoiceRecording(sessionID: UUID) {
+        if agentVoiceRecordingSessionID == sessionID {
+            // Stop recording and send the transcript
+            stopAgentVoiceRecording()
+        } else {
+            // Stop any existing recording first
+            if agentVoiceRecordingSessionID != nil {
+                stopAgentVoiceRecording()
+            }
+            startAgentVoiceRecording(sessionID: sessionID)
+        }
+    }
+
+    private func startAgentVoiceRecording(sessionID: UUID) {
+        agentVoiceRecordingSessionID = sessionID
+        agentDockManager.setVoiceRecordingAgent(sessionID)
+
+        agentVoiceRecordingTask = Task {
+            await buddyDictationManager.startPushToTalkFromKeyboardShortcut(
+                currentDraftText: "",
+                updateDraftText: { _ in },
+                submitDraftText: { [weak self] finalTranscript in
+                    guard let self else { return }
+                    let trimmedTranscript = finalTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+                    // Always clear recording state first, even for empty transcripts, so
+                    // the mic button returns to idle regardless of whether text was captured.
+                    self.agentVoiceRecordingSessionID = nil
+                    self.agentDockManager.setVoiceRecordingAgent(nil)
+                    guard !trimmedTranscript.isEmpty else { return }
+                    self.submitAgentPromptForSession(sessionID: sessionID, prompt: trimmedTranscript)
+                }
+            )
+            // startPushToTalkFromKeyboardShortcut returns after the audio engine starts.
+            // If isRecordingFromKeyboardShortcut is still false at that point, the recording
+            // never actually began (e.g., a prior session was still finalizing). Clear the
+            // sessionID here so the mic button returns to idle instead of staying stuck.
+            if !buddyDictationManager.isRecordingFromKeyboardShortcut,
+               agentVoiceRecordingSessionID == sessionID {
+                agentVoiceRecordingSessionID = nil
+                agentDockManager.setVoiceRecordingAgent(nil)
+            }
+        }
+    }
+
+    private func stopAgentVoiceRecording() {
+        buddyDictationManager.stopPushToTalkFromKeyboardShortcut()
+        agentVoiceRecordingTask?.cancel()
+        agentVoiceRecordingTask = nil
+        agentVoiceRecordingSessionID = nil
+        agentDockManager.setVoiceRecordingAgent(nil)
+    }
+
+    // MARK: - Agent Session Persistence
+
+    private static let persistedAgentSessionsKey = "luma.agents.persistedSessions"
+    private static let persistedAgentDragPositionsKey = "luma.agents.persistedDragPositions"
+
+    /// Codable snapshot of an agent session for persistence across app restarts.
+    struct PersistedAgentSessionData: Codable {
+        let id: UUID
+        let title: String
+        let accentThemeRawValue: String
+        let model: String
+        let workingDirectoryPath: String
+        let iconShapeRawValue: String
+        let glowColorRed: Double
+        let glowColorGreen: Double
+        let glowColorBlue: Double
+        let transcriptEntries: [PersistedTranscriptEntry]
+    }
+
+    struct PersistedTranscriptEntry: Codable {
+        let id: UUID
+        let roleRawValue: String
+        let text: String
+        let createdAt: Date
+    }
+
+    /// Saves all current agent sessions and their drag positions to UserDefaults.
+    func persistAllAgentSessions() {
+        let persistedSessions = agentSessions.map { session -> PersistedAgentSessionData in
+            // Extract RGB from the glow color (SwiftUI Color doesn't have direct RGB access,
+            // so we use the known palette from AgentSession.randomGlowColors)
+            let glowComponents = session.glowColor.cgColorComponents
+            let entries = session.entries.map { entry in
+                PersistedTranscriptEntry(
+                    id: entry.id,
+                    roleRawValue: entry.role.rawValue,
+                    text: entry.text,
+                    createdAt: entry.createdAt
+                )
+            }
+            return PersistedAgentSessionData(
+                id: session.id,
+                title: session.title,
+                accentThemeRawValue: session.accentTheme.rawValue,
+                model: session.model,
+                workingDirectoryPath: session.workingDirectoryPath,
+                iconShapeRawValue: session.iconShape.rawValue,
+                glowColorRed: glowComponents.red,
+                glowColorGreen: glowComponents.green,
+                glowColorBlue: glowComponents.blue,
+                transcriptEntries: entries
+            )
+        }
+
+        if let encodedSessions = try? JSONEncoder().encode(persistedSessions) {
+            UserDefaults.standard.set(encodedSessions, forKey: Self.persistedAgentSessionsKey)
+        }
+
+        // Persist drag positions
+        let positionEntries = agentDockManager.dragPositions.map { (key, value) in
+            [key.uuidString: [value.width, value.height]]
+        }
+        if let encodedPositions = try? JSONEncoder().encode(positionEntries) {
+            UserDefaults.standard.set(encodedPositions, forKey: Self.persistedAgentDragPositionsKey)
+        }
+
+        LumaLogger.log("[Luma] Persisted \(persistedSessions.count) agent session(s)")
+    }
+
+    /// Restores agent sessions from UserDefaults on launch.
+    func restorePersistedAgentSessions() {
+        guard let sessionData = UserDefaults.standard.data(forKey: Self.persistedAgentSessionsKey),
+              let persistedSessions = try? JSONDecoder().decode([PersistedAgentSessionData].self, from: sessionData),
+              !persistedSessions.isEmpty else {
+            return
+        }
+
+        for persisted in persistedSessions {
+            let accentTheme = LumaAccentTheme(rawValue: persisted.accentThemeRawValue) ?? .blue
+            let iconShape = AgentIconShape(rawValue: persisted.iconShapeRawValue) ?? .triangle
+            let glowColor = Color(
+                red: persisted.glowColorRed,
+                green: persisted.glowColorGreen,
+                blue: persisted.glowColorBlue
+            )
+
+            let session = AgentSession(
+                id: persisted.id,
+                title: persisted.title,
+                accentTheme: accentTheme,
+                model: persisted.model,
+                workingDirectoryPath: persisted.workingDirectoryPath,
+                restoredIconShape: iconShape,
+                restoredGlowColor: glowColor
+            )
+
+            // Restore transcript entries
+            for entry in persisted.transcriptEntries {
+                let role = TranscriptRole(rawValue: entry.roleRawValue) ?? .system
+                session.restoreTranscriptEntry(AgentTranscriptEntry(
+                    id: entry.id,
+                    role: role,
+                    text: entry.text,
+                    createdAt: entry.createdAt
+                ))
+            }
+
+            let runtime = AgentRuntimeManager.shared.createRuntime()
+            session.bind(to: runtime)
+            agentSessions.append(session)
+            observeAgentSessionStatus(session)
+        }
+
+        activeAgentSessionID = agentSessions.first?.id
+
+        // Restore drag positions
+        if let positionData = UserDefaults.standard.data(forKey: Self.persistedAgentDragPositionsKey),
+           let positionEntries = try? JSONDecoder().decode([[String: [Double]]].self, from: positionData) {
+            var positions: [UUID: CGSize] = [:]
+            for entry in positionEntries {
+                for (uuidString, values) in entry {
+                    if let uuid = UUID(uuidString: uuidString), values.count == 2 {
+                        positions[uuid] = CGSize(width: values[0], height: values[1])
+                    }
+                }
+            }
+            agentDockManager.restoreDragPositions(positions)
+        }
+
+        updateAgentDock()
+        LumaLogger.log("[Luma] Restored \(agentSessions.count) agent session(s)")
+
+        // Clear persisted data now that it's loaded — will be re-persisted on quit
+        UserDefaults.standard.removeObject(forKey: Self.persistedAgentSessionsKey)
+    }
+
+    /// Removes persisted data for a specific agent session (called on termination/dismiss).
+    private func erasePersistedAgentSession(id: UUID) {
+        // Re-persist all remaining sessions (minus the erased one)
+        persistAllAgentSessions()
     }
 }
