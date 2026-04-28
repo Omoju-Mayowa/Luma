@@ -34,7 +34,7 @@ enum AgentIconShape: String, CaseIterable, Codable {
 
 // MARK: - AgentBubblePhysicsState
 
-/// Per-bubble observable state for physics animation and voice recording.
+/// Per-bubble observable state for physics animation, voice recording, and hover.
 /// Updated at 25 Hz by the coordinator's physics timer.
 @MainActor
 final class AgentBubblePhysicsState: ObservableObject {
@@ -42,6 +42,9 @@ final class AgentBubblePhysicsState: ObservableObject {
     @Published var physicsOffset: CGSize = .zero
     /// Set by coordinator when the user is voice-recording into this agent.
     @Published var isVoiceRecording: Bool = false
+    /// Set by coordinator based on exact mouse-vs-orb-rect hit testing (replaces SwiftUI
+    /// onHover to prevent NSTrackingArea interference between adjacent bubble panels).
+    @Published var isOrbHovered: Bool = false
 
     /// Phase offset (radians) randomized at init so all idle bubbles drift out of sync.
     let idlePhaseOffset: Double = Double.random(in: 0 ..< Double.pi * 2)
@@ -215,6 +218,43 @@ final class AgentBubbleWindow {
         UserDefaults.standard.set([origin.x, origin.y], forKey: positionUserDefaultsKey)
     }
 
+    // MARK: Hover hit-testing (driven by coordinator's physics timer)
+
+    /// Screen rect for the orb's collapsed hit zone — the mouse must enter this area to
+    /// trigger hover. Generous size (right 96 pt × 120 pt) accounts for physics shake and
+    /// the status dot that extends beyond the 48 pt orb frame.
+    private var orbHitRect: NSRect {
+        NSRect(
+            x: panel.frame.maxX - 96,
+            y: panel.frame.midY - 60,
+            width: 96,
+            height: 120
+        )
+    }
+
+    /// Screen rect for the full expanded hit zone — mouse must leave this area to collapse
+    /// the card once it is already open. Covers the full panel width so the user can
+    /// interact with the card's text fields and buttons without losing hover.
+    private var expandedHitRect: NSRect {
+        NSRect(
+            x: panel.frame.minX,
+            y: panel.frame.minY + 5,
+            width: panel.frame.width,
+            height: panel.frame.height - 10
+        )
+    }
+
+    /// Called by the coordinator on every physics tick (25 Hz).
+    /// Uses hysteresis: enter on orb zone, exit only when mouse leaves the full card area.
+    /// This approach prevents competing NSTrackingArea events from adjacent bubble panels.
+    func updateHoverState(mouseScreenLocation: NSPoint) {
+        if physicsState.isOrbHovered {
+            physicsState.isOrbHovered = expandedHitRect.contains(mouseScreenLocation)
+        } else {
+            physicsState.isOrbHovered = orbHitRect.contains(mouseScreenLocation)
+        }
+    }
+
     // MARK: Screen clamping
 
     private static func clampOriginToScreen(origin: NSPoint, windowSize: NSSize) -> NSPoint {
@@ -349,6 +389,8 @@ final class LumaAgentDockWindowManager {
 
     private func tickPhysics() {
         let currentTime = Date.timeIntervalSinceReferenceDate
+        // Snapshot mouse position once per tick — shared across all bubble updates.
+        let mouseScreenLocation = NSEvent.mouseLocation
 
         // Collect screen centers of running bubbles for proximity computation
         let runningBubbleCenters: [NSPoint] = bubbleWindows.values
@@ -356,6 +398,10 @@ final class LumaAgentDockWindowManager {
             .map { $0.screenCenter }
 
         for (_, window) in bubbleWindows {
+            // Update hover state via exact rect hit-testing instead of NSTrackingArea,
+            // preventing interference when adjacent bubble panels overlap.
+            window.updateHoverState(mouseScreenLocation: mouseScreenLocation)
+
             // Compute proximity factor for non-running bubbles
             if !window.sessionIsRunning && !runningBubbleCenters.isEmpty {
                 let center = window.screenCenter
@@ -436,7 +482,6 @@ private struct AgentBubbleExpandedRichCard: View {
                     .foregroundColor(Color.white.opacity(0.2))
             }
             .buttonStyle(.plain)
-            .pointerCursor()
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -489,8 +534,7 @@ private struct AgentBubbleExpandedRichCard: View {
                                     .overlay(Capsule().stroke(Color.white.opacity(0.08), lineWidth: 1))
                             }
                             .buttonStyle(.plain)
-                            .pointerCursor()
-                        }
+                                        }
                     }
                 }
             }
@@ -515,9 +559,7 @@ private struct AgentBubbleExpandedRichCard: View {
                                 ))
                         )
                 }
-                .buttonStyle(.plain)
-                .pointerCursor()
-                .disabled(followUpInputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .buttonStyle(.plain)                .disabled(followUpInputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
@@ -553,9 +595,7 @@ private struct AgentBubbleExpandedRichCard: View {
                             )
                     )
                 }
-                .buttonStyle(.plain)
-                .pointerCursor()
-            }
+                .buttonStyle(.plain)            }
         }
         .padding(.horizontal, 14)
         .padding(.top, 12)
@@ -694,7 +734,6 @@ private struct AgentGlassyOrbView: View {
                     onDragEnded()
                 }
         )
-        .pointerCursor()
     }
 }
 
@@ -763,12 +802,15 @@ private struct AgentBubbleRootView: View {
     let onVoiceFollowUp: () -> Void
     let onVoiceToggle: () -> Void
 
+    /// Local copy of hover state, animated via onChange from physicsState.isOrbHovered.
+    /// Driven by the coordinator's physics timer rather than SwiftUI onHover, which
+    /// prevents NSTrackingArea interference between adjacent bubble panels.
     @State private var isHovered = false
 
     var body: some View {
         ZStack(alignment: .trailing) {
             // Fills the full fixed panel but passes all mouse events through to the
-            // desktop — only the HStack below captures hover/click events.
+            // desktop — only interactive SwiftUI views below capture clicks.
             Color.clear.allowsHitTesting(false)
 
             // Content: card (optional) + orb. Trailing-aligned so the orb stays at the
@@ -800,14 +842,15 @@ private struct AgentBubbleRootView: View {
                 // Horizontal padding provides a clipping buffer: physics shake is ±8 pt so
                 // 12 pt of padding on each side keeps the orb visible inside the panel.
                 .padding(.horizontal, 12)
-            }
-            .onHover { hovering in
-                // No panel resize needed — just toggle SwiftUI card state.
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                    isHovered = hovering
-                }
+                // No .onHover — hover is driven by the coordinator's 25 Hz physics timer
+                // checking NSEvent.mouseLocation against each bubble's orbHitRect.
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onChange(of: physicsState.isOrbHovered) { nowHovered in
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                isHovered = nowHovered
+            }
+        }
     }
 }

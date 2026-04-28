@@ -92,6 +92,12 @@ struct CompanionPanelView: View {
                         },
                         showSettings: {
                             LumaSettingsWindowManager.shared.showSettingsWindow()
+                        },
+                        isRecordingVoice: companionManager.agentVoiceRecordingSessionID == companionManager.activeAgentSessionID,
+                        onVoiceToggle: {
+                            if let activeID = companionManager.activeAgentSessionID {
+                                companionManager.toggleAgentVoiceRecording(sessionID: activeID)
+                            }
                         }
                     )
                     .padding(.horizontal, DS.Spacing.lg)
@@ -675,9 +681,7 @@ struct CompanionPanelView: View {
                                           : DS.Colors.accent)
                             )
                     }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
-                    .disabled(emailInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .buttonStyle(.plain)                    .disabled(emailInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             } else {
                 Button(action: {
@@ -693,9 +697,7 @@ struct CompanionPanelView: View {
                                 .fill(DS.Colors.accent)
                         )
                 }
-                .buttonStyle(.plain)
-                .pointerCursor()
-            }
+                .buttonStyle(.plain)            }
         }
     }
 
@@ -765,8 +767,6 @@ struct CompanionPanelView: View {
                             )
                     }
                     .buttonStyle(.plain)
-                    .pointerCursor()
-
                     Button(action: {
                         // Reveals the app in Finder so the user can drag it into
                         // the Accessibility list if it doesn't appear automatically
@@ -784,9 +784,7 @@ struct CompanionPanelView: View {
                                     .stroke(DS.Colors.borderSubtle, lineWidth: 0.8)
                             )
                     }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
-                }
+                    .buttonStyle(.plain)                }
             }
         }
         .padding(.vertical, 6)
@@ -842,9 +840,7 @@ struct CompanionPanelView: View {
                                 .fill(DS.Colors.accent)
                         )
                 }
-                .buttonStyle(.plain)
-                .pointerCursor()
-            }
+                .buttonStyle(.plain)            }
         }
         .padding(.vertical, 6)
     }
@@ -888,9 +884,7 @@ struct CompanionPanelView: View {
                                 .fill(DS.Colors.accent)
                         )
                 }
-                .buttonStyle(.plain)
-                .pointerCursor()
-            }
+                .buttonStyle(.plain)            }
         }
         .padding(.vertical, 6)
     }
@@ -943,9 +937,7 @@ struct CompanionPanelView: View {
                                 .fill(DS.Colors.accent)
                         )
                 }
-                .buttonStyle(.plain)
-                .pointerCursor()
-            }
+                .buttonStyle(.plain)            }
         }
         .padding(.vertical, 6)
     }
@@ -995,9 +987,7 @@ struct CompanionPanelView: View {
                                 .fill(DS.Colors.accent)
                         )
                 }
-                .buttonStyle(.plain)
-                .pointerCursor()
-            }
+                .buttonStyle(.plain)            }
         }
         .padding(.vertical, 6)
     }
@@ -1087,7 +1077,6 @@ struct CompanionPanelView: View {
                     )
             }
             .buttonStyle(.plain)
-            .pointerCursor()
             .help("Change model in Settings")
         }
         .padding(.vertical, 4)

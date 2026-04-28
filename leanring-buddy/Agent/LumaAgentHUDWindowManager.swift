@@ -224,9 +224,7 @@ private struct LumaHUDView: View {
                                 .stroke(DS.Colors.borderSubtle.opacity(0.8), lineWidth: 1)
                         )
                 }
-                .buttonStyle(.plain)
-                .pointerCursor()
-                .accessibilityLabel("Add agent")
+                .buttonStyle(.plain)                .accessibilityLabel("Add agent")
             }
             .padding(.horizontal, 12)
             .padding(.bottom, 7)
@@ -355,9 +353,7 @@ private struct LumaHUDView: View {
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
                         .background(DS.Colors.accent.opacity(0.12))
-                        .clipShape(Capsule())
-                        .pointerCursor()
-                    }
+                        .clipShape(Capsule())                    }
 
                     Spacer()
 
@@ -369,8 +365,6 @@ private struct LumaHUDView: View {
                             .foregroundColor(DS.Colors.textTertiary)
                     }
                     .buttonStyle(.plain)
-                    .pointerCursor()
-
                     Button(action: {
                         activeSession.dismissLatestResponseCard()
                         close()
@@ -380,9 +374,7 @@ private struct LumaHUDView: View {
                             .font(.system(size: 9, weight: .bold))
                             .foregroundColor(DS.Colors.textTertiary)
                     }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
-                }
+                    .buttonStyle(.plain)                }
             }
         }
         .padding(.horizontal, 10)
@@ -498,7 +490,6 @@ private struct HUDFloatingAgentButton: View {
             .animation(.easeOut(duration: DS.Animation.fast), value: isHovered)
         }
         .buttonStyle(.plain)
-        .pointerCursor()
         .accessibilityLabel("Open \(session.title)")
         .help(session.title)
         .onHover { hovering in
@@ -564,7 +555,6 @@ private struct HUDRunButton: View {
         }
         .buttonStyle(.plain)
         .disabled(!canSend)
-        .pointerCursor(isEnabled: canSend)
         .onHover { hovering in
             isHovered = hovering
         }

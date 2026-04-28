@@ -15,6 +15,10 @@ struct AgentModePanelSection: View {
     var dismissResponseCard: () -> Void
     var runSuggestedNextAction: (String) -> Void
     var showSettings: () -> Void
+    /// Whether this agent is currently recording voice via toggle.
+    var isRecordingVoice: Bool = false
+    /// Called when the user taps the voice button to start/stop recording.
+    var onVoiceToggle: (() -> Void)?
 
     @State private var prompt = ""
 
@@ -39,8 +43,6 @@ struct AgentModePanelSection: View {
                         .foregroundColor(DS.Colors.textTertiary)
                 }
                 .buttonStyle(.plain)
-                .pointerCursor()
-
                 Text(session.status.displayLabel)
                     .font(.system(size: 10, weight: .medium))
                     .foregroundColor(DS.Colors.textTertiary)
@@ -86,16 +88,33 @@ struct AgentModePanelSection: View {
                 inlineAgentResponse
             }
 
-            // Send button
+            // Send + Voice buttons
             HStack(spacing: 8) {
                 Spacer()
+
+                // Voice toggle button — click to start recording, click again to stop
+                Button(action: { onVoiceToggle?() }) {
+                    Image(systemName: isRecordingVoice ? "mic.fill" : "mic")
+                        .font(.system(size: 12, weight: .bold))
+                        .frame(width: 30, height: 30)
+                }
+                .buttonStyle(.plain)                .foregroundColor(isRecordingVoice ? DS.Colors.destructiveText : DS.Colors.textPrimary)
+                .background(
+                    RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
+                        .fill(isRecordingVoice ? DS.Colors.destructive.opacity(0.2) : Color.white.opacity(0.07))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
+                        .stroke(isRecordingVoice ? DS.Colors.destructive.opacity(0.3) : Color.white.opacity(0.08), lineWidth: 0.5)
+                )
+
+                // Send button
                 Button(action: runPrompt) {
                     Image(systemName: "paperplane.fill")
                         .font(.system(size: 12, weight: .bold))
                         .frame(width: 42, height: 30)
                 }
                 .buttonStyle(.plain)
-                .pointerCursor(isEnabled: canRun)
                 .foregroundColor(DS.Colors.textOnAccent)
                 .background(
                     RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
@@ -168,7 +187,7 @@ struct AgentModePanelSection: View {
         case .running: return "WORKING"
         case .failed: return "NEEDS ATTENTION"
         case .ready: return "AGENT RESPONSE"
-        case .stopped: return "OFFLINE"
+        case .stopped: return "IDLE"
         }
     }
 
@@ -178,7 +197,7 @@ struct AgentModePanelSection: View {
         case .running: return "Working through the task..."
         case .failed: return "Open the dashboard for details."
         case .ready: return "Ready."
-        case .stopped: return "Agent is offline."
+        case .stopped: return "Agent is idle."
         }
     }
 
@@ -245,7 +264,6 @@ struct AgentModePanelSection: View {
                         .padding(.vertical, 4)
                         .background(DS.Colors.accent.opacity(0.12))
                         .clipShape(Capsule())
-                        .pointerCursor()
                     }
 
                     Spacer()
@@ -256,7 +274,6 @@ struct AgentModePanelSection: View {
                             .foregroundColor(DS.Colors.textTertiary)
                     }
                     .buttonStyle(.plain)
-                    .pointerCursor()
                 }
             }
         }
