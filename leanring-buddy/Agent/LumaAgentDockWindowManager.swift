@@ -105,6 +105,9 @@ final class AgentBubbleWindow {
     private var dragStartMouseScreenLocation: NSPoint = .zero
     private var dragStartWindowOrigin: NSPoint = .zero
     private var isDragging = false
+    /// The top-right corner of the orb panel (72×72), tracked independently of the
+    /// expanded panel frame so hover-expand/collapse always anchors to the correct position.
+    private var orbTopRightCorner: NSPoint = .zero
 
     private var positionUserDefaultsKey: String {
         "luma.agentBubble.\(sessionID.uuidString).origin"
@@ -168,6 +171,9 @@ final class AgentBubbleWindow {
 
         let clampedOrigin = Self.clampOriginToScreen(origin: initialOrigin, windowSize: panel.frame.size)
         panel.setFrameOrigin(clampedOrigin)
+        // Capture the orb's top-right corner using the clamped origin so hover-expand
+        // can anchor to this position correctly even if later clamps shift the frame.
+        orbTopRightCorner = NSPoint(x: clampedOrigin.x + orbDiameter, y: clampedOrigin.y + orbDiameter)
         panel.makeKeyAndOrderFront(nil)
     }
 
@@ -182,6 +188,8 @@ final class AgentBubbleWindow {
         let savedOrigin = NSPoint(x: values[0], y: values[1])
         let clampedOrigin = Self.clampOriginToScreen(origin: savedOrigin, windowSize: panel.frame.size)
         panel.setFrameOrigin(clampedOrigin)
+        let orbDiameter: CGFloat = 72
+        orbTopRightCorner = NSPoint(x: clampedOrigin.x + orbDiameter, y: clampedOrigin.y + orbDiameter)
     }
 
     // MARK: Drag callbacks (invoked by SwiftUI DragGesture in AgentBubbleRootView)
@@ -207,6 +215,9 @@ final class AgentBubbleWindow {
     private func handleDragEnded() {
         isDragging = false
         let origin = panel.frame.origin
+        // Keep orbTopRightCorner in sync so the next hover-expand anchors correctly.
+        let orbDiameter: CGFloat = 72
+        orbTopRightCorner = NSPoint(x: origin.x + orbDiameter, y: origin.y + orbDiameter)
         UserDefaults.standard.set([origin.x, origin.y], forKey: positionUserDefaultsKey)
     }
 
@@ -222,8 +233,8 @@ final class AgentBubbleWindow {
         let expandedWidth = cardWidth + orbCardGap + orbDiameter
         let expandedHeight: CGFloat = 280
 
-        let topRightX = panel.frame.maxX
-        let topRightY = panel.frame.maxY
+        let topRightX = orbTopRightCorner.x
+        let topRightY = orbTopRightCorner.y
 
         let newSize: NSSize = isHovered
             ? NSSize(width: expandedWidth, height: expandedHeight)
