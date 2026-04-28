@@ -318,8 +318,7 @@ final class LumaAgentDockWindowManager {
             let window = AgentBubbleWindow(
                 session: session,
                 initialOrigin: initialOrigin,
-                onDismiss: { [weak self] in
-                    guard self != nil else { return }
+                onDismiss: {
                     onDismissAgent(session.id)
                 },
                 onRunSuggestedAction: { action in
@@ -328,12 +327,10 @@ final class LumaAgentDockWindowManager {
                 onSubmitText: { text in
                     onSubmitTextFromDock(session.id, text)
                 },
-                onVoiceFollowUp: { [weak self] in
-                    guard self != nil else { return }
+                onVoiceFollowUp: {
                     onVoiceFollowUp(session.id)
                 },
-                onVoiceToggle: { [weak self] in
-                    guard self != nil else { return }
+                onVoiceToggle: {
                     onVoiceToggle(session.id)
                 }
             )
@@ -359,9 +356,7 @@ final class LumaAgentDockWindowManager {
     private func startPhysicsTimerIfNeeded() {
         guard physicsTimer == nil else { return }
         physicsTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 25.0, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.tickPhysics()
-            }
+            self?.tickPhysics()
         }
     }
 
@@ -424,7 +419,6 @@ private struct AgentBubbleRootView: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 0) {
-            // Expanded card placeholder — replaced in Task 3
             Circle()
                 .fill(session.glowColor.opacity(0.5))
                 .frame(width: 72, height: 72)
