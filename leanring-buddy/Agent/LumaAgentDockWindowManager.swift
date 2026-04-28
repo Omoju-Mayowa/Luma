@@ -56,7 +56,7 @@ final class AgentBubblePhysicsState: ObservableObject {
         if sessionIsRunning {
             // Violent shake: 12 pt in a random direction, updated at 25 Hz.
             let angle = Double.random(in: 0 ..< Double.pi * 2)
-            let shakeRadius = 8.0
+            let shakeRadius = 3.6
             physicsOffset = CGSize(
                 width: shakeRadius * cos(angle),
                 height: shakeRadius * sin(angle)
@@ -115,9 +115,9 @@ final class AgentBubbleWindow {
 
     /// The screen-space center of the orb in this bubble's panel.
     /// The orb sits at the trailing (right) end of the fixed 340-pt panel with 12 pt right
-    /// padding, so its horizontal center is at panel.maxX − 12 pt padding − 24 pt half-orb.
+    /// padding, so its horizontal center is at panel.maxX − 12 pt padding − 28 pt half-orb.
     var screenCenter: NSPoint {
-        let orbCenterX = panel.frame.maxX - 36   // 12 (right padding) + 24 (half of 48 pt orb)
+        let orbCenterX = panel.frame.maxX - 40   // 12 (right padding) + 28 (half of 56 pt orb)
         return NSPoint(x: orbCenterX, y: panel.frame.midY)
     }
 
@@ -221,14 +221,14 @@ final class AgentBubbleWindow {
     // MARK: Hover hit-testing (driven by coordinator's physics timer)
 
     /// Screen rect for the orb's collapsed hit zone — the mouse must enter this area to
-    /// trigger hover. Generous size (right 96 pt × 120 pt) accounts for physics shake and
-    /// the status dot that extends beyond the 48 pt orb frame.
+    /// trigger hover. Generous size (right 100 pt × 130 pt) accounts for physics shake,
+    /// the satellite dots, and the status dot that extend beyond the 56 pt orb frame.
     private var orbHitRect: NSRect {
         NSRect(
-            x: panel.frame.maxX - 96,
-            y: panel.frame.midY - 60,
-            width: 96,
-            height: 120
+            x: panel.frame.maxX - 100,
+            y: panel.frame.midY - 65,
+            width: 100,
+            height: 130
         )
     }
 
@@ -365,7 +365,7 @@ final class LumaAgentDockWindowManager {
         guard let screen = NSScreen.main else { return .zero }
         let visibleFrame = screen.visibleFrame
         let fixedPanelWidth: CGFloat = 340
-        let orbViewDiameter: CGFloat = 48
+        let orbViewDiameter: CGFloat = 56
         let spacingBetweenBubbles: CGFloat = 10
         let originX = visibleFrame.maxX - fixedPanelWidth
         let baseY = visibleFrame.minY + 120
@@ -479,7 +479,7 @@ private struct AgentBubbleExpandedRichCard: View {
             Button(action: onDismiss) {
                 Text("✕")
                     .font(.system(size: 13))
-                    .foregroundColor(Color.white.opacity(0.2))
+                    .foregroundColor(Color.white.opacity(0.85))
             }
             .buttonStyle(.plain)
         }
@@ -674,51 +674,108 @@ private struct AgentGlassyOrbView: View {
 
     var body: some View {
         ZStack {
-            // Base circle — radial gradient from accent color at top-left to near-black center
+            // ── Base sphere ──────────────────────────────────────────────────
+            // Radial gradient with light source at upper-left creates a 3D sphere
+            // appearance: bright vibrant accent color near the highlight, fading to
+            // deep near-black at the bottom-right rim.
+            Circle()
+                .fill(
+                    RadialGradient(
+                        gradient: Gradient(stops: [
+                            .init(color: session.glowColor.opacity(0.95), location: 0.0),
+                            .init(color: session.glowColor.opacity(0.78), location: 0.50),
+                            .init(color: Color(red: 0.04, green: 0.02, blue: 0.10), location: 1.0),
+                        ]),
+                        center: UnitPoint(x: 0.3, y: 0.25),
+                        startRadius: 2,
+                        endRadius: 38
+                    )
+                )
+                .frame(width: 56, height: 56)
+
+            // Rim-light accent — subtle bright fringe at lower-right, adds
+            // the illusion of a secondary reflected light source.
             Circle()
                 .fill(
                     RadialGradient(
                         gradient: Gradient(colors: [
-                            session.glowColor.opacity(0.55),
-                            Color(red: 0.03, green: 0.02, blue: 0.07)
+                            session.glowColor.opacity(0.3),
+                            Color.clear
                         ]),
-                        center: UnitPoint(x: 0.35, y: 0.35),
+                        center: UnitPoint(x: 0.78, y: 0.82),
                         startRadius: 0,
-                        endRadius: 44
+                        endRadius: 26
                     )
                 )
-                .overlay(
-                    Circle()
-                        .stroke(session.glowColor.opacity(0.4), lineWidth: 1)
-                )
-
-            // Specular highlight — small white oval at top-left, simulates glass sheen
-            Ellipse()
-                .fill(Color.white.opacity(0.22))
-                .frame(width: 20, height: 9)
-                .rotationEffect(.degrees(-20))
-                .offset(x: -10, y: -17)
+                .frame(width: 56, height: 56)
                 .blendMode(.screen)
 
-            // Agent icon shape, centered
-            Image(systemName: session.iconShape.systemImageName)
-                .font(.system(size: 24, weight: .heavy))
-                .foregroundColor(session.glowColor.opacity(0.9))
+            // Glass border — bright at top-left, fades to near-invisible at bottom-right
+            Circle()
+                .stroke(
+                    LinearGradient(
+                        colors: [Color.white.opacity(0.40), Color.white.opacity(0.04)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 1.5
+                )
+                .frame(width: 56, height: 56)
 
-            // Status dot — top-right corner, pulsing when running
+            // ── Specular highlights ─────────────────────────────────────────
+            // Large primary highlight — soft glow at upper-left
+            Ellipse()
+                .fill(Color.white.opacity(0.30))
+                .frame(width: 26, height: 12)
+                .rotationEffect(.degrees(-22))
+                .offset(x: -13, y: -19)
+                .blur(radius: 2)
+                .blendMode(.screen)
+
+            // Small pin-point catch-light — sharp bright dot for glassy feel
+            Ellipse()
+                .fill(Color.white.opacity(0.75))
+                .frame(width: 7, height: 4)
+                .offset(x: -15, y: -21)
+                .blendMode(.screen)
+
+            // ── Icon ────────────────────────────────────────────────────────
+            Image(systemName: session.iconShape.systemImageName)
+                .font(.system(size: 22, weight: .heavy))
+                .foregroundColor(Color.white.opacity(0.95))
+                .shadow(color: Color.black.opacity(0.35), radius: 3)
+
+            // ── Status dot ──────────────────────────────────────────────────
             OrbStatusDot(status: session.status)
-                .offset(x: 26, y: -26)
+                .offset(x: 31, y: -31)
+
+            // ── Satellite accent dots ───────────────────────────────────────
+            // Two small decorative dots that float near the orb — orange and blue —
+            // inspired by the reference design. They stay within the 340 pt panel.
+            Circle()
+                .fill(Color(red: 1.0, green: 0.62, blue: 0.22))
+                .frame(width: 10, height: 10)
+                .overlay(Circle().stroke(Color.white.opacity(0.25), lineWidth: 1))
+                .shadow(color: Color.orange.opacity(0.65), radius: 5)
+                .offset(x: 18, y: -34)
+
+            Circle()
+                .fill(Color(red: 0.25, green: 0.65, blue: 1.0))
+                .frame(width: 7, height: 7)
+                .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 0.5))
+                .shadow(color: Color(red: 0.25, green: 0.65, blue: 1.0).opacity(0.65), radius: 4)
+                .offset(x: 26, y: -24)
         }
-        .frame(width: 48, height: 48)
+        .frame(width: 56, height: 56)
         // Outer glow ring — intensity increases on hover
-        .shadow(color: session.glowColor.opacity(isHovered ? 0.55 : 0.35), radius: isHovered ? 18 : 12)
-        .shadow(color: Color.black.opacity(0.45), radius: 10, y: 4)
+        .shadow(color: session.glowColor.opacity(isHovered ? 0.65 : 0.40), radius: isHovered ? 22 : 14)
+        .shadow(color: Color.black.opacity(0.5), radius: 12, y: 5)
         // Scale slightly on hover
-        .scaleEffect(isHovered ? 1.06 : 1.0)
+        .scaleEffect(isHovered ? 1.08 : 1.0)
         // Physics displacement — applied with fast linear animation so shake feels snappy
         .offset(x: physicsState.physicsOffset.width, y: physicsState.physicsOffset.height)
         .animation(.linear(duration: 0.04), value: physicsState.physicsOffset)
-        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: isHovered)
+        .animation(.spring(response: 0.4, dampingFraction: 0.75), value: isHovered)
         // Drag gesture moves the parent NSPanel via coordinator callbacks
         .gesture(
             DragGesture(minimumDistance: 4, coordinateSpace: .global)
@@ -826,9 +883,11 @@ private struct AgentBubbleRootView: View {
                         onVoiceToggle: onVoiceToggle
                     )
                     .padding(.trailing, 8)
+                    // Scale from the orb's position (trailing anchor) so the card
+                    // appears to morph outward from the bubble rather than sliding in.
                     .transition(.asymmetric(
-                        insertion: .move(edge: .trailing).combined(with: .opacity),
-                        removal: .opacity
+                        insertion: .scale(scale: 0.05, anchor: .trailing).combined(with: .opacity),
+                        removal: .scale(scale: 0.05, anchor: .trailing).combined(with: .opacity)
                     ))
                 }
                 AgentGlassyOrbView(
@@ -848,7 +907,7 @@ private struct AgentBubbleRootView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onChange(of: physicsState.isOrbHovered) { nowHovered in
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.72)) {
                 isHovered = nowHovered
             }
         }

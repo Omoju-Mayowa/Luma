@@ -97,7 +97,6 @@ final class CompanionManager: ObservableObject {
     private var voiceStateCancellable: AnyCancellable?
     private var audioPowerCancellable: AnyCancellable?
     private var permissionProblemCancellable: AnyCancellable?
-    private var cursorStateCancellable: AnyCancellable?
     private var accessibilityCheckTimer: Timer?
     private var pendingKeyboardShortcutStartTask: Task<Void, Never>?
     /// Scheduled hide for transient cursor mode — cancelled if the user
@@ -231,7 +230,6 @@ final class CompanionManager: ObservableObject {
         bindAudioPowerLevel()
         bindShortcutTransitions()
         bindPermissionProblemObservation()
-        bindCursorStateToVoiceState()
         // Sync the persisted model selection into the API client so the first
         // request doesn't send an empty model string. Without this, apiClient.model
         // stays "" until the user opens the model picker and changes it.
@@ -723,29 +721,6 @@ final class CompanionManager: ObservableObject {
                 } else {
                     LumaLogger.log("[Luma] Voice permissions restored — hiding text input fallback")
                 }
-            }
-    }
-
-    /// Bridges CompanionVoiceState and element-pointing changes to LumaCursorState
-    /// so the cursor appearance updates automatically during voice/pointing interactions.
-    private func bindCursorStateToVoiceState() {
-        cursorStateCancellable = $voiceState
-            .combineLatest($detectedElementScreenLocation)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] newVoiceState, elementLocation in
-                guard self != nil else { return }
-                let cursorState: LumaCursorState
-                if elementLocation != nil {
-                    cursorState = .pointing
-                } else {
-                    switch newVoiceState {
-                    case .idle:       cursorState = .idle
-                    case .listening:  cursorState = .listening
-                    case .processing: cursorState = .processing
-                    case .responding: cursorState = .idle
-                    }
-                }
-                CustomCursorManager.shared.setState(cursorState)
             }
     }
 
