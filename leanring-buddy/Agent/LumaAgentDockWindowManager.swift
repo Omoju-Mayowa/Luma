@@ -396,6 +396,246 @@ final class LumaAgentDockWindowManager {
     }
 }
 
+// MARK: - AgentBubbleExpandedRichCard
+
+/// Rich card that slides in to the left of the orb on hover.
+/// Layout: header strip (title + status chip + close) / body (text + actions + input + voice).
+private struct AgentBubbleExpandedRichCard: View {
+    @ObservedObject var session: AgentSession
+    @ObservedObject var physicsState: AgentBubblePhysicsState
+
+    let onDismiss: () -> Void
+    let onRunSuggestedAction: (String) -> Void
+    let onSubmitText: (String) -> Void
+    let onVoiceToggle: () -> Void
+
+    @State private var followUpInputText: String = ""
+
+    var body: some View {
+        VStack(spacing: 0) {
+            cardHeader
+            cardBody
+        }
+        .frame(width: 260)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(Color(red: 0.03, green: 0.024, blue: 0.07).opacity(0.96))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(Color.white.opacity(0.06), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.8), radius: 24, y: 8)
+        .shadow(color: session.glowColor.opacity(0.08), radius: 16)
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+
+    // MARK: Header strip
+
+    private var cardHeader: some View {
+        HStack(spacing: 6) {
+            OrbStatusDot(status: session.status)
+                .frame(width: 6, height: 6)
+                .scaleEffect(6.0 / 10.0)
+
+            Text(session.title.uppercased())
+                .font(.system(size: 11, weight: .heavy))
+                .foregroundColor(session.glowColor.opacity(0.9))
+                .kerning(0.07 * 11)
+                .lineLimit(1)
+
+            Spacer()
+
+            statusChip
+
+            Button(action: onDismiss) {
+                Text("✕")
+                    .font(.system(size: 13))
+                    .foregroundColor(Color.white.opacity(0.2))
+            }
+            .buttonStyle(.plain)
+            .pointerCursor()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(Color.white.opacity(0.02))
+        .overlay(
+            // Accent gradient divider at the bottom of the header strip
+            LinearGradient(
+                colors: [.clear, session.glowColor.opacity(0.3), .clear],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(height: 1),
+            alignment: .bottom
+        )
+    }
+
+    // MARK: Body
+
+    private var cardBody: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // Latest response text (max 3 lines)
+            Text(session.latestActivitySummary ?? "Waiting for response...")
+                .font(.system(size: 11.5))
+                .foregroundColor(Color.white.opacity(session.latestActivitySummary != nil ? 0.65 : 0.3))
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
+                .italic(session.latestActivitySummary == nil)
+
+            // Suggested next-step action pills (from ResponseCard, max 2)
+            let suggestedActions = session.latestResponseCard?.suggestedActions ?? []
+            if !suggestedActions.isEmpty {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Next steps")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(Color.white.opacity(0.25))
+                        .kerning(0.08 * 9)
+                        .textCase(.uppercase)
+
+                    HStack(spacing: 5) {
+                        ForEach(Array(suggestedActions.prefix(2)), id: \.self) { action in
+                            Button(action: { onRunSuggestedAction(action) }) {
+                                Text(action)
+                                    .font(.system(size: 9.5, weight: .semibold))
+                                    .foregroundColor(Color.white.opacity(0.55))
+                                    .lineLimit(1)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 4)
+                                    .background(Color.white.opacity(0.05))
+                                    .clipShape(Capsule())
+                                    .overlay(Capsule().stroke(Color.white.opacity(0.08), lineWidth: 1))
+                            }
+                            .buttonStyle(.plain)
+                            .pointerCursor()
+                        }
+                    }
+                }
+            }
+
+            // Follow-up text input + send button
+            HStack(spacing: 6) {
+                TextField("Ask a follow-up...", text: $followUpInputText)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 10.5))
+                    .foregroundColor(Color.white.opacity(0.85))
+                    .onSubmit { submitFollowUpInput() }
+
+                Button(action: submitFollowUpInput) {
+                    Text("↑")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.white)
+                        .frame(width: 24, height: 24)
+                        .background(
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .fill(session.glowColor.opacity(
+                                    followUpInputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.25 : 0.7
+                                ))
+                        )
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+                .disabled(followUpInputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(Color.white.opacity(0.04))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(Color.white.opacity(0.07), lineWidth: 1)
+            )
+
+            // Voice toggle button — trailing aligned
+            HStack {
+                Spacer()
+                Button(action: onVoiceToggle) {
+                    HStack(spacing: 4) {
+                        Image(systemName: physicsState.isVoiceRecording ? "mic.fill" : "mic")
+                            .font(.system(size: 9, weight: .semibold))
+                        Text(physicsState.isVoiceRecording ? "Stop" : "Voice")
+                            .font(.system(size: 10, weight: .semibold))
+                    }
+                    .foregroundColor(physicsState.isVoiceRecording ? Color.red.opacity(0.9) : Color.white.opacity(0.55))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .background(
+                        physicsState.isVoiceRecording ? Color.red.opacity(0.15) : Color.white.opacity(0.05)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .stroke(
+                                physicsState.isVoiceRecording ? Color.red.opacity(0.3) : Color.white.opacity(0.08),
+                                lineWidth: 0.5
+                            )
+                    )
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 12)
+        .padding(.bottom, 14)
+    }
+
+    // MARK: Helpers
+
+    private func submitFollowUpInput() {
+        let trimmedText = followUpInputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedText.isEmpty else { return }
+        onSubmitText(trimmedText)
+        followUpInputText = ""
+    }
+
+    private var statusChip: some View {
+        Text(session.status.displayLabel)
+            .font(.system(size: 9, weight: .bold))
+            .foregroundColor(statusChipTextColor)
+            .kerning(0.05 * 9)
+            .textCase(.uppercase)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 2)
+            .background(statusChipBackground)
+            .clipShape(Capsule())
+    }
+
+    private var statusChipTextColor: Color {
+        switch session.status {
+        case .running, .starting: return Color.yellow
+        case .ready:              return Color.green
+        case .failed:             return Color.red
+        case .stopped:            return Color.white.opacity(0.4)
+        }
+    }
+
+    @ViewBuilder
+    private var statusChipBackground: some View {
+        Capsule()
+            .fill(statusChipFillColor)
+            .overlay(Capsule().stroke(statusChipBorderColor, lineWidth: 1))
+    }
+
+    private var statusChipFillColor: Color {
+        switch session.status {
+        case .running, .starting: return Color.yellow.opacity(0.12)
+        case .ready:              return Color.green.opacity(0.1)
+        case .failed:             return Color.red.opacity(0.1)
+        case .stopped:            return Color.white.opacity(0.05)
+        }
+    }
+
+    private var statusChipBorderColor: Color {
+        switch session.status {
+        case .running, .starting: return Color.yellow.opacity(0.2)
+        case .ready:              return Color.green.opacity(0.2)
+        case .failed:             return Color.red.opacity(0.2)
+        case .stopped:            return Color.white.opacity(0.08)
+        }
+    }
+}
+
 // MARK: - AgentGlassyOrbView
 
 /// 72×72 circular bubble with glassy orb aesthetic:
@@ -539,7 +779,21 @@ private struct AgentBubbleRootView: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 0) {
-            // Expanded card will be added here in Task 3
+            if isHovered {
+                AgentBubbleExpandedRichCard(
+                    session: session,
+                    physicsState: physicsState,
+                    onDismiss: onDismiss,
+                    onRunSuggestedAction: onRunSuggestedAction,
+                    onSubmitText: onSubmitText,
+                    onVoiceToggle: onVoiceToggle
+                )
+                .padding(.trailing, 8)
+                .transition(.asymmetric(
+                    insertion: .move(edge: .trailing).combined(with: .opacity),
+                    removal: .opacity
+                ))
+            }
             AgentGlassyOrbView(
                 session: session,
                 physicsState: physicsState,
